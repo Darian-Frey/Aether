@@ -21,16 +21,12 @@ set(AETHER_WARNINGS
 
 include(cmake/Dependencies.cmake)
 
+add_subdirectory(src/core)
 add_subdirectory(src/rule)
 
 add_executable(aether src/main.cpp)
 target_compile_options(aether PRIVATE ${AETHER_WARNINGS})
-target_link_libraries(aether PRIVATE aether_rule raylib rlimgui imgui)
-
-# Direct access to the GL entry points raylib loads through glad. rlgl does
-# not wrap glMemoryBarrier or the image-binding calls the ping-pong step
-# needs, so the engine reaches past it here and nowhere else.
-target_include_directories(aether PRIVATE ${raylib_SOURCE_DIR}/src)
+target_link_libraries(aether PRIVATE aether_core aether_rule raylib rlimgui imgui)
 
 if(AETHER_BUILD_TESTS)
     enable_testing()

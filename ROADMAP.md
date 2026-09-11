@@ -20,7 +20,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Status:** In progress (started 2026-09-11)
 **Features delivered:** F-001, F-002, F-003, F-007, F-011, F-013, F-014, F-018
 **Deliverables:**
-- [ ] `core/` grid and ping-pong texture pair
+- [x] `core/` grid and ping-pong texture pair, host and GPU, with the VRAM guard (2026-09-11)
 - [x] `rule/` IR with validation and hash; neighbourhood enumeration; table layout (2026-09-11)
 - [x] `rule/` DSL parser producing IR — B/S, B/S/C and count-condition table blocks (2026-09-11)
 - [ ] `rule/` lookup-table backend

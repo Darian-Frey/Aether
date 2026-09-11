@@ -57,10 +57,10 @@ The target machine is an Optimus laptop. By default the GL context lands on the 
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ./build/aether
 ```
 
-Both GPUs pass `--gl-check`. Benchmarks that do not set these variables are measuring the wrong device.
+Both GPUs pass `--gl-check`. Benchmarks that do not set these variables are measuring the wrong device. The VRAM guard (`core::queryVram`) gets a real figure from the NVIDIA driver via `GL_NVX_gpu_memory_info`; Intel Mesa exposes nothing, so on the iGPU the guard passes unconditionally.
 
 ## Notes
 
 - raylib's GLFW is built for X11 only (`GLFW_BUILD_WAYLAND=OFF`, raylib's default). Under a Wayland session it runs through XWayland.
 - `compile_commands.json` is generated in `build/` for editor tooling.
-- rlgl does not wrap `glMemoryBarrier` or `glGetString`. [src/main.cpp](src/main.cpp) reaches them by including `external/glad.h` from the fetched raylib source tree, whose function-pointer globals are already resolved inside `libraylib`. The engine will need the same route for image barriers between compute dispatch and rendering; keep it confined to one place.
+- rlgl does not wrap `glMemoryBarrier`, integer texture formats, or the memory-info extensions. Direct GL goes through [src/core/gl.hpp](src/core/gl.hpp), which includes `external/glad.h` from the fetched raylib source tree; the function-pointer globals are already resolved inside `libraylib`. `aether_core` exports the include path.

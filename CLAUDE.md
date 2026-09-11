@@ -12,10 +12,11 @@ Phase 1 in progress (started 2026-09-11). The rule front half exists; nothing st
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
 - `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; build them in-tree as static libs.
+- `src/core/` (`aether_core`): `cell` (CellType, header-only), `grid` (GridSpec, `PingPong<T>` — the one swap — and HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). `namespace aether::core`. Boundary handling is deliberately *not* here; it is rule semantics and belongs to the steppers.
 - `src/rule/` (`aether_rule` static lib): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR). All under `namespace aether::rule`.
-- `tests/rule/`: Catch2, one file per module, run by `ctest`. 42 cases.
+- `tests/`: Catch2, one file per module, run by `ctest`. 53 cases. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
 - `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced, not extended.**
-- `src/{core,sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
+- `src/{sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 - `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
 
 Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
@@ -26,9 +27,9 @@ Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mes
 
 Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
 
-Done: `rule/ir`, `rule/neighbourhood`, `rule/table_layout`, `rule/dsl`.
+Done: `rule/ir`, `rule/neighbourhood`, `rule/table_layout`, `rule/dsl`, `core/grid`, `core/gpu_grid`.
 
-Next, in order: `core/` grid (host array + ping-pong texture pair, VRAM guard) → CPU reference stepper over a `Table` IR (the oracle; boundary modes per SPEC §2) → LUT compute shader + upload (index arithmetic must mirror `TableLayout` exactly, including the multi-state ranking and its `W` table) → CPU/GPU equivalence test (1000 generations, all three boundaries, edge-seeded grid) → scheduler → canvas, random fill, palette rendering.
+Next, in order: CPU reference stepper over a `Table` IR (the oracle; boundary modes per SPEC §2) → LUT compute shader + upload (index arithmetic must mirror `TableLayout` exactly, including the multi-state ranking and its `W` table) → CPU/GPU equivalence test (1000 generations, all three boundaries, edge-seeded grid) → scheduler → canvas, random fill, palette rendering.
 
 Open design gaps noticed on the way, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined.
 
@@ -79,7 +80,7 @@ The test that matters most from Phase 1 onward is CPU/GPU equivalence. If it is 
 Build-specific:
 
 - raylib must be built with `OPENGL_VERSION=4.3`; under the default 3.3 backend the compute entry points are silent no-ops. `cmake/Dependencies.cmake` forces this. `rlGetVersion() == RL_OPENGL_43` is the runtime assertion.
-- rlgl does not wrap `glMemoryBarrier`. Direct GL goes through `external/glad.h` from the fetched raylib tree (function pointers live in `libraylib`). Keep that include confined to the one place that owns the ping-pong step.
+- rlgl does not wrap `glMemoryBarrier`, integer texture formats or memory-info queries. Direct GL goes through `core/gl.hpp` (raylib's glad; function pointers live in `libraylib`). Include that header, never glad directly, so direct GL use is greppable. `aether_core` exports the include path.
 - raylib 6.0 renamed `rlCompileShader` → `rlLoadShader` and `rlLoadComputeShaderProgram` → `rlLoadShaderProgramCompute`. Older examples online use the old names.
 
 ## Out of scope

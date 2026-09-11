@@ -9,7 +9,7 @@
 
 #include <raylib.h>
 #include <rlgl.h>
-#include <external/glad.h>   // glMemoryBarrier; rlgl does not wrap it
+#include "core/gl.hpp"        // glMemoryBarrier; rlgl does not wrap it
 
 #include <imgui.h>
 #include <rlImGui.h>

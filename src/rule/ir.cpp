@@ -11,14 +11,6 @@ namespace aether::rule {
 
 // --- Names -------------------------------------------------------------------
 
-std::string_view toString(CellType v) {
-    switch (v) {
-        case CellType::U8:  return "u8";
-        case CellType::F32: return "f32";
-    }
-    return "?";
-}
-
 std::string_view toString(Boundary v) {
     switch (v) {
         case Boundary::Wrap:   return "wrap";
@@ -71,12 +63,6 @@ std::string_view toString(ExprOp v) {
         case ExprOp::Select:       return "select";
     }
     return "?";
-}
-
-std::optional<CellType> parseCellType(std::string_view s) {
-    if (s == "u8")  return CellType::U8;
-    if (s == "f32") return CellType::F32;
-    return std::nullopt;
 }
 
 std::optional<Boundary> parseBoundary(std::string_view s) {

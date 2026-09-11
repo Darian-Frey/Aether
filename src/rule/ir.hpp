@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "core/cell.hpp"
 #include "rule/neighbourhood.hpp"
 
 #include <cstdint>
@@ -23,7 +24,7 @@ namespace aether::rule {
 
 constexpr uint16_t kIrVersion = 1;
 
-enum class CellType : uint8_t { U8, F32 };
+using core::CellType;   // storage type is core's; the IR names it
 enum class Boundary : uint8_t { Wrap, Zero, Mirror };
 enum class Kind : uint8_t { OuterTotalistic, Totalistic, NonTotalistic, Expression, Continuous };
 
@@ -128,13 +129,11 @@ uint64_t irHash(const RuleIR& ir);
 
 // --- Names -------------------------------------------------------------------
 
-std::string_view toString(CellType v);
 std::string_view toString(Boundary v);
 std::string_view toString(Kind v);
 std::string_view toString(NeighbourhoodType v);
 std::string_view toString(ExprOp v);
 
-std::optional<CellType>          parseCellType(std::string_view s);
 std::optional<Boundary>          parseBoundary(std::string_view s);
 std::optional<Kind>              parseKind(std::string_view s);
 std::optional<NeighbourhoodType> parseNeighbourhoodType(std::string_view s);

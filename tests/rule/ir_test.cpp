@@ -242,7 +242,7 @@ TEST_CASE("hash is a fixed value for Life", "[ir]") {
 }
 
 TEST_CASE("enum names round-trip", "[ir]") {
-    for (auto v : {CellType::U8, CellType::F32}) CHECK(parseCellType(toString(v)) == v);
+    for (auto v : {CellType::U8, CellType::F32}) CHECK(aether::core::parseCellType(aether::core::toString(v)) == v);
     for (auto v : {Boundary::Wrap, Boundary::Zero, Boundary::Mirror}) CHECK(parseBoundary(toString(v)) == v);
     for (auto v : {Kind::OuterTotalistic, Kind::Totalistic, Kind::NonTotalistic,
                    Kind::Expression, Kind::Continuous}) CHECK(parseKind(toString(v)) == v);
