@@ -23,9 +23,9 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] `core/` grid and ping-pong texture pair, host and GPU, with the VRAM guard (2026-09-11)
 - [x] `rule/` IR with validation and hash; neighbourhood enumeration; table layout (2026-09-11)
 - [x] `rule/` DSL parser producing IR — B/S, B/S/C and count-condition table blocks (2026-09-11)
-- [ ] `rule/` lookup-table backend
+- [x] `rule/` lookup-table backend — `LutRule`, `selectBackend` (2026-09-11)
 - [ ] `sim/` accumulator-driven scheduler with step, pause, burst
-- [ ] CPU reference stepper behind a runtime flag
+- [x] CPU reference stepper, all table kinds, all three boundaries, 1D/2D/3D; 28 gen/s at 1024² Life against a budget of 5 (2026-09-11). Runtime flag arrives with the scheduler.
 - [ ] Compute shader for the LUT execution path
 - [ ] Painting canvas and random fill
 - [ ] Palette rendering with pan and zoom

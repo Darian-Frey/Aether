@@ -35,7 +35,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Every rule executable on CPU as well as GPU
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
-**Status:** Not started
+**Status:** In progress
+**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries (2026-09-11). Equivalence test and runtime flag pending.
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping
@@ -97,7 +98,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Backend choice is visible in the UI but never a user decision
 - A rule compiled through either backend produces identical results
 **Status:** In progress
-**Progress:** IR, validation, hash and table layout exist (2026-09-11); no backend yet.
+**Progress:** IR, validation, hash, table layout, and the LUT backend with automatic selection exist (2026-09-11); codegen backend is Phase 4.
 
 ### F-010 Rule library
 **Priority:** Should

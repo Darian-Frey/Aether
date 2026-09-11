@@ -14,11 +14,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `core/gl.hpp`: the one include point for direct GL through raylib's glad (2026-09-11).
 - `core/cell.hpp`: `CellType` shared by core and rule (2026-09-11).
 - Test support: hidden-window `GlContext` fixture; `[gpu]`-tagged cases skip when no display is available (2026-09-11).
+- `rule/lut`: the lookup-table backend — `LutRule` (table, layout, canonical offsets, W table) and `selectBackend` per D-004 (2026-09-11).
+- `sim/boundary`: `resolve()` for wrap, zero and mirror, the reference the shader must mirror (2026-09-11).
+- `sim/cpu_step`: the CPU reference stepper over a `LutRule`, all table kinds, 1D/2D/3D (2026-09-11).
 - `rule/ir`: the RuleIR type per SPEC §4 with Table, Expression and Kernel forms, full validation, a stable 64-bit hash, and enum name conversion (2026-09-11).
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 53 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 71 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -26,6 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 
 ### Fixed
 - BUG-001: SPEC §3 closed form for the 3D von Neumann count (2026-09-11).
+- BUG-003: SPEC §2 `mirror` did not specify which reflection; resolved as reflection about the edge cell's centre (2026-09-11).
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed

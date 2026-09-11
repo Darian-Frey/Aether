@@ -8,15 +8,16 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 1 in progress (started 2026-09-11). The rule front half exists; nothing steps a grid yet.
+Phase 1 in progress (started 2026-09-11). Rules compile to tables and the CPU oracle steps them; no GPU step, no scheduler, no UI.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
 - `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; build them in-tree as static libs.
 - `src/core/` (`aether_core`): `cell` (CellType, header-only), `grid` (GridSpec, `PingPong<T>` — the one swap — and HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). `namespace aether::core`. Boundary handling is deliberately *not* here; it is rule semantics and belongs to the steppers.
-- `src/rule/` (`aether_rule` static lib): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR). All under `namespace aether::rule`.
-- `tests/`: Catch2, one file per module, run by `ctest`. 53 cases. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
+- `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`). `namespace aether::rule`.
+- `src/sim/` (`aether_sim`): `boundary` (header-only `resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle; takes distinct current/next spans, or a HostGrid and swaps). `namespace aether::sim`.
+- `tests/`: Catch2, one file per module, run by `ctest`. 71 cases. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
 - `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced, not extended.**
-- `src/{sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
+- `src/{render,ui}/`, `shaders/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 - `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
 
 Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
@@ -27,11 +28,11 @@ Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mes
 
 Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
 
-Done: `rule/ir`, `rule/neighbourhood`, `rule/table_layout`, `rule/dsl`, `core/grid`, `core/gpu_grid`.
+Done: `rule/ir`, `rule/neighbourhood`, `rule/table_layout`, `rule/dsl`, `rule/lut`, `core/grid`, `core/gpu_grid`, `sim/boundary`, `sim/cpu_step`.
 
-Next, in order: CPU reference stepper over a `Table` IR (the oracle; boundary modes per SPEC §2) → LUT compute shader + upload (index arithmetic must mirror `TableLayout` exactly, including the multi-state ranking and its `W` table) → CPU/GPU equivalence test (1000 generations, all three boundaries, edge-seeded grid) → scheduler → canvas, random fill, palette rendering.
+Next, in order: LUT compute shader + upload (`shaders/lut_step.comp`; index arithmetic must mirror `TableLayout` exactly, including the multi-state ranking and its `W` table; boundary must mirror `sim::resolve`, not sampler address modes) → `sim/gpu_step` → CPU/GPU equivalence test (1000 generations, all three boundaries, edge-seeded grid) → scheduler → canvas, random fill, palette rendering.
 
-Open design gaps noticed on the way, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined.
+Open design gaps noticed on the way, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec ambiguities resolved and recorded: BUG-001, BUG-002, BUG-003.
 
 ## Architectural invariants
 

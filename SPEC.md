@@ -45,7 +45,7 @@ The 1D case stores the current generation as a single row and maintains a separa
 |---|---|
 | `wrap` | Toroidal. Coordinates taken modulo extent. Default. |
 | `zero` | Out-of-bounds neighbours read as state `0` (or `0.0`). |
-| `mirror` | Out-of-bounds coordinates reflect about the boundary. |
+| `mirror` | Out-of-bounds coordinates reflect about the edge cell's centre: `−1 → 1`, `W → W−2`, folding repeatedly for coordinates further out; an extent of 1 always maps to 0. No cell is ever its own neighbour. (Clarified 2026-09-11, BUG-003.) |
 
 Boundary handling is part of rule semantics, not a rendering detail. A CPU/GPU disagreement here is AV-005.
 

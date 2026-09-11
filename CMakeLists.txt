@@ -23,10 +23,11 @@ include(cmake/Dependencies.cmake)
 
 add_subdirectory(src/core)
 add_subdirectory(src/rule)
+add_subdirectory(src/sim)
 
 add_executable(aether src/main.cpp)
 target_compile_options(aether PRIVATE ${AETHER_WARNINGS})
-target_link_libraries(aether PRIVATE aether_core aether_rule raylib rlimgui imgui)
+target_link_libraries(aether PRIVATE aether_core aether_rule aether_sim raylib rlimgui imgui)
 
 if(AETHER_BUILD_TESTS)
     enable_testing()

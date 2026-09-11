@@ -1,6 +1,7 @@
 add_library(aether_rule STATIC
     dsl.cpp
     ir.cpp
+    lut.cpp
     neighbourhood.cpp
     table_layout.cpp)
 
