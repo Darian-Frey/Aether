@@ -24,10 +24,10 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] `rule/` IR with validation and hash; neighbourhood enumeration; table layout (2026-09-11)
 - [x] `rule/` DSL parser producing IR — B/S, B/S/C and count-condition table blocks (2026-09-11)
 - [x] `rule/` lookup-table backend — `LutRule`, `selectBackend` (2026-09-11)
-- [ ] `sim/` accumulator-driven scheduler with step, pause, burst
+- [x] `sim/` accumulator-driven scheduler with step, pause, burst, per-frame cap and wall-clock budget (AV-003); `Simulation` owning grid, rule, both paths and the step/swap sequence (2026-09-11)
 - [x] CPU reference stepper, all table kinds, all three boundaries, 1D/2D/3D; 28 gen/s at 1024² Life against a budget of 5 (2026-09-11). Runtime flag arrives with the scheduler.
 - [x] Compute shader for the LUT execution path — `shaders/lut_step.comp`, specialised per rule shape and cached; a table change is a buffer upload (2026-09-11)
-- [ ] Painting canvas and random fill
+- [ ] Painting canvas and random fill — random fill done via stream A PCG32 (2026-09-11); canvas pending
 - [ ] Palette rendering with pan and zoom
 - [x] Equivalence test harness: CPU vs GPU, 1000 generations, bitwise — 15 fixture rules × 3 boundaries across 1D/2D/3D, passing on the Intel iGPU and the T1200 (2026-09-11)
 **Acceptance:** Conway's Life, HighLife, Brian's Brain and a cyclic CA all run correctly at 1024² and ≥ 200 gen/s, with CPU and GPU agreeing bit-for-bit.

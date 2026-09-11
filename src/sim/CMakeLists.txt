@@ -23,7 +23,9 @@ aether_embed_shader(lut_step.comp kLutStepComp LUT_STEP_CPP)
 
 add_library(aether_sim STATIC
     cpu_step.cpp
+    fill.cpp
     gpu_step.cpp
+    simulation.cpp
     ${LUT_STEP_CPP})
 
 target_include_directories(aether_sim PUBLIC ${CMAKE_SOURCE_DIR}/src)

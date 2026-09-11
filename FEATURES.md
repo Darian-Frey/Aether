@@ -36,7 +36,7 @@ People who want to explore cellular automata rather than run one specific automa
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
 **Status:** In progress
-**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries; the equivalence test runs 15 fixture rules × 3 boundaries for 1000 generations and passes on both GPUs (2026-09-11). Remaining: the bundled library as the fixture set, cell mutation (Phase 2), the runtime flag (with the scheduler).
+**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries; the equivalence test runs 15 fixture rules × 3 boundaries for 1000 generations and passes on both GPUs (2026-09-11). `Simulation::setPath` switches paths at runtime with state carried across; a mid-run switch is tested against an unswitched reference (2026-09-11). Remaining: the bundled library as the fixture set, cell mutation (Phase 2), a command-line flag.
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping
@@ -130,7 +130,8 @@ People who want to explore cellular automata rather than run one specific automa
 **Acceptance:**
 - Fill grid randomly with per-state density weights
 - Seeded from the session RNG so the same seed reproduces the same fill
-**Status:** Not started
+**Status:** In progress
+**Progress:** `sim::fillRandom` with per-state density weights, one PCG32 draw per cell from stream A (2026-09-11). Session seed plumbing is Phase 2.
 
 ## Dynamics
 
@@ -140,7 +141,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Target generations/second set independently of frame rate, via an accumulator
 - Single-step, pause, and burst (run N generations as fast as possible, then stop)
 - Multiple generations per frame when the target rate exceeds the frame rate
-**Status:** Not started
+**Status:** In progress
+**Progress:** `sim::Scheduler` — accumulator, pause, single-step, burst, per-frame cap and wall-clock budget with a below-target flag (2026-09-11). UI controls pending.
 
 ### F-015 Rule mutation
 **Priority:** Must
