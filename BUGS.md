@@ -62,6 +62,15 @@ Entry format:
 **Reproduction.** `glTexStorage1D(GL_TEXTURE_1D, 1, GL_R8UI, 65536)` on the T1200.
 **Notes.** SPEC §5 reworded. No semantic change: the table contents and the index arithmetic are identical; only the container differs.
 
+### BUG-005: SPEC §9.2 derived the mutated state from the hash that had just passed the threshold test
+**Status:** fixed
+**Found:** 2026-09-11 (Phase 2, implementing stream B)
+**Location:** SPEC.md §9.2
+**Severity:** high
+**Description.** The pseudocode tested `h < p·2³²` and then took the replacement state from "the upper bits of `h`" by multiply-shift. A hash that passed the test is numerically small, so its upper bits are near zero and `(h·S) >> 32` is 0 for any realistic `p`. Cell mutation as specified would have set every mutated cell to state 0 — a decay process, not the uniform replacement the feature describes. Would have been invisible in equivalence tests, since both paths would have agreed on the wrong thing.
+**Reproduction.** With `p = 0.001`, `h < 4.3×10⁶`, so `(h·S) >> 32 = 0` for all `S ≤ 256`.
+**Notes.** The state now comes from `uniform_state(mix32(h ^ 0xA5A5A5A5))`. `tests/sim/hash_test.cpp` checks that replacement states among cells that passed a 0.1% threshold are spread across the range.
+
 ## Won't Fix
 
 *None.*

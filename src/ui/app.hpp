@@ -26,7 +26,8 @@ struct Options {
     uint32_t    width  = 512;
     uint32_t    height = 512;
     bool        cpu    = false;
-    uint64_t    seed   = 1;
+    uint64_t    seed   = 1;      // stream A
+    uint64_t    seedB  = 2;      // stream B
     double      targetGps = 60.0;
     int         windowWidth  = 1280;
     int         windowHeight = 800;
@@ -52,6 +53,7 @@ private:
     void drawSimulationPanel();
     void drawGridPanel();
     void drawBrushPanel();
+    void drawMutationPanel();
     void drawPalettePanel();
     void drawLogPanel();
 
@@ -78,6 +80,8 @@ private:
     int newWidth_ = 512, newHeight_ = 512;
     int burstCount_ = 1000;
     float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
+    bool  cellMutationOn_ = false;
+    float cellMutationLog_ = -4.0f;   // log10 of p
 
     Log log_;
 };

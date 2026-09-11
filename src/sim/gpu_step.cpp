@@ -70,6 +70,7 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key) {
     if (dims == 3) src += "#define AETHER_3D 1\n";
     src += std::format("#define AETHER_N {}\n#define AETHER_S {}\n#define AETHER_KIND {}\n#define AETHER_BOUNDARY {}\n",
                        N, S, static_cast<int>(kind), static_cast<int>(boundary));
+    src += shaders::kHashGlsl;
     src += "#line 1\n";
     src += shaders::kLutStepComp;
 
@@ -96,7 +97,10 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
 
     // Build every buffer before touching the active set, so a failure
     // above leaves the previous rule running untouched.
-    const uint32_t params[4] = {spec.width, spec.height, spec.depth, static_cast<uint32_t>(generation_)};
+    const uint32_t params[8] = {spec.width, spec.height, spec.depth,
+                                static_cast<uint32_t>(generation_), static_cast<uint32_t>(generation_ >> 32),
+                                mutation_.threshold,
+                                static_cast<uint32_t>(mutation_.seedB), static_cast<uint32_t>(mutation_.seedB >> 32)};
     std::vector<int32_t> offsets(size_t{N} * 4, 0);
     for (uint32_t i = 0; i < N; ++i) {
         offsets[i * 4 + 0] = rule.offsets[i].dx;
@@ -125,8 +129,11 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     assert(program_ != 0 && "setRule before step");
     assert(srcTexture != dstTexture && "step must not read the texture it writes (AV-004)");
 
-    const uint32_t gen = static_cast<uint32_t>(generation_);
-    rlUpdateShaderBuffer(paramsSsbo_, &gen, sizeof(gen), 3 * sizeof(uint32_t));
+    // Everything that changes between steps, in one small upload.
+    const uint32_t dynamic[5] = {static_cast<uint32_t>(generation_), static_cast<uint32_t>(generation_ >> 32),
+                                 mutation_.threshold,
+                                 static_cast<uint32_t>(mutation_.seedB), static_cast<uint32_t>(mutation_.seedB >> 32)};
+    rlUpdateShaderBuffer(paramsSsbo_, dynamic, sizeof(dynamic), 3 * sizeof(uint32_t));
 
     rlEnableShader(program_);
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  GL_R8UI);

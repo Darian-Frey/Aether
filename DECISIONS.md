@@ -282,3 +282,31 @@ Status vocabulary: Proposed | Accepted | Superseded by D-NNN | Deprecated.
 - Headless mode (F-022) makes these tests runnable without a display, which is why that feature is worth more than its Could priority suggests.
 
 **Reversal conditions.** Revisit if maintaining the second path measurably slows feature work and the equivalence tests have gone a long stretch without catching anything.
+
+---
+
+### D-012 Hexagonal lattices in scope; triangular and Penrose remain candidates
+**Decided:** 2026-09-11
+**Recorded:** 2026-09-11
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, Phase 2 session 2026-09-11)
+**Related:** F-023, D-008, FEATURES.md §Out of scope, SPEC.md §3
+
+**Context.** FEATURES §Out of scope excluded all non-cubic lattices on the grounds that SPEC §3's neighbourhood model assumes an axis-aligned integer lattice. With the 2D core built, the cost of each lattice could be assessed against the engine as it actually is rather than as it was imagined.
+
+**Options.**
+- **A. Keep all non-cubic lattices out.** Rejected: a hexagonal lattice turns out to need nothing the engine does not already have.
+- **B. Hexagonal only.** Chosen. In axial coordinates a hex lattice is the existing square lattice with a six-offset neighbourhood — the same fixed offset list for every cell — so `core/`, both steppers, the table layout, the LUT backend and the mutation machinery are untouched. The additions are a `NeighbourhoodType`, a DSL keyword, a rendering variant that maps pixels to axial coordinates, and the matching `View2D::cellAt` so painting agrees with pixels.
+- **C. Hexagonal and triangular.** Deferred. Triangles alternate orientation, so the offset list depends on the parity of `x + y`: the lattice is no longer uniform, and both steppers and the table index would gain a parity branch. Bounded, but it bends the "one offset list for all cells" assumption that the equivalence tests rest on.
+- **D. Everything including Penrose.** Rejected for now. An aperiodic tiling has no integer coordinates; cells become a graph with explicit adjacency, the step becomes a gather by index, rendering becomes a polygon list, and cell mutation would hash by cell index. That is a second engine in the sense D-008 already uses for agent-based automata.
+
+**Decision.** Option B. Hexagonal lattices become F-023 (Should), delivered in Phase 2 after rule mutation, lineage and sessions so that the session format changes once. Triangular and Penrose lattices move from Out of scope to Candidate features, each with its cost stated.
+
+**Consequences.**
+- SPEC §3 gains a `hexagonal` neighbourhood type with its offset list and count formula `3r(r+1)`; the canonical order rule still applies.
+- The IR's `neighbourhood.type` gains a value. This is additive; `ir_version` stays at 1.
+- The hexagonal renderer is a second fragment shader sharing the palette pass; `View2D` gains a lattice-aware `cellAt`.
+- The equivalence fixture set gains hexagonal rules.
+- The Out of scope line in FEATURES is narrowed rather than deleted, per the append-only convention.
+
+**Reversal conditions.** Revisit triangular if a rule family emerges that needs it and the parity branch proves cheap in practice. Revisit Penrose only as a deliberate graph-lattice engine with its own decision.

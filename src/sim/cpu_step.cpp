@@ -10,7 +10,8 @@ namespace aether::sim {
 using rule::Kind;
 
 void cpuStep(const rule::LutRule& rule, const core::GridSpec& spec,
-             std::span<const uint8_t> current, std::span<uint8_t> next) {
+             std::span<const uint8_t> current, std::span<uint8_t> next,
+             uint64_t generation, CellMutation mutation) {
     assert(current.data() != next.data() && "step must not read the buffer it writes (AV-004)");
     assert(current.size() == spec.bytesPerBuffer() && next.size() == spec.bytesPerBuffer());
     assert(rule.dimensions == spec.dimensions);
@@ -65,14 +66,19 @@ void cpuStep(const rule::LutRule& rule, const core::GridSpec& spec,
                         assert(false && "compileLut does not produce these kinds");
                         break;
                 }
-                next[(size_t{z} * H + y) * W + x] = rule.table[index];
+                uint8_t out = rule.table[index];
+                if (mutation.threshold != 0) {
+                    const uint32_t h = hash32(x, y, z, generation, mutation.seedB);
+                    if (mutates(h, mutation)) out = static_cast<uint8_t>(mutatedState(h, S));
+                }
+                next[(size_t{z} * H + y) * W + x] = out;
             }
         }
     }
 }
 
-void cpuStep(const rule::LutRule& rule, core::HostGrid& grid) {
-    cpuStep(rule, grid.spec(), grid.current(), grid.next());
+void cpuStep(const rule::LutRule& rule, core::HostGrid& grid, uint64_t generation, CellMutation mutation) {
+    cpuStep(rule, grid.spec(), grid.current(), grid.next(), generation, mutation);
     grid.swap();
 }
 

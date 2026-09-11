@@ -17,6 +17,7 @@
 #include "rule/ir.hpp"
 #include "rule/lut.hpp"
 #include "sim/gpu_step.hpp"
+#include "sim/hash.hpp"
 #include "sim/rng.hpp"
 #include "sim/scheduler.hpp"
 
@@ -32,7 +33,8 @@ enum class Path : uint8_t { Gpu, Cpu };
 class Simulation {
 public:
     static std::variant<Simulation, core::Error> create(const core::GridSpec& spec, const rule::RuleIR& ir,
-                                                        Path path = Path::Gpu, uint64_t seedA = 0);
+                                                        Path path = Path::Gpu, uint64_t seedA = 0,
+                                                        uint64_t seedB = 0);
 
     Simulation(Simulation&&) noexcept = default;
     Simulation& operator=(Simulation&&) noexcept = default;
@@ -54,6 +56,11 @@ public:
     uint64_t generation() const { return generation_; }
     Scheduler&       scheduler()       { return scheduler_; }
     const Scheduler& scheduler() const { return scheduler_; }
+
+    // --- Cell mutation (F-016, SPEC §9.2) -------------------------------------
+    void   setCellMutation(double p);
+    double cellMutation() const { return cellMutationP_; }
+    uint64_t seedB() const { return mutation_.seedB; }
 
     // --- Path ---------------------------------------------------------------
     Path path() const { return path_; }
@@ -78,7 +85,7 @@ public:
     unsigned int textureTarget() const { return gpu_.target(); }
 
 private:
-    Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA);
+    Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB);
     void resetOutOfRangeStates(uint16_t states);
 
     core::HostGrid host_;
@@ -90,6 +97,8 @@ private:
     Pcg32          streamA_;
     Path           path_;
     uint64_t       generation_ = 0;
+    CellMutation   mutation_;
+    double         cellMutationP_ = 0.0;
 };
 
 }  // namespace aether::sim

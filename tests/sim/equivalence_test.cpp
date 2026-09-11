@@ -112,7 +112,7 @@ std::vector<Fixture> fixtures1d() {
 }
 
 // Runs one fixture under one boundary on both paths and compares.
-void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec) {
+void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec, double p = 0.0) {
     rule::RuleIR ir = f.ir;
     ir.boundary = boundary;
     auto compiled = rule::compileLut(ir);
@@ -130,9 +130,11 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     sim::GpuStepper stepper;
     const auto err = stepper.setRule(lut, spec);
     if (err) FAIL(err->message);
+    const sim::CellMutation mutation{sim::mutationThreshold(p), 0xb0b0b0b0ull + static_cast<uint32_t>(boundary)};
+    stepper.setCellMutation(mutation);
 
     for (int i = 0; i < kGenerations; ++i) {
-        sim::cpuStep(lut, host);
+        sim::cpuStep(lut, host, static_cast<uint64_t>(i), mutation);
         stepper.step(gpu);
     }
 
@@ -144,8 +146,8 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     for (size_t i = 0; i < fromCpu.size(); ++i) {
         if (fromCpu[i] != fromGpu[i]) { firstDiff = i; break; }
     }
-    INFO(std::format("{} / {} / {}x{}x{}: first difference at cell {}", f.name,
-                     rule::toString(boundary), spec.width, spec.height, spec.depth, firstDiff));
+    INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}", f.name,
+                     rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff));
     CHECK(firstDiff == fromCpu.size());
 }
 
@@ -183,6 +185,48 @@ TEST_CASE("CPU and GPU agree bitwise after 1000 generations, 1D", "[gpu][equival
             checkEquivalence(f, boundary, core::GridSpec{1, 131, 1, 1});
         }
     }
+}
+
+TEST_CASE("CPU and GPU agree bitwise with cell mutation on, all dimensions", "[gpu][equivalence]") {
+    GlContext gl;
+    requireGl(gl);
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    for (const Fixture& f : fixtures()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02") {
+            checkEquivalence(f, boundary, core::GridSpec{2, 61, 43, 1}, 0.02);
+        }
+    }
+    for (const Fixture& f : fixtures3d()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02") {
+            checkEquivalence(f, boundary, core::GridSpec{3, 19, 14, 11}, 0.02);
+        }
+    }
+    for (const Fixture& f : fixtures1d()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02") {
+            checkEquivalence(f, boundary, core::GridSpec{1, 131, 1, 1}, 0.02);
+        }
+    }
+}
+
+TEST_CASE("cell mutation changes the trajectory and is reproducible", "[gpu]") {
+    GlContext gl;
+    requireGl(gl);
+    const core::GridSpec spec{2, 48, 48, 1};
+    const rule::LutRule life = std::get<rule::LutRule>(rule::compileLut(dsl("B3/S23")));
+    auto run = [&](double p, uint64_t seed) {
+        core::HostGrid h(spec);
+        fill(h, 2, 77, 0.35);
+        const sim::CellMutation m{sim::mutationThreshold(p), seed};
+        for (int i = 0; i < 200; ++i) sim::cpuStep(life, h, static_cast<uint64_t>(i), m);
+        return std::vector<uint8_t>(h.current().begin(), h.current().end());
+    };
+    const auto plain = run(0.0, 1);
+    const auto mutA  = run(0.01, 1);
+    const auto mutA2 = run(0.01, 1);
+    const auto mutB  = run(0.01, 2);
+    CHECK(plain != mutA);
+    CHECK(mutA == mutA2);
+    CHECK(mutA != mutB);
 }
 
 TEST_CASE("GPU glider arrives at its predicted offset (AV-004 detector)", "[gpu]") {

@@ -36,16 +36,17 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 2 — Mutation, lineage, sessions
 **Goal:** The two mutation controls, the lineage log that makes them useful, and reproducible sessions.
-**Status:** Not started
-**Features delivered:** F-015, F-016, F-017, F-020
+**Status:** In progress (started 2026-09-11)
+**Features delivered:** F-015, F-016, F-017, F-020, F-023 (added 2026-09-11, D-012)
 **Deliverables:**
-- [ ] Dual RNG streams with a shared PCG32 implementation on CPU and GLSL
-- [ ] Cell mutation inside the compute step
+- [x] Dual RNG streams — stream A PCG32 (CPU), stream B stateless hash in C++ and GLSL with a million-input agreement test (2026-09-11)
+- [x] Cell mutation inside the compute step and the CPU oracle, equivalence suite extended to `p > 0`; UI control and `--seed-b` (2026-09-11)
 - [ ] Rule mutation operating on the IR, with recompile and invariant validation
 - [ ] Lineage log with pin and rewind
 - [ ] Session save/load with format version
 - [ ] Replay determinism test: save at generation 0, replay 5000 generations, compare
-**Acceptance:** A session with both mutations active replays to a bit-identical grid on a fresh process, and any rule seen during the run can be recovered from the lineage log.
+- [ ] Hexagonal lattice: neighbourhood type, DSL keyword, hex renderer and `cellAt`, hexagonal equivalence fixtures (F-023; after sessions so the format changes once)
+**Acceptance:** A session with both mutations active replays to a bit-identical grid on a fresh process, and any rule seen during the run can be recovered from the lineage log. A hexagonal Life-like rule runs on both paths and renders as a hex tiling.
 
 ## Phase 3 — Three dimensions
 **Goal:** The same engine on cubic lattices, with volume rendering.

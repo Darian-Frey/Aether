@@ -42,6 +42,7 @@ void App::drawPanels() {
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
+    if (ImGui::CollapsingHeader("Mutation", ImGuiTreeNodeFlags_DefaultOpen)) drawMutationPanel();
     if (ImGui::CollapsingHeader("Brush", ImGuiTreeNodeFlags_DefaultOpen)) drawBrushPanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
     if (ImGui::CollapsingHeader("Log")) drawLogPanel();
@@ -142,6 +143,21 @@ void App::drawGridPanel() {
     if (ImGui::Button("Clear (C)")) sim_->clear();
     ImGui::SameLine();
     if (ImGui::Button("Fit view (F)")) fitView();
+    ImGui::PopID();
+}
+
+void App::drawMutationPanel() {
+    if (!sim_) return;
+    ImGui::PushID("mutation");
+    bool changed = ImGui::Checkbox("Cell mutation", &cellMutationOn_);
+    ImGui::SameLine();
+    ImGui::TextDisabled("seed B %llu", static_cast<unsigned long long>(sim_->seedB()));
+    ImGui::BeginDisabled(!cellMutationOn_);
+    changed |= ImGui::SliderFloat("p per cell", &cellMutationLog_, -7.0f, 0.0f,
+                                  std::format("{:.2e}", std::pow(10.0, cellMutationLog_)).c_str());
+    ImGui::EndDisabled();
+    if (changed) sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
+    ImGui::TextDisabled("Rule mutation and lineage: Phase 2, pending.");
     ImGui::PopID();
 }
 

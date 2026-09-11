@@ -9,6 +9,7 @@
 
 #include "core/grid.hpp"
 #include "rule/lut.hpp"
+#include "sim/hash.hpp"
 
 #include <span>
 
@@ -16,11 +17,14 @@ namespace aether::sim {
 
 // One generation: reads `current`, writes `next`. The two must be distinct
 // buffers of spec.bytesPerBuffer() bytes; passing the same span twice is the
-// AV-004 defect and is rejected. Does not swap.
+// AV-004 defect and is rejected. Does not swap. `generation` is the index of
+// the generation being read; cell mutation hashes it (SPEC §9.2).
 void cpuStep(const rule::LutRule& rule, const core::GridSpec& spec,
-             std::span<const uint8_t> current, std::span<uint8_t> next);
+             std::span<const uint8_t> current, std::span<uint8_t> next,
+             uint64_t generation = 0, CellMutation mutation = {});
 
 // One generation on a HostGrid, then swap, so the result is grid.current().
-void cpuStep(const rule::LutRule& rule, core::HostGrid& grid);
+void cpuStep(const rule::LutRule& rule, core::HostGrid& grid,
+             uint64_t generation = 0, CellMutation mutation = {});
 
 }  // namespace aether::sim

@@ -285,13 +285,13 @@ Evaluated inside the compute step, after the rule has produced the next state:
 
 ```
 h = hash32(x, y, z, generation, seed_B)
-if (h < p · 2³²) next = uniform_state(h)
-else            next = rule_output
+if (h < threshold(p)) next = uniform_state(mix32(h ^ 0xA5A5A5A5))
+else                  next = rule_output
 ```
 
-The hash is a function of coordinate and generation only, never of evaluation order or thread index, so the result is independent of how the GPU schedules work and reproduces exactly on the CPU path. At `p = 0` the comparison is false everywhere and the branch is uniform across the wavefront, so cost is negligible.
+The hash is a function of coordinate and generation only, never of evaluation order or thread index, so the result is independent of how the GPU schedules work and reproduces exactly on the CPU path. `generation` is the index of the generation being read. At `p = 0` the threshold is 0, the comparison is false everywhere and the branch is uniform across the wavefront, so cost is negligible (measured: none, 2026-09-11).
 
-`uniform_state(h)` derives a state in `0 … S-1` from the upper bits of `h` by multiply-shift, not modulo, to avoid bias when `S` is not a power of two.
+`threshold(p)` is `⌊p · 2³²⌋` clamped to `0 … 2³²−1`, so `p = 1` selects every hash but `0xFFFFFFFF`. `uniform_state(v)` derives a state in `0 … S-1` as `(v · S) >> 32` — multiply-shift, not modulo, to avoid bias when `S` is not a power of two. The state is derived from a *second* mixing of `h`, not from `h` itself: a hash that passed the test is small by construction, so its upper bits would select state 0 almost always (BUG-005, corrected 2026-09-11).
 
 ### 9.3 Lineage log
 
@@ -325,7 +325,17 @@ Two named streams, seeded independently, recorded in the session (§11):
 
 Stream A is sequential because its consumers are ordered and CPU-side. Stream B is stateless because its consumers are massively parallel with undefined ordering.
 
-The hash used by stream B is specified once and implemented twice — in C++ for the reference path and in GLSL for the compute path — and the two implementations must produce identical output for identical input. This is a test, not a hope (AV-007).
+The hash used by stream B is specified once and implemented twice — in C++ (`sim/hash.hpp`) for the reference path and in GLSL (`shaders/hash.glsl`) for the compute path — and the two implementations must produce identical output for identical input. This is a test, not a hope (AV-007). The definition, all in 32-bit unsigned arithmetic with wraparound:
+
+```
+mix32(v):  v ^= v >> 16;  v *= 0x7FEB352D;  v ^= v >> 15;  v *= 0x846CA68B;  v ^= v >> 16
+hash32(x, y, z, generation, seed_B):
+    h = seed_lo ^ 0x9E3779B9
+    h = mix32(h ^ x);  h = mix32(h ^ y);  h = mix32(h ^ z)
+    h = mix32(h ^ gen_lo);  h = mix32(h ^ gen_hi);  h = mix32(h ^ seed_hi)
+```
+
+where `gen_lo/hi` and `seed_lo/hi` are the low and high 32 bits of the 64-bit `generation` and `seed_B`. `mix32` is the `lowbias32` finaliser. (Fixed 2026-09-11.)
 
 **Prohibited everywhere in `sim/` and in shaders:** `rand()`, `std::random_device`, time-derived seeds, thread-index-derived randomness, and any RNG not drawn from stream A or B.
 
@@ -372,7 +382,7 @@ Measured on the target machine (ThinkPad P15 Gen 2i, NVIDIA T1200 4 GB).
 | 3D volume render, 256³ | ≥ 30 fps | F-019 |
 | Rule mutation event, table backend | < 1 ms | F-015 |
 | Rule mutation event, codegen backend, cache miss | < 250 ms | F-015 |
-| Cell mutation at `p = 0` | < 2% throughput cost vs disabled | F-016 |
+| Cell mutation at `p = 0` | < 2% throughput cost vs disabled (measured none, 2026-09-11; `p > 0` costs ~10%) | F-016 |
 | VRAM, 256³ `u8` grid pair | ≤ 40 MB | AV-001 |
 
 These are acceptance thresholds, not aspirations. Baselines go in `BENCHMARKS.md` when it is created in Phase 6.

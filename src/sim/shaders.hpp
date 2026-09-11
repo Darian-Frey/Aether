@@ -6,6 +6,7 @@
 
 namespace aether::shaders {
 
+extern const char* const kHashGlsl;
 extern const char* const kLutStepComp;
 
 }  // namespace aether::shaders

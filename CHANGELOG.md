@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Stream B: `sim/hash.hpp` and `shaders/hash.glsl`, the same `hash32`/`mix32`/`uniformState` in C++ and GLSL, with a GPU test comparing them over a million inputs (2026-09-11).
+- Cell mutation (F-016) in `cpuStep` and `lut_step.comp`, driven by `CellMutation{threshold, seedB}`; `Simulation::setCellMutation(p)`; Mutation panel and `--seed-b` (2026-09-11).
 - Documentation scaffold: README, FEATURES, ROADMAP, ARCHITECTURE, DECISIONS, SPEC, ATTACK_VECTORS, BUGS, IMPROVEMENTS, CHANGELOG, CLAUDE (2026-08-30).
 - Feature register F-001 … F-022 covering engine, rule authoring, initial state, dynamics, presentation, and session handling.
 - Decision register D-001 … D-011 covering execution backend, rule IR, Lua scoping, backend selection, mutation model, reproducibility, technology stack, grid representation, project name, continuous-state provision, and the CPU reference oracle.
@@ -32,19 +34,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 109 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 117 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-005: SPEC §9.2 took the mutated state from the hash that had just passed the threshold, which would have made every mutation a decay to state 0; the state now comes from a second mixing (2026-09-11).
 - BUG-001: SPEC §3 closed form for the 3D von Neumann count (2026-09-11).
 - BUG-004: SPEC §5 specified a 1D texture for the table, which cannot hold `LUT_MAX_ENTRIES` on NVIDIA; now an SSBO (2026-09-11).
 - BUG-003: SPEC §2 `mirror` did not specify which reflection; resolved as reflection about the edge cell's centre (2026-09-11).
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- D-012: hexagonal lattices promoted into scope as F-023 (Phase 2); triangular and Penrose recorded as candidates with their costs (2026-09-11).
 - SPEC §7 gains notes on `and`/`or` precedence, `n(0)`, comments, and the unspecified `signature_literal` (2026-09-11).
 - D-009 project name moved from Proposed to Accepted on author confirmation; GitHub repository created at `Darian-Frey/Aether` (2026-09-11).
 

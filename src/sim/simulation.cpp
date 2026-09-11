@@ -23,16 +23,18 @@ rule::LutRule emptyLut() {
 
 }  // namespace
 
-Simulation::Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA)
-    : host_(std::move(host)), gpu_(std::move(gpu)), lut_(emptyLut()), streamA_(seedA), path_(path) {}
+Simulation::Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB)
+    : host_(std::move(host)), gpu_(std::move(gpu)), lut_(emptyLut()), streamA_(seedA), path_(path) {
+    mutation_.seedB = seedB;
+}
 
 std::variant<Simulation, core::Error> Simulation::create(const core::GridSpec& spec, const rule::RuleIR& ir,
-                                                         Path path, uint64_t seedA) {
+                                                         Path path, uint64_t seedA, uint64_t seedB) {
     if (const auto problems = spec.problems(); !problems.empty()) return core::Error{problems.front()};
     auto gpu = core::GpuGrid::create(spec, core::queryVram());
     if (const auto* e = std::get_if<core::Error>(&gpu)) return *e;
 
-    Simulation sim(core::HostGrid(spec), std::get<core::GpuGrid>(std::move(gpu)), path, seedA);
+    Simulation sim(core::HostGrid(spec), std::get<core::GpuGrid>(std::move(gpu)), path, seedA, seedB);
     if (auto e = sim.setRule(ir)) return *e;
     return sim;
 }
@@ -67,12 +69,19 @@ void Simulation::resetOutOfRangeStates(uint16_t states) {
     if (changed || path_ == Path::Gpu) commitHost();
 }
 
+void Simulation::setCellMutation(double p) {
+    cellMutationP_ = std::clamp(p, 0.0, 1.0);
+    mutation_.threshold = mutationThreshold(cellMutationP_);
+    gpuStepper_.setCellMutation(mutation_);
+}
+
 void Simulation::step() {
     if (path_ == Path::Gpu) {
         gpuStepper_.setGeneration(generation_);
+        gpuStepper_.setCellMutation(mutation_);
         gpuStepper_.step(gpu_);
     } else {
-        cpuStep(lut_, host_);
+        cpuStep(lut_, host_, generation_, mutation_);
         gpu_.upload(host_.current());   // keep the renderer's texture current
     }
     ++generation_;

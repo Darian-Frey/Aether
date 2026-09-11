@@ -9,6 +9,7 @@
 
 #include "core/gpu_grid.hpp"
 #include "rule/lut.hpp"
+#include "sim/hash.hpp"
 
 #include <cstdint>
 #include <map>
@@ -44,6 +45,10 @@ public:
     uint64_t generation() const { return generation_; }
     void setGeneration(uint64_t g) { generation_ = g; }
 
+    // Cell mutation parameters, applied from the next step on.
+    void setCellMutation(CellMutation m) { mutation_ = m; }
+    CellMutation cellMutation() const { return mutation_; }
+
     size_t cachedPrograms() const { return programs_.size(); }
 
 private:
@@ -59,6 +64,7 @@ private:
     uint32_t     groupsX_ = 0, groupsY_ = 0, groupsZ_ = 0;
     uint32_t     width_ = 0, height_ = 0, depth_ = 0;
     uint64_t     generation_ = 0;
+    CellMutation mutation_;
 };
 
 }  // namespace aether::sim

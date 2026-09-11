@@ -96,13 +96,14 @@ int App::run() {
 
 bool App::createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& ir, sim::Path path) {
     core::GridSpec spec{2, width, height, 1, core::CellType::U8};
-    auto made = sim::Simulation::create(spec, ir, path, opts_.seed);
+    auto made = sim::Simulation::create(spec, ir, path, opts_.seed, opts_.seedB);
     if (const auto* e = std::get_if<core::Error>(&made)) {
         log_.error(std::format("grid {}x{}: {}", width, height, e->message));
         return false;
     }
     sim_.emplace(std::get<sim::Simulation>(std::move(made)));
     sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
+    sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
     ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {}",
                                rule::toString(ir.kind), ir.states, sim_->lut().neighbourCount(),
                                rule::toString(ir.boundary), sim_->lut().table.size(),

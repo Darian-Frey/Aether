@@ -1,3 +1,4 @@
+aether_embed_shader(hash.glsl kHashGlsl HASH_GLSL_CPP)
 aether_embed_shader(lut_step.comp kLutStepComp LUT_STEP_CPP)
 
 add_library(aether_sim STATIC
@@ -5,6 +6,7 @@ add_library(aether_sim STATIC
     fill.cpp
     gpu_step.cpp
     simulation.cpp
+    ${HASH_GLSL_CPP}
     ${LUT_STEP_CPP})
 
 target_include_directories(aether_sim PUBLIC ${CMAKE_SOURCE_DIR}/src)

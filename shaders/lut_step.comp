@@ -7,6 +7,8 @@
 //   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic
 //   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
 //
+// shaders/hash.glsl is prepended before this file.
+//
 // Every loop below is bounded by one of those constants. Index arithmetic
 // mirrors rule/table_layout.cpp and boundary handling mirrors
 // sim/boundary.hpp; the equivalence tests hold the two sides together.
@@ -25,7 +27,11 @@ layout(std430, binding = 0) readonly buffer Params {
     uint width;
     uint height;
     uint depth;
-    uint generation;
+    uint generationLo;
+    uint generationHi;
+    uint mutationThreshold;   // 0 disables cell mutation
+    uint seedBLo;
+    uint seedBHi;
 };
 layout(std430, binding = 1) readonly buffer Offsets { int  off[]; };    // 4 ints per neighbour: dx dy dz pad
 layout(std430, binding = 2) readonly buffer Comps   { uint w[]; };      // (N+1) x S, row-major by n
@@ -113,5 +119,13 @@ void main() {
     index = own * place + signature;
 #endif
 
-    writeCell(gid, table[index]);
+    uint next = table[index];
+
+    // Cell mutation (SPEC §9.2). At threshold 0 the comparison is false for
+    // every invocation and the branch is uniform across the wavefront.
+    if (mutationThreshold != 0u) {
+        uint h = aetherHash32(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi, seedBLo, seedBHi);
+        if (aetherMutates(h, mutationThreshold)) next = aetherMutatedState(h, uint(AETHER_S));
+    }
+    writeCell(gid, next);
 }

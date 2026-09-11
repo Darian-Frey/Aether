@@ -12,7 +12,7 @@ People who want to explore cellular automata rather than run one specific automa
 ## Out of scope
 
 - Networked or distributed simulation across machines.
-- Non-cubic lattices (hexagonal, triangular, Penrose). The neighbourhood model in SPEC §3 assumes an axis-aligned integer lattice throughout.
+- ~~Non-cubic lattices (hexagonal, triangular, Penrose). The neighbourhood model in SPEC §3 assumes an axis-aligned integer lattice throughout.~~ Narrowed 2026-09-11 (D-012): hexagonal is in scope as F-023; triangular and Penrose are candidates below. Lattices without integer coordinates remain out of scope for this engine.
 - Agent-based automata where a mobile head carries state (Langton's ant, turmites). These are not lattice-uniform and would need a second engine. Recorded as a candidate below, not a commitment.
 - Reaction-diffusion PDE solvers. Adjacent, genuinely different numerics.
 - Hashlife or any acceleration structure exploiting pattern periodicity — see D-008.
@@ -37,7 +37,7 @@ People who want to explore cellular automata rather than run one specific automa
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
 **Status:** In progress
-**Progress:** CPU oracle for every table kind; equivalence suite of 15 rules × 3 boundaries × 1000 generations on both GPUs; runtime path switch in the UI and `--cpu` flag (2026-09-11). Remaining: the bundled library as the fixture set (Phase 4) and cell mutation on both paths (Phase 2).
+**Progress:** CPU oracle for every table kind; equivalence suite of 15 rules × 3 boundaries × 1000 generations on both GPUs; runtime path switch in the UI and `--cpu` flag (2026-09-11). Cell mutation is on both paths and in the equivalence suite (2026-09-11). Remaining: the bundled library as the fixture set (Phase 4).
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping
@@ -71,6 +71,16 @@ People who want to explore cellular automata rather than run one specific automa
 - Kernel authored as a radial profile or as an explicit matrix
 **Status:** Not started
 **Notes:** Phase 5. The IR must accommodate float states from day one even though this feature is late — see D-010.
+
+### F-023 Hexagonal lattice
+**Priority:** Should
+**Acceptance:**
+- `neighbourhood hex r` in the DSL and `NeighbourhoodType::Hexagonal` in the IR, N = 3r(r+1), same canonical ordering rule as SPEC §3
+- Every table kind, both execution paths, all three boundaries, with hexagonal fixtures in the equivalence suite
+- Rendered as a hex tiling with pan and zoom; painting lands on the hex under the cursor
+- Rule and cell mutation unchanged
+**Status:** Not started
+**Notes:** Added 2026-09-11 by D-012. Axial coordinates on the existing square storage; nothing in `core/` or `sim/` changes.
 
 ## Rule authoring
 
@@ -161,7 +171,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Per-cell probability p that the post-rule state is replaced by a uniformly random state
 - Evaluated inside the compute step with no measurable throughput cost at p = 0
 - Drawn from a dedicated RNG stream, hashed from cell coordinate and generation index so it is reproducible and order-independent
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-11. Hashed from coordinate, generation and seed B on both paths; no measurable cost at `p = 0`; equivalence suite runs with `p = 0.02` across every fixture and boundary.
 
 ### F-017 Rule lineage log
 **Priority:** Must
@@ -220,6 +231,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Screensaver mode: cycle rules on a timer with no UI chrome, as an X screensaver or standalone fullscreen binary. This is where the original motivation came from and it may deserve promotion to a Should.
 - Agent-based automata (Langton's ant, turmites) behind a second engine.
 - Fitness-directed rule search: score each mutated rule on population entropy or activity and keep the branches that score well, turning F-015 from a random walk into a search. The lineage log (F-017) is already the substrate this would need.
-- Hexagonal lattice support.
+- Triangular lattice: representable on the square storage with two offset lists selected by the parity of x + y. Bounded but bends the uniform-lattice assumption both steppers and the table index rely on (D-012).
+- Penrose or other aperiodic lattices: no integer coordinates, so cells become a graph with explicit adjacency, the step a gather by index, rendering a polygon list, and cell mutation hashed by cell index. A separate graph-lattice engine, not an extension of this one (D-012).
 - Rule diffing: show what changed between two lineage entries.
 - Audio-reactive parameter modulation.
