@@ -178,7 +178,8 @@ People who want to explore cellular automata rather than run one specific automa
 - State index mapped to colour through an editable palette
 - Pan and zoom with pixel-exact display at 1:1
 - Optional state-age shading for generations rules
-**Status:** Not started
+**Status:** In progress
+**Progress:** `render::Renderer2D` samples the state texture through a 256-entry palette texture with `View2D` pan/zoom, snapped for pixel-exact integer zoom; optional age shading (2026-09-11). Palette editing UI pending.
 
 ### F-019 3D rendering
 **Priority:** Must

@@ -8,7 +8,7 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 1 in progress (started 2026-09-11). The engine runs headless end to end — `Simulation` steps either path under the scheduler — but nothing draws it yet: no rendering, no UI, `main.cpp` is still the Phase 0 probe.
+Phase 1 in progress (started 2026-09-11). The engine runs headless end to end and `render/` can draw it to any framebuffer; there is no UI and `main.cpp` is still the Phase 0 probe.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
 - `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; build them in-tree as static libs.
@@ -16,10 +16,12 @@ Phase 1 in progress (started 2026-09-11). The engine runs headless end to end �
 - `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`). `namespace aether::rule`.
 - `src/sim/` (`aether_sim`): `boundary` (header-only `resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle; takes distinct current/next spans, or a HostGrid and swaps), `gpu_step` (`GpuStepper`: per-shape program cache keyed on (dims, N, S, kind, boundary); SSBOs for params/offsets/W/table; `step()` dispatches, barriers, swaps), `scheduler` (header-only, pure timing, fake-clock testable), `rng` (PCG32 stream A), `fill` (random seeding), `simulation` (`Simulation`: the object main/ui talk to; owns grid + rule + both paths + scheduler + stream A; `setRule` is all-or-nothing; `setPath` syncs state across; `texture()` for the renderer). `namespace aether::sim`.
 - Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes `host()` → edit → `commitHost()`.
+- `src/render/` (`aether_render`): `view2d` (header-only camera: zoom + centre; `snappedOrigin` gives pixel-exact integer zoom; `cellAt` is what the canvas will use so brush and pixels agree by construction), `palette` (256 RGBA + `defaultFor(states)`), `renderer2d` (`Renderer2D::draw(texture, spec, view, viewport, frameW, frameH, states)` inside Begin/EndDrawing; rides raylib's batch via `BeginShaderMode`). `namespace aether::render`.
+- `shaders/palette2d.{vert,frag}`: both at `#version 430` (raylib's default VS is 330; do not mix). The FS maps `gl_FragCoord` → cell through `origin`/`zoom` uniforms and discards outside the viewport rect.
 - `shaders/lut_step.comp`: the one LUT shader, specialised by `#define`s the stepper prepends. Embedded at build time via `cmake/EmbedShader.cmake` into `generated/shaders/`; `sim/shaders.hpp` declares the symbols. Edit the file in `shaders/`, never the generated copy.
-- `tests/`: Catch2, one file per module, run by `ctest`. 97 cases. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
+- `tests/`: Catch2, one file per module, run by `ctest`. 105 cases. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
 - `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced, not extended.**
-- `src/{render,ui}/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
+- `src/ui/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 - `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
 
 Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
@@ -30,9 +32,9 @@ Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mes
 
 Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
 
-Done: all of `rule/`, `core/`, and `sim/` for Phase 1 (`scheduler`, `rng`, `fill`, `simulation` included), `shaders/lut_step.comp`, the equivalence test.
+Done: all of `rule/`, `core/`, `sim/` and `render/` for Phase 1, `shaders/`, the equivalence test.
 
-Next, in order: `render/` 2D palette pass with pan/zoom (a fragment shader sampling `Simulation::texture()` as `usampler2D` through a 256-entry palette texture; never writes; 1:1 pixel-exact with nearest sampling per SPEC §13) → `ui/` ImGui panels (rule entry with error display, rate/pause/step/burst, path toggle, fill densities) and the painting canvas (screen → cell coordinates through the pan/zoom transform; `host()` edit → `commitHost()`; on the GPU path that means a `syncToHost()` first, or a partial upload — decide then) → replace the Phase 0 `main.cpp` with the real loop → Phase 1 acceptance run (Life, HighLife, Brian's Brain, cyclic CA at 1024², ≥ 200 gen/s, CPU/GPU agreeing).
+Next, in order: `ui/` ImGui panels (rule entry with error display, rate/pause/step/burst, path toggle, fill densities) and the painting canvas (screen → cell coordinates through the pan/zoom transform; `host()` edit → `commitHost()`; on the GPU path that means a `syncToHost()` first, or a partial upload — decide then) → replace the Phase 0 `main.cpp` with the real loop → Phase 1 acceptance run (Life, HighLife, Brian's Brain, cyclic CA at 1024², ≥ 200 gen/s, CPU/GPU agreeing).
 
 Interim throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s (budget 30). The Intel iGPU is at the 2D budget and far below the 3D one.
 
@@ -89,6 +91,8 @@ Build-specific:
 - raylib 6.0 renamed `rlCompileShader` → `rlLoadShader` and `rlLoadComputeShaderProgram` → `rlLoadShaderProgramCompute`. Older examples online use the old names.
 - GLSL `%` on a negative operand is undefined. `lut_step.comp` normalises coordinates with non-negative arithmetic before any `%`; keep it that way when touching boundary code.
 - `GL_MAX_TEXTURE_SIZE` bounds 1D textures too (32768 on NVIDIA). Tables live in SSBOs for that reason (BUG-004).
+- raylib batch + custom samplers: `rlSetShader` (inside `BeginShaderMode`) flushes the batch, and every flush clears `activeTextureId[]`. Call `BeginShaderMode` *before* `rlSetUniformSampler`, or the textures registered are gone by the time the quad draws. `Renderer2D::draw` is the worked example.
+- GL RAII objects (`GpuGrid`, `GpuStepper`, `Renderer2D`) must be destroyed before `CloseWindow()`. Scope them inside the window's lifetime; a destructor after context teardown segfaults.
 
 ## Out of scope
 

@@ -14,10 +14,12 @@ add_executable(aether_tests
     sim/equivalence_test.cpp
     sim/scheduler_test.cpp
     sim/rng_test.cpp
-    sim/simulation_test.cpp)
+    sim/simulation_test.cpp
+    render/view2d_test.cpp
+    render/renderer2d_test.cpp)
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})
 target_include_directories(aether_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(aether_tests PRIVATE aether_core aether_rule aether_sim Catch2::Catch2WithMain)
+target_link_libraries(aether_tests PRIVATE aether_core aether_rule aether_sim aether_render Catch2::Catch2WithMain)
 
 catch_discover_tests(aether_tests)
