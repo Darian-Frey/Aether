@@ -26,11 +26,12 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] `rule/` lookup-table backend — `LutRule`, `selectBackend` (2026-09-11)
 - [ ] `sim/` accumulator-driven scheduler with step, pause, burst
 - [x] CPU reference stepper, all table kinds, all three boundaries, 1D/2D/3D; 28 gen/s at 1024² Life against a budget of 5 (2026-09-11). Runtime flag arrives with the scheduler.
-- [ ] Compute shader for the LUT execution path
+- [x] Compute shader for the LUT execution path — `shaders/lut_step.comp`, specialised per rule shape and cached; a table change is a buffer upload (2026-09-11)
 - [ ] Painting canvas and random fill
 - [ ] Palette rendering with pan and zoom
-- [ ] Equivalence test harness: CPU vs GPU, 1000 generations, bitwise
+- [x] Equivalence test harness: CPU vs GPU, 1000 generations, bitwise — 15 fixture rules × 3 boundaries across 1D/2D/3D, passing on the Intel iGPU and the T1200 (2026-09-11)
 **Acceptance:** Conway's Life, HighLife, Brian's Brain and a cyclic CA all run correctly at 1024² and ≥ 200 gen/s, with CPU and GPU agreeing bit-for-bit.
+**Interim figures (2026-09-11, T1200):** Life 1024² 3,684 gen/s; 2048² 1,210 gen/s; Brian's Brain 1024² 4,233 gen/s; 3D B5/S45 256³ 69 gen/s. Intel iGPU: 198 gen/s at 1024², 4 gen/s at 256³.
 
 ## Phase 2 — Mutation, lineage, sessions
 **Goal:** The two mutation controls, the lineage log that makes them useful, and reproducible sessions.

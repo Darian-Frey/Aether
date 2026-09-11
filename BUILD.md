@@ -57,7 +57,7 @@ The target machine is an Optimus laptop. By default the GL context lands on the 
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ./build/aether
 ```
 
-Both GPUs pass `--gl-check`. Benchmarks that do not set these variables are measuring the wrong device. The VRAM guard (`core::queryVram`) gets a real figure from the NVIDIA driver via `GL_NVX_gpu_memory_info`; Intel Mesa exposes nothing, so on the iGPU the guard passes unconditionally.
+Both GPUs pass `--gl-check` and the full test suite including the CPU/GPU equivalence cases. Throughput differs by more than an order of magnitude: at 1024² Life the T1200 steps at ~3,700 gen/s and the Intel iGPU at ~200; at 256³ the figures are 69 and 4. Benchmarks that do not set these variables are measuring the wrong device. The VRAM guard (`core::queryVram`) gets a real figure from the NVIDIA driver via `GL_NVX_gpu_memory_info`; Intel Mesa exposes nothing, so on the iGPU the guard passes unconditionally.
 
 ## Notes
 

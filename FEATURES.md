@@ -36,7 +36,7 @@ People who want to explore cellular automata rather than run one specific automa
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
 **Status:** In progress
-**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries (2026-09-11). Equivalence test and runtime flag pending.
+**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries; the equivalence test runs 15 fixture rules × 3 boundaries for 1000 generations and passes on both GPUs (2026-09-11). Remaining: the bundled library as the fixture set, cell mutation (Phase 2), the runtime flag (with the scheduler).
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping
@@ -45,7 +45,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Grid resident in GPU texture memory; ping-pong pair swapped per generation
 - No per-generation host readback during a free-running simulation
 - 1024×1024 binary 2D grid steps at ≥ 200 generations/second on the target machine
-**Status:** Not started
+**Status:** In progress
+**Progress:** `sim/gpu_step` steps the `GpuGrid` pair with no host readback; 3,684 gen/s at 1024² Life on the T1200 against the 200 target (2026-09-11). Free-running mode arrives with the scheduler.
 
 ### F-004 3D lattice support
 **Priority:** Must

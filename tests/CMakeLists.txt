@@ -10,7 +10,8 @@ add_executable(aether_tests
     rule/dsl_test.cpp
     rule/lut_test.cpp
     sim/boundary_test.cpp
-    sim/cpu_step_test.cpp)
+    sim/cpu_step_test.cpp
+    sim/equivalence_test.cpp)
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})
 target_include_directories(aether_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

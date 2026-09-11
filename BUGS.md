@@ -53,6 +53,15 @@ Entry format:
 **Reproduction.** Place an L of three live cells in a corner under B3/S23 with `mirror`; the two readings give a block and a three-cell result respectively.
 **Notes.** Resolved as reflection about the edge cell's centre, since a cell being its own neighbour has no counterpart in any automaton this project targets. `sim::resolve()` is the reference; the GLSL side must not use sampler address modes for this. The corner-L case is now a test.
 
+### BUG-004: SPEC §5 table storage as a 1D texture cannot hold a threshold-sized table
+**Status:** fixed
+**Found:** 2026-09-11 (Phase 1, writing `sim/gpu_step`)
+**Location:** SPEC.md §5
+**Severity:** medium
+**Description.** SPEC specified the lookup table as a 1D `GL_R8UI` texture. The NVIDIA driver reports `GL_MAX_TEXTURE_SIZE = 32768`, which bounds 1D textures too, while `LUT_MAX_ENTRIES` is 65536. A rule anywhere in the upper half of the table range would have failed to allocate on the target machine. Changed to a shader storage buffer, which has no such bound and is what the compute path already uses for its other inputs.
+**Reproduction.** `glTexStorage1D(GL_TEXTURE_1D, 1, GL_R8UI, 65536)` on the T1200.
+**Notes.** SPEC §5 reworded. No semantic change: the table contents and the index arithmetic are identical; only the container differs.
+
 ## Won't Fix
 
 *None.*

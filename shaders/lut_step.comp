@@ -1,0 +1,117 @@
+// Lookup-table step (SPEC §5), one generation, one invocation per cell.
+//
+// Compiled with these definitions prepended by sim/gpu_step:
+//   AETHER_3D        present for 3D grids
+//   AETHER_N         neighbour count
+//   AETHER_S         state count
+//   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic
+//   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
+//
+// Every loop below is bounded by one of those constants. Index arithmetic
+// mirrors rule/table_layout.cpp and boundary handling mirrors
+// sim/boundary.hpp; the equivalence tests hold the two sides together.
+
+#ifdef AETHER_3D
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(r8ui, binding = 0) uniform readonly  uimage3D srcImg;
+layout(r8ui, binding = 1) uniform writeonly uimage3D dstImg;
+#else
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(r8ui, binding = 0) uniform readonly  uimage2D srcImg;
+layout(r8ui, binding = 1) uniform writeonly uimage2D dstImg;
+#endif
+
+layout(std430, binding = 0) readonly buffer Params {
+    uint width;
+    uint height;
+    uint depth;
+    uint generation;
+};
+layout(std430, binding = 1) readonly buffer Offsets { int  off[]; };    // 4 ints per neighbour: dx dy dz pad
+layout(std430, binding = 2) readonly buffer Comps   { uint w[]; };      // (N+1) x S, row-major by n
+layout(std430, binding = 3) readonly buffer Table   { uint table[]; };  // one entry per uint
+
+// Mirrors sim::resolve(). Returns -1 for "reads as state 0". Written without
+// `%` on a negative operand, which GLSL leaves undefined.
+int resolveCoord(int c, int extent) {
+    if (c >= 0 && c < extent) return c;
+#if AETHER_BOUNDARY == 1
+    return -1;
+#elif AETHER_BOUNDARY == 0
+    if (c < 0) c += extent * ((-c + extent - 1) / extent);
+    return c % extent;
+#else
+    if (extent == 1) return 0;
+    int period = 2 * (extent - 1);
+    if (c < 0) c += period * ((-c + period - 1) / period);
+    int m = c % period;
+    if (m >= extent) m = period - m;
+    return m;
+#endif
+}
+
+uint readCell(ivec3 p) {
+#ifdef AETHER_3D
+    return imageLoad(srcImg, p).r;
+#else
+    return imageLoad(srcImg, p.xy).r;
+#endif
+}
+
+void writeCell(ivec3 p, uint v) {
+#ifdef AETHER_3D
+    imageStore(dstImg, p, uvec4(v, 0u, 0u, 0u));
+#else
+    imageStore(dstImg, p.xy, uvec4(v, 0u, 0u, 0u));
+#endif
+}
+
+void main() {
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    if (gid.x >= int(width) || gid.y >= int(height) || gid.z >= int(depth)) return;
+
+    uint own = readCell(gid);
+
+    uint nbr[AETHER_N];
+    for (uint i = 0u; i < uint(AETHER_N); ++i) {
+        int nx = resolveCoord(gid.x + off[4u * i + 0u], int(width));
+        int ny = resolveCoord(gid.y + off[4u * i + 1u], int(height));
+        int nz = resolveCoord(gid.z + off[4u * i + 2u], int(depth));
+        nbr[i] = (nx < 0 || ny < 0 || nz < 0) ? 0u : readCell(ivec3(nx, ny, nz));
+    }
+
+    uint index;
+#if AETHER_KIND == 0
+    // Outer-totalistic: rank the count vector over states 1..S-1.
+    const uint DIGITS = uint(AETHER_S) - 1u;
+    uint counts[DIGITS];
+    for (uint d = 0u; d < DIGITS; ++d) counts[d] = 0u;
+    for (uint i = 0u; i < uint(AETHER_N); ++i) {
+        if (nbr[i] != 0u) counts[nbr[i] - 1u] += 1u;
+    }
+    uint rank = 0u;
+    uint remaining = uint(AETHER_N);
+    for (uint d = 0u; d < DIGITS; ++d) {
+        uint after = DIGITS - d - 1u;
+        for (uint v = 0u; v < counts[d]; ++v) {
+            rank += w[(remaining - v) * uint(AETHER_S) + after];
+        }
+        remaining -= counts[d];
+    }
+    index = own * w[uint(AETHER_N) * uint(AETHER_S) + DIGITS] + rank;
+#elif AETHER_KIND == 1
+    uint sum = own;
+    for (uint i = 0u; i < uint(AETHER_N); ++i) sum += nbr[i];
+    index = sum;
+#else
+    uint signature = 0u;
+    uint place = 1u;
+    for (uint i = 0u; i < uint(AETHER_N); ++i) {
+        signature += nbr[i] * place;
+        place *= uint(AETHER_S);
+    }
+    index = own * place + signature;
+#endif
+
+    writeCell(gid, table[index]);
+}

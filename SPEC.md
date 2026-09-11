@@ -121,7 +121,7 @@ An IR is valid only if all of the following hold. Validation runs on every IR re
 
 ## 5. Lookup-table layout
 
-Tables are stored as a 1D `GL_R8UI` texture and indexed by an integer computed in the shader.
+Tables are stored in a shader storage buffer, one entry per `uint`, and indexed by an integer computed in the shader. (Originally specified as a 1D `GL_R8UI` texture; changed 2026-09-11, BUG-004, because `GL_MAX_TEXTURE_SIZE` for 1D textures is 32768 on NVIDIA, below `LUT_MAX_ENTRIES`.)
 
 **Outer-totalistic.** The signature is the vector of neighbour-state counts. For binary rules this collapses to a single count `k ∈ 0…N`:
 
