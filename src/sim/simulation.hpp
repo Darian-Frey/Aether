@@ -18,6 +18,8 @@
 #include "rule/lut.hpp"
 #include "sim/gpu_step.hpp"
 #include "sim/hash.hpp"
+#include "sim/lineage.hpp"
+#include "sim/rule_mutation.hpp"
 #include "sim/rng.hpp"
 #include "sim/scheduler.hpp"
 
@@ -57,6 +59,22 @@ public:
     Scheduler&       scheduler()       { return scheduler_; }
     const Scheduler& scheduler() const { return scheduler_; }
 
+    // --- Rule mutation and lineage (F-015, F-017) -------------------------------
+    void setRuleMutation(RuleMutationParams p);
+    const RuleMutationParams& ruleMutation() const { return ruleMutation_; }
+    const Lineage& lineage() const { return lineage_; }
+    void pin(size_t entry, std::string name) { lineage_.pin(entry, std::move(name)); }
+    void unpin(size_t entry) { lineage_.unpin(entry); }
+    // Restores the rule of lineage entry `i` as the current rule, recorded
+    // as a new entry at the current generation. Grid state is untouched.
+    std::optional<core::Error> rewind(size_t entry);
+
+    struct Counters {
+        uint64_t rule_mutations         = 0;
+        uint64_t rule_mutations_skipped = 0;   // eight invalid draws in a row
+    };
+    const Counters& counters() const { return counters_; }
+
     // --- Cell mutation (F-016, SPEC §9.2) -------------------------------------
     void   setCellMutation(double p);
     double cellMutation() const { return cellMutationP_; }
@@ -87,6 +105,8 @@ public:
 private:
     Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB);
     void resetOutOfRangeStates(uint16_t states);
+    std::optional<core::Error> installRule(const rule::RuleIR& ir, std::optional<size_t> rewoundFrom);
+    void maybeMutateRule();
 
     core::HostGrid host_;
     core::GpuGrid  gpu_;
@@ -99,6 +119,9 @@ private:
     uint64_t       generation_ = 0;
     CellMutation   mutation_;
     double         cellMutationP_ = 0.0;
+    RuleMutationParams ruleMutation_;
+    Lineage        lineage_;
+    Counters       counters_;
 };
 
 }  // namespace aether::sim

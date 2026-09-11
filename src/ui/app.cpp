@@ -1,9 +1,11 @@
 #include "ui/app.hpp"
 
+#include "core/gl.hpp"
 #include "rule/lut.hpp"
 
 #include <imgui.h>
 #include <raylib.h>
+#include <rlgl.h>
 #include <rlImGui.h>
 
 #include <cmath>
@@ -42,6 +44,15 @@ int App::run() {
         newWidth_ = static_cast<int>(opts_.width);
         newHeight_ = static_cast<int>(opts_.height);
         targetGpsLog_ = static_cast<float>(std::log10(std::max(0.1, opts_.targetGps)));
+        if (opts_.ruleMutationInterval > 0) {
+            ruleMutationOn_ = true;
+            ruleInterval_ = static_cast<int>(opts_.ruleMutationInterval);
+            ruleMagnitude_ = static_cast<int>(std::max(1u, opts_.ruleMutationMagnitude));
+        }
+        if (opts_.cellMutationP > 0.0) {
+            cellMutationOn_ = true;
+            cellMutationLog_ = static_cast<float>(std::log10(opts_.cellMutationP));
+        }
 
         if (exitCode == 0) {
             auto parsed = rule::parseDsl(ruleText_.data(), ctx_);
@@ -67,7 +78,25 @@ int App::run() {
             if (IsWindowResized()) fitView();
 
             updateCanvas(dt);
-            if (sim_) sim_->frame(dt);
+            if (sim_) {
+                // Some drivers (Mesa iris) defer the vsync throttle to the
+                // first GL call after the swap. Take that wait here, so the
+                // scheduler's wall-clock budget measures stepping and not
+                // the previous frame's presentation.
+                glFinish();
+                sim_->frame(dt);
+                if (sim_->lineage().size() != lastLineageSize_) {
+                    lastLineageSize_ = sim_->lineage().size();
+                    const auto& e = sim_->lineage().back();
+                    log_.info(std::format("gen {}: rule -> {:#018x}{}", e.generation, e.ir_hash,
+                                          e.rewound_from ? " (rewind)" : ""));
+                    const auto& ir = sim_->rule();
+                    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {:#018x}",
+                                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
+                                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
+                                               sim_->lut().table.size(), sim_->lut().ir_hash);
+                }
+            }
 
             BeginDrawing();
             ClearBackground(Color{18, 18, 22, 255});
@@ -78,12 +107,16 @@ int App::run() {
             rlImGuiBegin();
             drawPanels();
             rlImGuiEnd();
-            EndDrawing();
 
-            if (opts_.exitAfterFrames > 0 && ++frames >= opts_.exitAfterFrames) {
-                if (!opts_.screenshot.empty()) TakeScreenshot(opts_.screenshot.c_str());
-                break;
+            // Capture before the swap: the back buffer's contents after a
+            // swap are undefined, and on Mesa they are often black.
+            const bool lastFrame = opts_.exitAfterFrames > 0 && ++frames >= opts_.exitAfterFrames;
+            if (lastFrame && !opts_.screenshot.empty()) {
+                rlDrawRenderBatchActive();
+                TakeScreenshot(opts_.screenshot.c_str());
             }
+            EndDrawing();
+            if (lastFrame) break;
         }
 
         rlImGuiShutdown();
@@ -104,6 +137,8 @@ bool App::createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& 
     sim_.emplace(std::get<sim::Simulation>(std::move(made)));
     sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
     sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
+    sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
+    lastLineageSize_ = sim_->lineage().size();
     ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {}",
                                rule::toString(ir.kind), ir.states, sim_->lut().neighbourCount(),
                                rule::toString(ir.boundary), sim_->lut().table.size(),

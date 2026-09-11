@@ -26,7 +26,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-003 Multi-step-per-frame starves rendering and input
 **Severity:** Major
 **Description.** The accumulator (F-014) runs as many generations per frame as the target rate demands. At a high target rate on a large grid, the step loop can consume the entire frame budget, leaving the UI unresponsive — including the control that would let the user lower the rate.
-**Detection.** Not implemented. Planned: a per-frame step cap and a wall-clock budget in the scheduler, with the shortfall surfaced in the UI as a "running below target rate" indicator rather than silently absorbed.
+**Detection.** Implemented 2026-09-11. `sim::Scheduler` has a hard per-frame cap, a host-side wall-clock budget, and frame-time feedback: a frame longer than `slowFrame` (default 1/30 s) halves the effective cap, short frames let it recover. The feedback matters because GPU steps return in microseconds and their real cost surfaces only as a long frame — without it the Intel iGPU dropped to 5 fps at an unreachable target; with it, 41 fps. The shortfall is shown in the UI header as "below target" and the effective cap next to the slider. Tests in `tests/sim/scheduler_test.cpp`.
 **Related decisions.** D-001.
 
 ### AV-010 Lookup table size computed after allocation
@@ -67,7 +67,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-012 Rule mutation produces an invalid IR
 **Severity:** Major
 **Description.** A point edit can write a state index outside `0 … S-1`, or perturb an expression literal out of its valid range. An unvalidated mutated IR reaching a backend produces out-of-range table lookups — undefined behaviour on the CPU path, silent garbage sampling on the GPU path.
-**Detection.** Not implemented. Planned: validation runs on every mutated IR before compilation (SPEC §9.1), with a fuzz test applying 10⁶ random point edits across the fixture rule set and asserting that every result either validates or is cleanly discarded. The 8-attempt redraw cap must also be exercised.
+**Detection.** Implemented 2026-09-11. `sim::mutateRule` validates every candidate and redraws up to 8 times; `tests/sim/rule_mutation_test.cpp` walks 10⁶ table edits across the fixture set asserting validity, and an expression fixture (a 25-state Generations rule) exercises the redraw path on every run. The cap itself is exercised only in the sense that its exhaustion returns "no mutation" and is counted as a skip; no fixture reliably produces eight invalid draws in a row.
 **Related decisions.** D-002 (IR as single target), D-005.
 
 ---

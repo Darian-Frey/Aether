@@ -127,3 +127,37 @@ TEST_CASE("achieved rate is reported", "[scheduler]") {
     CHECK(h.s.stats().achieved_gps > 100.0);
     CHECK(h.s.stats().achieved_gps < 140.0);
 }
+
+TEST_CASE("long frames halve the effective cap; short frames let it recover", "[scheduler]") {
+    Harness h;
+    h.s.setTargetRate(100000.0);
+    h.s.setMaxStepsPerFrame(64);
+    h.s.setFrameBudget(0.0);        // host-side budget off: GPU-style steps
+    h.s.setSlowFrame(1.0 / 30.0);
+    // First frame: nothing known yet, full cap.
+    CHECK(h.update(1.0 / 60.0) == 64);
+    // That frame turned out to take 200 ms: halve.
+    CHECK(h.update(0.2) == 32);
+    CHECK(h.s.stats().effective_cap == 32);
+    CHECK(h.update(0.1) == 16);
+    CHECK(h.update(0.05) == 8);
+    // Frames are now short: the cap climbs back, never past the hard cap.
+    uint32_t last = 8;
+    for (int i = 0; i < 20; ++i) {
+        const uint32_t n = h.update(1.0 / 120.0);
+        CHECK(n >= last);
+        last = n;
+    }
+    CHECK(last == 64);
+    CHECK(h.s.stats().below_target);   // still cannot reach 100000 gps
+}
+
+TEST_CASE("a long frame with a single step does not shrink the cap below one", "[scheduler]") {
+    Harness h;
+    h.s.setTargetRate(60.0);
+    h.s.setMaxStepsPerFrame(64);
+    h.s.setFrameBudget(0.0);
+    h.update(1.0 / 60.0);
+    CHECK(h.update(0.5) >= 1);   // one long frame at one step per frame
+    CHECK(h.s.stats().effective_cap >= 1);
+}

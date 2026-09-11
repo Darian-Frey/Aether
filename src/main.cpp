@@ -41,6 +41,8 @@ void usage() {
               "  --seed N     stream A seed for the random fill (default 1)\n"
               "  --seed-b N   stream B seed for cell mutation (default 2)\n"
               "  --rate G     target generations per second (default 60)\n"
+              "  --rule-mutation N[:M]  mutate the rule every N generations with M edits\n"
+              "  --cell-mutation P      per-cell mutation probability\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
               "  --screenshot F  write the final frame to F before exiting");
@@ -70,6 +72,14 @@ int main(int argc, char** argv) {
         else if (a == "--seed") opts.seed = std::strtoull(value("--seed"), nullptr, 10);
         else if (a == "--seed-b") opts.seedB = std::strtoull(value("--seed-b"), nullptr, 10);
         else if (a == "--rate") opts.targetGps = std::strtod(value("--rate"), nullptr);
+        else if (a == "--rule-mutation") {
+            unsigned n = 0, m = 1;
+            if (std::sscanf(value("--rule-mutation"), "%u:%u", &n, &m) < 1 || n == 0) {
+                std::puts("--rule-mutation expects INTERVAL or INTERVAL:EDITS"); return 2;
+            }
+            opts.ruleMutationInterval = n; opts.ruleMutationMagnitude = std::max(1u, m);
+        }
+        else if (a == "--cell-mutation") opts.cellMutationP = std::strtod(value("--cell-mutation"), nullptr);
         else if (a == "--frames") opts.exitAfterFrames = std::atoi(value("--frames"));
         else if (a == "--screenshot") opts.screenshot = value("--screenshot");
         else { std::printf("unknown option %s\n", argv[i]); usage(); return 2; }

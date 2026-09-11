@@ -163,7 +163,8 @@ People who want to explore cellular automata rather than run one specific automa
 - N and M adjustable live
 - Mutations never produce an IR that violates its own invariants (state indices in range, table fully populated)
 - Drawn from a dedicated RNG stream so that toggling F-016 does not change the rule sequence
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-11. `sim::mutateRule` draws point edits from stream A, validates, redraws up to 8 times; `Simulation::maybeMutateRule` fires every `interval` generations before the step; N and M live in the UI. The rule sequence is unchanged by toggling cell mutation (tested).
 
 ### F-016 Cell mutation
 **Priority:** Must
@@ -180,7 +181,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Every rule the run has passed through is recorded with the generation index at which it took effect
 - Any entry can be pinned (named and saved to the rule library) or rewound to (restores that rule and, optionally, the grid state)
 - Log survives session save/load
-**Status:** Not started
+**Status:** In progress
+**Progress:** Append on every rule change, pin/unpin with a name, rewind of the rule with its own entry; lineage browser in the UI (2026-09-11). Remaining: grid rewind by replay, and surviving save/load — both with sessions.
 **Notes:** Without this, F-015 produces interesting rules and immediately loses them. Treated as part of the mutation feature, not an extra.
 
 ## Presentation

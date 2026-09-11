@@ -20,7 +20,7 @@ cmake --build build -j
 ./build/aether --rule B3/S23 --size 512x512
 ```
 
-In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block — and compile with Ctrl+Enter. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
+In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block — and compile with Ctrl+Enter. The Mutation section turns on cell mutation (a per-cell probability) and rule mutation (point edits to the rule every N generations); every rule the run passes through is in the Lineage list, where it can be pinned by name or rewound to. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements
 

@@ -8,18 +8,18 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 1 complete (2026-09-11); Phase 2 in progress. The 2D discrete core runs interactively with cell mutation on both paths; rule mutation, lineage and sessions are next.
+Phase 1 complete (2026-09-11); Phase 2 in progress. Both mutation controls and the lineage log run; sessions (save/load/replay) and the hexagonal lattice remain.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
 - `CMakeLists.txt` + `cmake/`: `Dependencies.cmake` fetches raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; `EmbedShaders.cmake` turns `shaders/*` into string constants under `build/generated/`.
 - `src/core/` (`aether_core`): `cell`, `grid` (GridSpec, `PingPong<T>` — the one swap — HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download/uploadRegion, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). Boundary handling is deliberately *not* here.
 - `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood`, `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`).
-- `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `hash` (stream B: `hash32`, `mutationThreshold`, `CellMutation`, `mutatedState` — twin of `shaders/hash.glsl`), `fill`, `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A; `setRule` all-or-nothing; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
+- `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `hash` (stream B: `hash32`, `mutationThreshold`, `CellMutation`, `mutatedState` — twin of `shaders/hash.glsl`), `fill`, `rule_mutation` (`mutateRule`: point edits from stream A, validate-or-redraw ×8; `RuleMutationParams`), `lineage` (`Lineage`: append-only entries with full IR, pin, rewind marker), `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A + lineage; `setRule` is all-or-nothing and *every* successful install appends to the lineage — `installRule` is the single route, so mutation cannot bypass the log; `maybeMutateRule` runs at the top of `step()`; `rewind(i)` reinstalls entry i and records itself; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
 - `src/render/` (`aether_render`): `view2d` (camera, pixel-exact snapping, `cellAt` shared with the canvas), `palette`, `renderer2d` (palette pass over raylib's batch).
 - `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`), `panels` (ImGui), `canvas` (paint/pan/zoom/keys), `brush` (pure geometry), `log` (ring buffer).
 - `src/main.cpp`: argument parsing → `ui::App::run()`. `--gl-check` is the compute-path probe; `--frames N --screenshot F` gives a scripted run.
 - `shaders/`: `hash.glsl` (prepended to every shader that mutates cells), `lut_step.comp` (specialised by `#define`s the stepper prepends), `palette2d.{vert,frag}` (both GLSL 430). Edit these, never the generated copies.
-- `tests/`: Catch2, one file per module, 117 cases under `ctest`. `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
+- `tests/`: Catch2, one file per module, 130 cases under `ctest`. `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
 - `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 
 Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes through `paintSpan`, which writes both.
@@ -31,10 +31,10 @@ Throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s
 Phase 2 — mutation, lineage, sessions (F-015, F-016, F-017, F-020). Suggested order:
 
 1. ~~Stream B and cell mutation.~~ Done 2026-09-11. `Simulation::setCellMutation(p)`; both steppers take `(generation, CellMutation)`.
-2. Rule mutation on the IR (SPEC §9.1): point edits on `Table` and `Expression`, validate-or-redraw up to 8 times, recompile through `Simulation::setRule`. Fuzz test per AV-012.
-3. Lineage log (SPEC §9.3): append on every rule change, pin, rewind. Rule mutation without an append is incomplete.
+2. ~~Rule mutation on the IR.~~ Done 2026-09-11.
+3. ~~Lineage log: append, pin, rewind (rule only).~~ Done 2026-09-11. Grid rewind by replay comes with 4.
 4. Session save/load (SPEC §11) with `format_version`, and the replay-determinism test (AV-006): save at generation 0, run 5000 with both mutations on, replay in a fresh process, compare.
-5. UI: mutation controls, lineage browser.
+5. ~~UI: mutation controls, lineage browser.~~ Done 2026-09-11. Session save/load buttons come with 4.
 6. Hexagonal lattice (F-023, D-012): `NeighbourhoodType::Hexagonal` with axial offsets and N = 3r(r+1); `neighbourhood hex r` in the DSL; SPEC §3 extended; a hex fragment shader and `View2D::cellAt` for the hex tiling; hexagonal equivalence fixtures. Last, so the session format settles first.
 
 Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-005.
@@ -91,6 +91,9 @@ Build-specific:
 - GLSL `%` on a negative operand is undefined. `lut_step.comp` normalises coordinates with non-negative arithmetic before any `%`; keep it that way when touching boundary code.
 - `GL_MAX_TEXTURE_SIZE` bounds 1D textures too (32768 on NVIDIA). Tables live in SSBOs for that reason (BUG-004).
 - raylib batch + custom samplers: `rlSetShader` (inside `BeginShaderMode`) flushes the batch, and every flush clears `activeTextureId[]`. Call `BeginShaderMode` *before* `rlSetUniformSampler`, or the textures registered are gone by the time the quad draws. `Renderer2D::draw` is the worked example.
+- Per-step values reach the compute shader as uniforms. Do not move them back into an SSBO: a `glBufferSubData` on a buffer the previous frame still references stalls on some drivers.
+- The scheduler's wall-clock budget cannot see GPU time; the frame-time feedback (`setSlowFrame`) is what keeps the UI alive under an unreachable target. `App` calls `glFinish()` before `frame(dt)` so Mesa's deferred vsync throttle is not charged to the first step.
+- `TakeScreenshot` must run before `EndDrawing`: after the swap the back buffer is undefined (black on Mesa).
 - `sim/hash.hpp` and `shaders/hash.glsl` are twins. Change both or neither; `tests/sim/hash_test.cpp` compares them on the GPU.
 - GL RAII objects (`GpuGrid`, `GpuStepper`, `Renderer2D`) must be destroyed before `CloseWindow()`. Scope them inside the window's lifetime; a destructor after context teardown segfaults.
 

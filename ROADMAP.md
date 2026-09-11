@@ -41,8 +41,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Deliverables:**
 - [x] Dual RNG streams — stream A PCG32 (CPU), stream B stateless hash in C++ and GLSL with a million-input agreement test (2026-09-11)
 - [x] Cell mutation inside the compute step and the CPU oracle, equivalence suite extended to `p > 0`; UI control and `--seed-b` (2026-09-11)
-- [ ] Rule mutation operating on the IR, with recompile and invariant validation
-- [ ] Lineage log with pin and rewind
+- [x] Rule mutation operating on the IR, with recompile and invariant validation — validate-or-redraw ×8, million-edit fuzz, UI controls and `--rule-mutation` (2026-09-11)
+- [x] Lineage log with pin and rewind — every rule change appends; rewind restores the rule and records itself; browser in the UI (2026-09-11). Grid rewind (replay to an entry's generation) arrives with sessions.
 - [ ] Session save/load with format version
 - [ ] Replay determinism test: save at generation 0, replay 5000 generations, compare
 - [ ] Hexagonal lattice: neighbourhood type, DSL keyword, hex renderer and `cellAt`, hexagonal equivalence fixtures (F-023; after sessions so the format changes once)

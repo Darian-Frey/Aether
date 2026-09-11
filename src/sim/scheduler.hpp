@@ -25,6 +25,7 @@ public:
         uint32_t steps_last_frame = 0;
         double   achieved_gps     = 0.0;   // smoothed
         bool     below_target     = false; // a cap or the budget cut the last frame short
+        uint32_t effective_cap    = 0;     // the adaptive per-frame cap in force
     };
 
     void   setTargetRate(double gps) { target_ = std::max(0.0, gps); }
@@ -35,6 +36,14 @@ public:
 
     void   setFrameBudget(double seconds) { budget_ = std::max(0.0, seconds); }
     double frameBudget() const { return budget_; }
+
+    // Frame-time feedback. GPU steps return to the host in microseconds and
+    // their real cost only shows up as a long frame, which the wall-clock
+    // budget cannot see. When a frame exceeds `seconds` the effective cap
+    // halves; when frames are comfortably short it grows back toward the
+    // hard cap. Pacing only: what a step does is unaffected (D-006).
+    void   setSlowFrame(double seconds) { slowFrame_ = std::max(0.0, seconds); }
+    double slowFrame() const { return slowFrame_; }
 
     void setPaused(bool p) { paused_ = p; if (p) accumulator_ = 0.0; }
     bool paused() const { return paused_; }
@@ -55,6 +64,18 @@ public:
     // between steps for the budget. Returns the number of steps taken.
     template <typename Step, typename Clock>
     uint32_t update(double dt, Step&& step, Clock&& now) {
+        // Adapt the cap to how the last frame actually went.
+        if (effectiveCap_ == 0 || effectiveCap_ > maxSteps_) effectiveCap_ = maxSteps_;
+        if (slowFrame_ > 0.0 && dt > 0.0) {
+            if (dt > slowFrame_ && stats_.steps_last_frame > 1) {
+                effectiveCap_ = std::max(1u, stats_.steps_last_frame / 2);
+            } else if (dt < slowFrame_ * 0.5 && effectiveCap_ < maxSteps_ &&
+                       stats_.steps_last_frame >= effectiveCap_) {
+                effectiveCap_ = std::min(maxSteps_, effectiveCap_ + effectiveCap_ / 2 + 1);
+            }
+        }
+        const uint32_t cap = effectiveCap_;
+
         uint32_t due = 0;
         bool capped = false;
 
@@ -62,13 +83,13 @@ public:
             singleStep_ = false;
             due = 1;
         } else if (burst_ > 0) {
-            due = static_cast<uint32_t>(std::min<uint64_t>(burst_, maxSteps_));
+            due = static_cast<uint32_t>(std::min<uint64_t>(burst_, cap));
         } else if (!paused_ && target_ > 0.0) {
             accumulator_ += dt * target_;
             // Epsilon so 240 frames of 1/60 s at 0.5 gps sum to 2, not 1.9999.
             const double whole = std::floor(accumulator_ + 1e-9);
-            if (whole > maxSteps_) {
-                due = maxSteps_;
+            if (whole > cap) {
+                due = cap;
                 capped = true;
                 accumulator_ = 0.0;   // do not carry a debt that can never be repaid
             } else {
@@ -90,6 +111,7 @@ public:
 
         stats_.steps_last_frame = done;
         stats_.below_target = capped || budgetCut;
+        stats_.effective_cap = cap;
         if (dt > 0.0) {
             const double inst = done / dt;
             stats_.achieved_gps = stats_.achieved_gps == 0.0 ? inst : stats_.achieved_gps * 0.9 + inst * 0.1;
@@ -107,6 +129,8 @@ private:
     double   target_      = 60.0;
     uint32_t maxSteps_    = 64;
     double   budget_      = 1.0 / 120.0;   // half a 60 Hz frame
+    double   slowFrame_   = 1.0 / 30.0;    // a frame longer than this is too long
+    uint32_t effectiveCap_ = 0;            // 0 = not yet initialised from maxSteps_
     bool     paused_      = false;
     bool     singleStep_  = false;
     uint64_t burst_       = 0;

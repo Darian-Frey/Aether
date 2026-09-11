@@ -97,10 +97,7 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
 
     // Build every buffer before touching the active set, so a failure
     // above leaves the previous rule running untouched.
-    const uint32_t params[8] = {spec.width, spec.height, spec.depth,
-                                static_cast<uint32_t>(generation_), static_cast<uint32_t>(generation_ >> 32),
-                                mutation_.threshold,
-                                static_cast<uint32_t>(mutation_.seedB), static_cast<uint32_t>(mutation_.seedB >> 32)};
+    const uint32_t params[3] = {spec.width, spec.height, spec.depth};
     std::vector<int32_t> offsets(size_t{N} * 4, 0);
     for (uint32_t i = 0; i < N; ++i) {
         offsets[i * 4 + 0] = rule.offsets[i].dx;
@@ -116,6 +113,11 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
     tableSsbo_   = makeSsbo(table.data(), table.size() * sizeof(uint32_t));
 
     program_ = programs_[key];
+    locGenLo_     = rlGetLocationUniform(program_, "generationLo");
+    locGenHi_     = rlGetLocationUniform(program_, "generationHi");
+    locThreshold_ = rlGetLocationUniform(program_, "mutationThreshold");
+    locSeedLo_    = rlGetLocationUniform(program_, "seedBLo");
+    locSeedHi_    = rlGetLocationUniform(program_, "seedBHi");
     target_  = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     width_ = spec.width; height_ = spec.height; depth_ = spec.depth;
     const uint32_t* local = spec.dimensions == 3 ? kLocal3D : kLocal2D;
@@ -129,13 +131,15 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     assert(program_ != 0 && "setRule before step");
     assert(srcTexture != dstTexture && "step must not read the texture it writes (AV-004)");
 
-    // Everything that changes between steps, in one small upload.
-    const uint32_t dynamic[5] = {static_cast<uint32_t>(generation_), static_cast<uint32_t>(generation_ >> 32),
-                                 mutation_.threshold,
-                                 static_cast<uint32_t>(mutation_.seedB), static_cast<uint32_t>(mutation_.seedB >> 32)};
-    rlUpdateShaderBuffer(paramsSsbo_, dynamic, sizeof(dynamic), 3 * sizeof(uint32_t));
-
     rlEnableShader(program_);
+    // Per-step values as uniforms (see the shader for why not a buffer).
+    const uint32_t genLo = static_cast<uint32_t>(generation_), genHi = static_cast<uint32_t>(generation_ >> 32);
+    const uint32_t seedLo = static_cast<uint32_t>(mutation_.seedB), seedHi = static_cast<uint32_t>(mutation_.seedB >> 32);
+    rlSetUniform(locGenLo_, &genLo, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(locGenHi_, &genHi, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(locThreshold_, &mutation_.threshold, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(locSeedLo_, &seedLo, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(locSeedHi_, &seedHi, RL_SHADER_UNIFORM_UINT, 1);
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  GL_R8UI);
     glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
     rlBindShaderBuffer(paramsSsbo_, 0);

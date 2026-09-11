@@ -40,6 +40,36 @@ std::variant<Simulation, core::Error> Simulation::create(const core::GridSpec& s
 }
 
 std::optional<core::Error> Simulation::setRule(const rule::RuleIR& ir) {
+    return installRule(ir, std::nullopt);
+}
+
+std::optional<core::Error> Simulation::rewind(size_t entry) {
+    if (entry >= lineage_.size()) return core::Error{"no such lineage entry"};
+    return installRule(lineage_.at(entry).ir, entry);
+}
+
+void Simulation::setRuleMutation(RuleMutationParams p) {
+    p.interval = std::max(1u, p.interval);
+    p.magnitude = std::max(1u, p.magnitude);
+    ruleMutation_ = p;
+}
+
+// SPEC §9.1: every `interval` generations, before the step.
+void Simulation::maybeMutateRule() {
+    if (!ruleMutation_.enabled || generation_ == 0 || generation_ % ruleMutation_.interval != 0) return;
+    MutationResult m = mutateRule(ir_, ruleMutation_.magnitude, streamA_);
+    if (!m.ir) {
+        ++counters_.rule_mutations_skipped;
+        return;
+    }
+    if (installRule(*m.ir, std::nullopt)) {
+        ++counters_.rule_mutations_skipped;   // compile refused it; treated as a skip
+        return;
+    }
+    ++counters_.rule_mutations;
+}
+
+std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, std::optional<size_t> rewoundFrom) {
     if (ir.dimensions != spec().dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", ir.dimensions, spec().dimensions)};
     }
@@ -53,10 +83,13 @@ std::optional<core::Error> Simulation::setRule(const rule::RuleIR& ir) {
     // The GPU stepper keeps its previous rule if this fails.
     if (auto e = gpuStepper_.setRule(lut, spec())) return e;
 
-    // Everything that can fail has succeeded; commit.
+    // Everything that can fail has succeeded; commit, and record it. A rule
+    // change that is not in the lineage is an incomplete operation
+    // (ARCHITECTURE §Key invariants 7).
     if (lut.states < lut_.states || lut_.table.empty()) resetOutOfRangeStates(lut.states);
     ir_  = ir;
     lut_ = std::move(lut);
+    lineage_.append(generation_, ir_, rewoundFrom);
     return std::nullopt;
 }
 
@@ -76,6 +109,7 @@ void Simulation::setCellMutation(double p) {
 }
 
 void Simulation::step() {
+    maybeMutateRule();
     if (path_ == Path::Gpu) {
         gpuStepper_.setGeneration(generation_);
         gpuStepper_.setCellMutation(mutation_);

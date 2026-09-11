@@ -59,6 +59,7 @@ private:
 
     std::map<ShapeKey, unsigned int> programs_;
     unsigned int program_ = 0;
+    int locGenLo_ = -1, locGenHi_ = -1, locThreshold_ = -1, locSeedLo_ = -1, locSeedHi_ = -1;
     unsigned int paramsSsbo_ = 0, offsetsSsbo_ = 0, compsSsbo_ = 0, tableSsbo_ = 0;
     unsigned int target_ = 0;
     uint32_t     groupsX_ = 0, groupsY_ = 0, groupsZ_ = 0;

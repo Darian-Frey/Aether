@@ -13,6 +13,8 @@ add_executable(aether_tests
     sim/cpu_step_test.cpp
     sim/equivalence_test.cpp
     sim/hash_test.cpp
+    sim/rule_mutation_test.cpp
+    sim/lineage_test.cpp
     sim/scheduler_test.cpp
     sim/rng_test.cpp
     sim/simulation_test.cpp

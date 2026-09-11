@@ -29,6 +29,9 @@ struct Options {
     uint64_t    seed   = 1;      // stream A
     uint64_t    seedB  = 2;      // stream B
     double      targetGps = 60.0;
+    uint32_t    ruleMutationInterval = 0;   // 0 = off
+    uint32_t    ruleMutationMagnitude = 1;
+    double      cellMutationP = 0.0;        // 0 = off
     int         windowWidth  = 1280;
     int         windowHeight = 800;
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
@@ -54,6 +57,7 @@ private:
     void drawGridPanel();
     void drawBrushPanel();
     void drawMutationPanel();
+    void drawLineagePanel();
     void drawPalettePanel();
     void drawLogPanel();
 
@@ -81,6 +85,11 @@ private:
     int burstCount_ = 1000;
     float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
     bool  cellMutationOn_ = false;
+    bool  ruleMutationOn_ = false;
+    int   ruleInterval_ = 250;
+    int   ruleMagnitude_ = 1;
+    std::array<char, 64> pinName_{};
+    size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p
 
     Log log_;

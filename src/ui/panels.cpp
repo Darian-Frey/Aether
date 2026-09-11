@@ -43,6 +43,7 @@ void App::drawPanels() {
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (ImGui::CollapsingHeader("Mutation", ImGuiTreeNodeFlags_DefaultOpen)) drawMutationPanel();
+    if (ImGui::CollapsingHeader("Lineage", ImGuiTreeNodeFlags_DefaultOpen)) drawLineagePanel();
     if (ImGui::CollapsingHeader("Brush", ImGuiTreeNodeFlags_DefaultOpen)) drawBrushPanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
     if (ImGui::CollapsingHeader("Log")) drawLogPanel();
@@ -115,6 +116,10 @@ void App::drawSimulationPanel() {
     if (ImGui::SliderInt("Max steps/frame", &cap, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic)) {
         sch.setMaxStepsPerFrame(static_cast<uint32_t>(cap));
     }
+    if (sch.stats().effective_cap < sch.maxStepsPerFrame()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(now %u)", sch.stats().effective_cap);
+    }
     ImGui::PopID();
 }
 
@@ -157,7 +162,58 @@ void App::drawMutationPanel() {
                                   std::format("{:.2e}", std::pow(10.0, cellMutationLog_)).c_str());
     ImGui::EndDisabled();
     if (changed) sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
-    ImGui::TextDisabled("Rule mutation and lineage: Phase 2, pending.");
+
+    ImGui::Separator();
+    bool rchanged = ImGui::Checkbox("Rule mutation", &ruleMutationOn_);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%llu applied, %llu skipped",
+                        static_cast<unsigned long long>(sim_->counters().rule_mutations),
+                        static_cast<unsigned long long>(sim_->counters().rule_mutations_skipped));
+    ImGui::BeginDisabled(!ruleMutationOn_);
+    rchanged |= ImGui::SliderInt("every N gens", &ruleInterval_, 1, 5000, "%d", ImGuiSliderFlags_Logarithmic);
+    rchanged |= ImGui::SliderInt("edits per event", &ruleMagnitude_, 1, 32);
+    ImGui::EndDisabled();
+    if (rchanged) {
+        sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
+    }
+    ImGui::PopID();
+}
+
+void App::drawLineagePanel() {
+    if (!sim_) return;
+    ImGui::PushID("lineage");
+    const auto& entries = sim_->lineage().entries();
+    ImGui::Text("%zu rules so far; current is #%zu", entries.size(), entries.size() - 1);
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##pinname", "name for pin", pinName_.data(), pinName_.size());
+    ImGui::BeginChild("entries", ImVec2(-1, 180), ImGuiChildFlags_Borders);
+    // Newest first.
+    for (size_t k = entries.size(); k-- > 0;) {
+        const auto& e = entries[k];
+        ImGui::PushID(static_cast<int>(k));
+        const bool current = k + 1 == entries.size();
+        if (current) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.9f, 1.0f, 1.0f));
+        ImGui::Text("#%zu  gen %llu  %s%s", k, static_cast<unsigned long long>(e.generation),
+                    e.name ? e.name->c_str() : std::format("{:#010x}", static_cast<uint32_t>(e.ir_hash)).c_str(),
+                    e.rewound_from ? "  (rewind)" : "");
+        if (current) ImGui::PopStyleColor();
+        ImGui::SameLine(0, 8);
+        if (e.pinned) {
+            if (ImGui::SmallButton("unpin")) sim_->unpin(k);
+        } else if (ImGui::SmallButton("pin")) {
+            const std::string name = pinName_[0] ? std::string(pinName_.data()) : std::format("rule #{}", k);
+            sim_->pin(k, name);
+            pinName_[0] = '\0';
+        }
+        if (!current) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("rewind")) {
+                if (auto err = sim_->rewind(k)) log_.error(err->message);
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
     ImGui::PopID();
 }
 

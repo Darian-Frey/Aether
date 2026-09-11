@@ -27,12 +27,14 @@ layout(std430, binding = 0) readonly buffer Params {
     uint width;
     uint height;
     uint depth;
-    uint generationLo;
-    uint generationHi;
-    uint mutationThreshold;   // 0 disables cell mutation
-    uint seedBLo;
-    uint seedBHi;
 };
+// Per-step values are uniforms rather than buffer contents: updating a
+// buffer the previous frame still references stalls on some drivers.
+uniform uint generationLo;
+uniform uint generationHi;
+uniform uint mutationThreshold;   // 0 disables cell mutation
+uniform uint seedBLo;
+uniform uint seedBHi;
 layout(std430, binding = 1) readonly buffer Offsets { int  off[]; };    // 4 ints per neighbour: dx dy dz pad
 layout(std430, binding = 2) readonly buffer Comps   { uint w[]; };      // (N+1) x S, row-major by n
 layout(std430, binding = 3) readonly buffer Table   { uint table[]; };  // one entry per uint

@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Rule mutation (F-015): `sim/rule_mutation` with class-preserving point edits on tables and expressions, validate-or-redraw, million-edit fuzz; fired from `Simulation::step` on the interval (2026-09-11).
+- Lineage log (F-017): `sim/lineage`, appended by every successful rule install; pin/unpin; `Simulation::rewind`; lineage browser and rule-mutation controls in the UI; `--rule-mutation N[:M]`, `--cell-mutation P` (2026-09-11).
+- Scheduler frame-time feedback: the effective per-frame cap halves on a long frame and recovers on short ones (AV-003 detection implemented) (2026-09-11).
 - Stream B: `sim/hash.hpp` and `shaders/hash.glsl`, the same `hash32`/`mix32`/`uniformState` in C++ and GLSL, with a GPU test comparing them over a million inputs (2026-09-11).
 - Cell mutation (F-016) in `cpuStep` and `lut_step.comp`, driven by `CellMutation{threshold, seedB}`; `Simulation::setCellMutation(p)`; Mutation panel and `--seed-b` (2026-09-11).
 - Documentation scaffold: README, FEATURES, ROADMAP, ARCHITECTURE, DECISIONS, SPEC, ATTACK_VECTORS, BUGS, IMPROVEMENTS, CHANGELOG, CLAUDE (2026-08-30).
@@ -34,7 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 117 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 130 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -48,6 +51,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- Per-step compute parameters (generation, mutation threshold, seed B) are uniforms rather than an SSBO update, avoiding a buffer-in-flight write each step (2026-09-11).
+- Scripted screenshots are captured before the swap; the back buffer after a swap is undefined on Mesa (2026-09-11).
+- The app calls `glFinish()` before scheduling so a driver's deferred vsync throttle is not charged to the step budget (2026-09-11).
 - D-012: hexagonal lattices promoted into scope as F-023 (Phase 2); triangular and Penrose recorded as candidates with their costs (2026-09-11).
 - SPEC §7 gains notes on `and`/`or` precedence, `n(0)`, comments, and the unspecified `signature_literal` (2026-09-11).
 - D-009 project name moved from Proposed to Accepted on author confirmation; GitHub repository created at `Darian-Frey/Aether` (2026-09-11).
