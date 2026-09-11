@@ -8,28 +8,23 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Documentation, licence and an empty source tree. No code, no build, no commits yet.
+Phase 0 complete (2026-09-11). Builds; no engine code.
 
-- `README.md`, `FEATURES.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `SPEC.md`, `ATTACK_VECTORS.md`, `BUGS.md`, `IMPROVEMENTS.md`, `CHANGELOG.md`: written 2026-08-30.
-- Remote `origin` points at `github.com/Darian-Frey/Aether`; the local `main` has no commits.
-- `src/{core,rule,sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `tests/`, `docs/`: exist, each holding only a `.gitkeep` (2026-09-11).
-- `.gitignore`: build directories and editor droppings only.
-- `BUILD.md`: deliberately absent until the first successful build (standard creation order, step 8).
+- Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
+- `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`; build them in-tree as static libs.
+- `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced by Phase 1, not extended.**
+- `src/{core,rule,sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `tests/`, `docs/`: empty apart from `.gitkeep`.
 - `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
 
 Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
 
+Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mesa, GL 4.6) and the NVIDIA T1200 (595.84, GL 4.3 context). The D-001 assumption holds.
+
 ## Active task
 
-Phase 0 completion, in this order:
+Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
 
-1. ~~Author selects a licence.~~ Apache-2.0, 2026-09-11.
-2. ~~Confirm or replace the project name (D-009).~~ Done 2026-09-11.
-3. ~~Create the GitHub repository under `Darian-Frey/`.~~ Done 2026-09-11; source tree laid out the same day.
-4. CMake project building raylib + rlImGui to a blank window; verify the GL 4.3 compute path is actually available on the target machine before committing further to D-001.
-5. Write `BUILD.md` at the first successful build, while the steps are still fresh.
-
-Phase 1 then begins with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
+Suggested order within Phase 1: `rule/ir` (type + validation + hash) → DSL parser for B/S and B/S/C → LUT backend (table size computed *before* allocation, AV-010) → `core/` grid + ping-pong pair → CPU reference stepper → compute shader for the LUT path → equivalence test → scheduler → canvas, random fill, palette rendering.
 
 ## Architectural invariants
 
@@ -46,13 +41,14 @@ These are from ARCHITECTURE.md §Key invariants. Violating one is a defect even 
 
 ## Build and test
 
-Nothing to build yet. Once Phase 0 lands:
-
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build
+./build/aether --gl-check        # 0 = compute path works
+ctest --test-dir build           # no tests yet
 ```
+
+First configure fetches three dependencies; see `BUILD.md`. To run on the T1200 rather than the Intel iGPU, prefix with `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`. SPEC §12 figures are meaningless without it.
 
 The test that matters most from Phase 1 onward is CPU/GPU equivalence. If it is red, nothing else is trustworthy.
 
@@ -74,7 +70,11 @@ The test that matters most from Phase 1 onward is CPU/GPU equivalence. If it is 
 - **AV-010 (table size computed after allocation).** Compute the table size from the IR before allocating anything. A non-totalistic 3D Moore rule needs 1.3×10⁸ entries and will exhaust memory during what looks like a routine rule change.
 - **AV-006 (ambient randomness).** One stray `rand()` invalidates the entire session format. Check SPEC §10 before adding any stochastic behaviour.
 
-Session-specific: the GL 4.3 compute shader path on the T1200 has not been verified on this machine yet. D-001 assumes it works. Confirm during Phase 0, before writing code that depends on it.
+Build-specific:
+
+- raylib must be built with `OPENGL_VERSION=4.3`; under the default 3.3 backend the compute entry points are silent no-ops. `cmake/Dependencies.cmake` forces this. `rlGetVersion() == RL_OPENGL_43` is the runtime assertion.
+- rlgl does not wrap `glMemoryBarrier`. Direct GL goes through `external/glad.h` from the fetched raylib tree (function pointers live in `libraylib`). Keep that include confined to the one place that owns the ping-pong step.
+- raylib 6.0 renamed `rlCompileShader` → `rlLoadShader` and `rlLoadComputeShaderProgram` → `rlLoadShaderProgramCompute`. Older examples online use the old names.
 
 ## Out of scope
 

@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
 > **Last reviewed:** 2026-08-30
-> **Why this status:** Documentation scaffold complete; Phase 1 implementation not yet started.
+> **Why this status:** Phase 0 complete (builds, GL 4.3 compute verified on target); Phase 1 not yet started.
 
 # Aether
 
@@ -11,17 +11,18 @@ The name was confirmed on 2026-09-11 (see D-009).
 
 ## Quick start
 
-Not yet buildable. Phase 1 is unstarted — see [ROADMAP.md](ROADMAP.md).
-
-Once Phase 1 lands, the intended shortest path will be:
+Phase 0 builds to a window that verifies the GL 4.3 compute path. Phase 1 (the automaton) is unstarted — see [ROADMAP.md](ROADMAP.md).
 
 ```bash
-git clone https://github.com/Darian-Frey/aether.git
-cd aether
+git clone https://github.com/Darian-Frey/Aether.git
+cd Aether
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/aether --rule B3/S23 --size 512x512
+./build/aether --gl-check     # exit 0 means compute shaders work here
+./build/aether                # the window
 ```
+
+Once Phase 1 lands, the intended shortest path will be `./build/aether --rule B3/S23 --size 512x512`. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU.
 
 ## Build requirements
 
@@ -29,17 +30,18 @@ cmake --build build -j
 |---|---|---|
 | C++ compiler | C++20 | GCC 12+ or Clang 15+ |
 | CMake | 3.20+ | |
-| raylib | 5.x | Window, input, GL context |
-| rlImGui + Dear ImGui | current | Control panel |
+| raylib | 6.0 | Fetched and built in-tree with the 4.3 rlgl backend |
+| rlImGui + Dear ImGui | `Raylib_6_0` / 1.92.7 | Fetched and built in-tree |
 | Lua | 5.4 | Rule scripting front end (Phase 4) |
 | OpenGL | 4.3 core | Compute shaders are mandatory, not optional |
 
-The OpenGL 4.3 requirement is load-bearing. Aether has no fallback renderer; see D-001.
+The OpenGL 4.3 requirement is load-bearing. Aether has no fallback renderer; see D-001. Full prerequisites and pins are in [BUILD.md](BUILD.md).
 
 ## Project structure
 
 ```
 aether/
+├── cmake/           Dependency fetch and build
 ├── src/
 │   ├── core/        Grid, session, serialisation
 │   ├── rule/        DSL parser, Lua front end, IR, compiler backends
@@ -66,8 +68,7 @@ aether/
 - [Improvements](IMPROVEMENTS.md) — candidate refactors
 - [Changelog](CHANGELOG.md) — version history
 - [Claude handoff](CLAUDE.md) — AI session entry point
-
-`BUILD.md` is deliberately absent until the first successful build, per the standard's creation order (step 8). Until then this README's build requirements table is the single source of truth.
+- [Build](BUILD.md) — prerequisites, dependency pins, GPU selection
 
 ## Licence
 

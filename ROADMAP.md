@@ -4,15 +4,15 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 0 — Scaffolding
 **Goal:** Repository exists with the documentation set and a build that compiles an empty window.
-**Status:** In progress
+**Status:** Complete 2026-09-11
 **Features delivered:** none
 **Deliverables:**
 - [x] Documentation scaffold (README, FEATURES, ROADMAP, ARCHITECTURE, DECISIONS, SPEC, ATTACK_VECTORS, BUGS, IMPROVEMENTS, CHANGELOG, CLAUDE)
 - [x] Licence selected (Apache-2.0) and `LICENSE` written (2026-09-11)
 - [x] GitHub repository created under `Darian-Frey/` (2026-09-11)
 - [x] Source tree laid out per README §Project structure (2026-09-11)
-- [ ] CMake project building raylib + rlImGui to a blank window
-- [ ] `BUILD.md` written at first successful build
+- [x] CMake project building raylib + rlImGui to a blank window (2026-09-11); GL 4.3 compute dispatch verified on both the Intel iGPU and the T1200
+- [x] `BUILD.md` written at first successful build (2026-09-11)
 **Acceptance:** `cmake --build build` produces a binary that opens a window and exits cleanly.
 
 ## Phase 1 — 2D discrete core
