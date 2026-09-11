@@ -1,0 +1,13 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Editor and tooling
+.cache/
+.vscode/
+.idea/
+compile_commands.json
+*.swp
+*~
