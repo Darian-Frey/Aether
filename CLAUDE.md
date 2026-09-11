@@ -8,12 +8,14 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 0 complete (2026-09-11). Builds; no engine code.
+Phase 1 in progress (started 2026-09-11). The rule front half exists; nothing steps a grid yet.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
-- `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`; build them in-tree as static libs.
-- `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced by Phase 1, not extended.**
-- `src/{core,rule,sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `tests/`, `docs/`: empty apart from `.gitkeep`.
+- `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; build them in-tree as static libs.
+- `src/rule/` (`aether_rule` static lib): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR). All under `namespace aether::rule`.
+- `tests/rule/`: Catch2, one file per module, run by `ctest`. 42 cases.
+- `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced, not extended.**
+- `src/{core,sim,render,ui}/`, `shaders/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 - `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
 
 Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
@@ -24,7 +26,11 @@ Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mes
 
 Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
 
-Suggested order within Phase 1: `rule/ir` (type + validation + hash) → DSL parser for B/S and B/S/C → LUT backend (table size computed *before* allocation, AV-010) → `core/` grid + ping-pong pair → CPU reference stepper → compute shader for the LUT path → equivalence test → scheduler → canvas, random fill, palette rendering.
+Done: `rule/ir`, `rule/neighbourhood`, `rule/table_layout`, `rule/dsl`.
+
+Next, in order: `core/` grid (host array + ping-pong texture pair, VRAM guard) → CPU reference stepper over a `Table` IR (the oracle; boundary modes per SPEC §2) → LUT compute shader + upload (index arithmetic must mirror `TableLayout` exactly, including the multi-state ranking and its `W` table) → CPU/GPU equivalence test (1000 generations, all three boundaries, edge-seeded grid) → scheduler → canvas, random fill, palette rendering.
+
+Open design gaps noticed on the way, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined.
 
 ## Architectural invariants
 
@@ -45,7 +51,7 @@ These are from ARCHITECTURE.md §Key invariants. Violating one is a defect even 
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/aether --gl-check        # 0 = compute path works
-ctest --test-dir build           # no tests yet
+ctest --test-dir build           # or ./build/tests/aether_tests for Catch2 output
 ```
 
 First configure fetches three dependencies; see `BUILD.md`. To run on the T1200 rather than the Intel iGPU, prefix with `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`. SPEC §12 figures are meaningless without it.

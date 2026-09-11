@@ -60,7 +60,7 @@ A neighbourhood is a type and a radius `r ≥ 1`. The cell itself is never a mem
 | `moore` | 2r | (2r+1)²−1 | (2r+1)³−1 | `(2r+1)^d − 1` |
 | `von_neumann` | 2r | 2r(r+1) | see below | Manhattan distance ≤ r |
 
-For `d=3` von Neumann, `N = 2r(2r²+3r+2)/3`; at `r=1` this is 6.
+For `d=3` von Neumann, `N = (2r+1)(2r²+2r+3)/3 − 1`; at `r=1, 2, 3` this is 6, 24, 62. (Corrected 2026-09-11, BUG-001.)
 
 Concrete counts in use: 2D Moore r=1 gives `N=8`; 3D Moore r=1 gives `N=26`; 3D von Neumann r=1 gives `N=6`.
 
@@ -130,7 +130,14 @@ index = own_state · (N + 1) + k
 size  = states · (N + 1)
 ```
 
-For `states > 2`, the count vector is encoded as a mixed-radix integer over counts of states `1 … S-1` (the count of state 0 is implied). Size grows as the number of compositions of `N` into `S-1` parts; the compiler computes it exactly and applies the threshold below.
+For `states > 2`, the signature is the count vector `(c₁ … c_{S−1})` over states `1 … S-1` (the count of state 0 is implied by `N − Σcᵢ`). The vectors with `Σcᵢ ≤ N` are ranked densely in lexicographic order, so that
+
+```
+index = own_state · W(N, S−1) + rank(c₁ … c_{S−1})
+size  = states · W(N, S−1)              where W(n, m) = C(n+m, m)
+```
+
+`W(n, m)` counts vectors of `m` non-negative integers summing to at most `n`. The rank of a vector is the sum, over each digit `cᵢ`, of `W(R − v, S−1−i−1)` for every `v < cᵢ`, where `R` is the budget remaining after the preceding digits. For `S = 2` this collapses to the binary form above. Both execution paths implement this ranking; the `W` table is precomputed on the host and uploaded alongside the transition table. (Clarified 2026-09-11, BUG-002.)
 
 **Totalistic.** As above but with `own_state` folded into the sum:
 
@@ -158,7 +165,7 @@ A rule compiles to the table backend if its computed table size is `≤ LUT_MAX_
 | Rule | Size | Backend |
 |---|---|---|
 | Binary 2D Moore r=1 outer-totalistic (`B3/S23`) | 2·9 = 18 | table |
-| 4-state 2D Moore r=1 outer-totalistic | 4·(compositions) ≈ 660 | table |
+| 4-state 2D Moore r=1 outer-totalistic | 4·W(8,3) = 4·165 = 660 | table |
 | Binary 2D Moore r=1 non-totalistic | 2·2⁸ = 512 | table |
 | Binary 3D Moore r=1 outer-totalistic | 2·27 = 54 | table |
 | Binary 3D Moore r=1 non-totalistic | 2·2²⁶ ≈ 1.3×10⁸ | codegen |
@@ -227,6 +234,8 @@ neighbourhood moore 1;
 1: n(1) > 3 -> 0;
 ```
 Statements are evaluated in order; the first match wins. Cells matching no statement retain their state. The compiler expands the statement list exhaustively into a `Table`, or into an `Expression` if the table would exceed the threshold.
+
+Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. `signature_literal` is named in the grammar but not yet defined or accepted — a table block for a non-totalistic rule is deferred until a literal syntax is specified. Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
 
 ---
 

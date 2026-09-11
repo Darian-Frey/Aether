@@ -22,11 +22,27 @@ Entry format:
 
 ## Open
 
-*None. No code exists yet.*
+*None.*
 
 ## Fixed
 
-*None.*
+### BUG-001: SPEC §3 closed form for 3D von Neumann neighbour count is wrong
+**Status:** fixed
+**Found:** 2026-09-11 (Phase 1, writing `rule/neighbourhood` tests)
+**Location:** SPEC.md §3
+**Severity:** low
+**Description.** SPEC gave `N = 2r(2r²+3r+2)/3` for 3D von Neumann, which evaluates to 4.67 at r=1 while the same paragraph states the r=1 answer is 6. Enumeration gives 6, 24, 62 for r=1,2,3. The correct closed form is `(2r+1)(2r²+2r+3)/3 − 1`. Documentation only; no code was written against the wrong formula.
+**Reproduction.** Evaluate the old formula at r=1.
+**Notes.** Fixed in SPEC the same day. The enumeration in `neighbourOffsets()` is the source of truth and the test checks the closed form against it, which is how this was caught.
+
+### BUG-002: SPEC §5 multi-state outer-totalistic index encoding did not match its own size formula
+**Status:** fixed
+**Found:** 2026-09-11 (Phase 1, writing `rule/table_layout`)
+**Location:** SPEC.md §5
+**Severity:** medium
+**Description.** For `states > 2` SPEC described the count vector as "a mixed-radix integer over counts of states 1…S-1" but gave the table size as the number of compositions (worked example: 4 states, N=8 → ≈660). A mixed-radix encoding with radix N+1 per digit needs `S·(N+1)^(S−1)` entries (2916 for that example), so the two statements were inconsistent, and the difference decides backend selection for every multi-state rule. Resolved in favour of the size formula, which is the more specific statement: count vectors are ranked densely in lexicographic order, giving exactly `S·C(N+S−1, S−1)` entries. `TableLayout::indexOuterTotalistic` implements the ranking and the GLSL side must implement the same one.
+**Reproduction.** Compare the two sentences in the old §5 "Outer-totalistic" paragraph for S=4, N=8.
+**Notes.** SPEC §5 reworded to state the ranking explicitly. This is a clarification of an ambiguous paragraph, not a change to `LUT_MAX_ENTRIES` or to the selection rule.
 
 ## Won't Fix
 

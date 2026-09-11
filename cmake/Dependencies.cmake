@@ -46,3 +46,13 @@ target_compile_features(imgui PUBLIC cxx_std_17)
 add_library(rlimgui STATIC ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
 target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 target_link_libraries(rlimgui PUBLIC imgui raylib)
+
+# --- Catch2 (tests only) ------------------------------------------------------
+if(AETHER_BUILD_TESTS)
+    FetchContent_Declare(catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.9.1
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(catch2)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+endif()

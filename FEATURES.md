@@ -78,7 +78,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Generations notation parses (`B2/S/C3`)
 - Explicit transition-table blocks parse for rules the shorthand cannot express
 - Syntax errors report line and column, and never leave the engine in a half-updated state
-**Status:** Not started
+**Status:** In progress
+**Progress:** DSL parses all three notations to a validated IR with line/column errors (2026-09-11); signature literals for non-totalistic blocks not yet specified.
 
 ### F-008 Lua rule scripting
 **Priority:** Should
@@ -95,7 +96,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Backend selection is automatic from IR shape: lookup table below the size threshold, generated GLSL above it
 - Backend choice is visible in the UI but never a user decision
 - A rule compiled through either backend produces identical results
-**Status:** Not started
+**Status:** In progress
+**Progress:** IR, validation, hash and table layout exist (2026-09-11); no backend yet.
 
 ### F-010 Rule library
 **Priority:** Should

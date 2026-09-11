@@ -17,11 +17,13 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 1 — 2D discrete core
 **Goal:** A working 2D automaton with declarative rules, a lookup-table backend, and a drawing canvas.
-**Status:** Not started
+**Status:** In progress (started 2026-09-11)
 **Features delivered:** F-001, F-002, F-003, F-007, F-011, F-013, F-014, F-018
 **Deliverables:**
 - [ ] `core/` grid and ping-pong texture pair
-- [ ] `rule/` DSL parser producing IR; lookup-table backend
+- [x] `rule/` IR with validation and hash; neighbourhood enumeration; table layout (2026-09-11)
+- [x] `rule/` DSL parser producing IR — B/S, B/S/C and count-condition table blocks (2026-09-11)
+- [ ] `rule/` lookup-table backend
 - [ ] `sim/` accumulator-driven scheduler with step, pause, burst
 - [ ] CPU reference stepper behind a runtime flag
 - [ ] Compute shader for the LUT execution path
