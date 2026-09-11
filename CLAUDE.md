@@ -8,37 +8,35 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 1 in progress (started 2026-09-11). The engine runs headless end to end and `render/` can draw it to any framebuffer; there is no UI and `main.cpp` is still the Phase 0 probe.
+Phase 1 complete (2026-09-11). The 2D discrete core runs interactively: rules compile to lookup tables, both execution paths step them and agree bitwise, the scheduler paces them, the renderer draws them, the UI edits them. Phase 2 not started.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
-- `CMakeLists.txt` + `cmake/Dependencies.cmake`: fetch raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; build them in-tree as static libs.
-- `src/core/` (`aether_core`): `cell` (CellType, header-only), `grid` (GridSpec, `PingPong<T>` — the one swap — and HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). `namespace aether::core`. Boundary handling is deliberately *not* here; it is rule semantics and belongs to the steppers.
-- `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood` (canonical offsets), `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`). `namespace aether::rule`.
-- `src/sim/` (`aether_sim`): `boundary` (header-only `resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle; takes distinct current/next spans, or a HostGrid and swaps), `gpu_step` (`GpuStepper`: per-shape program cache keyed on (dims, N, S, kind, boundary); SSBOs for params/offsets/W/table; `step()` dispatches, barriers, swaps), `scheduler` (header-only, pure timing, fake-clock testable), `rng` (PCG32 stream A), `fill` (random seeding), `simulation` (`Simulation`: the object main/ui talk to; owns grid + rule + both paths + scheduler + stream A; `setRule` is all-or-nothing; `setPath` syncs state across; `texture()` for the renderer). `namespace aether::sim`.
-- Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes `host()` → edit → `commitHost()`.
-- `src/render/` (`aether_render`): `view2d` (header-only camera: zoom + centre; `snappedOrigin` gives pixel-exact integer zoom; `cellAt` is what the canvas will use so brush and pixels agree by construction), `palette` (256 RGBA + `defaultFor(states)`), `renderer2d` (`Renderer2D::draw(texture, spec, view, viewport, frameW, frameH, states)` inside Begin/EndDrawing; rides raylib's batch via `BeginShaderMode`). `namespace aether::render`.
-- `shaders/palette2d.{vert,frag}`: both at `#version 430` (raylib's default VS is 330; do not mix). The FS maps `gl_FragCoord` → cell through `origin`/`zoom` uniforms and discards outside the viewport rect.
-- `shaders/lut_step.comp`: the one LUT shader, specialised by `#define`s the stepper prepends. Embedded at build time via `cmake/EmbedShader.cmake` into `generated/shaders/`; `sim/shaders.hpp` declares the symbols. Edit the file in `shaders/`, never the generated copy.
-- `tests/`: Catch2, one file per module, run by `ctest`. 105 cases. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change. `[gpu]` cases open a hidden window via `tests/support/gl_context.hpp` and SKIP without a display.
-- `src/main.cpp`: Phase 0 probe. Opens a window, runs a compute dispatch over an SSBO and verifies it; `--gl-check` does the same headless and exits 0/1. **To be replaced, not extended.**
-- `src/ui/`, `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
-- `LICENSE`: Apache-2.0, copyright 2026 Shane Hartley.
+- `CMakeLists.txt` + `cmake/`: `Dependencies.cmake` fetches raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; `EmbedShaders.cmake` turns `shaders/*` into string constants under `build/generated/`.
+- `src/core/` (`aether_core`): `cell`, `grid` (GridSpec, `PingPong<T>` — the one swap — HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download/uploadRegion, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). Boundary handling is deliberately *not* here.
+- `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood`, `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`).
+- `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `fill`, `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A; `setRule` all-or-nothing; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
+- `src/render/` (`aether_render`): `view2d` (camera, pixel-exact snapping, `cellAt` shared with the canvas), `palette`, `renderer2d` (palette pass over raylib's batch).
+- `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`), `panels` (ImGui), `canvas` (paint/pan/zoom/keys), `brush` (pure geometry), `log` (ring buffer).
+- `src/main.cpp`: argument parsing → `ui::App::run()`. `--gl-check` is the compute-path probe; `--frames N --screenshot F` gives a scripted run.
+- `shaders/`: `lut_step.comp` (specialised by `#define`s the stepper prepends), `palette2d.{vert,frag}` (both GLSL 430). Edit these, never the generated copies.
+- `tests/`: Catch2, one file per module, 109 cases under `ctest`. `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
+- `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 
-Design is settled through D-011. The project name is confirmed (D-009, Accepted 2026-09-11).
+Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes through `paintSpan`, which writes both.
 
-Verified on the target machine: GL 4.3 compute works on both the Intel iGPU (Mesa, GL 4.6) and the NVIDIA T1200 (595.84, GL 4.3 context). The D-001 assumption holds.
+Throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s (budget 30). The Intel iGPU is at the 2D budget and far below the 3D one; every SPEC §12 figure is a T1200 figure.
 
 ## Active task
 
-Phase 1 — 2D discrete core. Begin with `rule/ir` and the DSL parser, not with the renderer. The IR is the contract everything else is written against; building the renderer first means writing it twice.
+Phase 2 — mutation, lineage, sessions (F-015, F-016, F-017, F-020). Suggested order:
 
-Done: all of `rule/`, `core/`, `sim/` and `render/` for Phase 1, `shaders/`, the equivalence test.
+1. Stream B: the stateless hash `hash32(x, y, z, generation, seed_B)` in C++ and GLSL, plus a direct C++/GLSL agreement test over a large input sweep (AV-007). Then cell mutation in `cpu_step` and `lut_step.comp` together, with `uniform_state` by multiply-shift (SPEC §9.2), and the equivalence suite extended to run with `p > 0`.
+2. Rule mutation on the IR (SPEC §9.1): point edits on `Table` and `Expression`, validate-or-redraw up to 8 times, recompile through `Simulation::setRule`. Fuzz test per AV-012.
+3. Lineage log (SPEC §9.3): append on every rule change, pin, rewind. Rule mutation without an append is incomplete.
+4. Session save/load (SPEC §11) with `format_version`, and the replay-determinism test (AV-006): save at generation 0, run 5000 with both mutations on, replay in a fresh process, compare.
+5. UI: mutation controls, lineage browser.
 
-Next, in order: `ui/` ImGui panels (rule entry with error display, rate/pause/step/burst, path toggle, fill densities) and the painting canvas (screen → cell coordinates through the pan/zoom transform; `host()` edit → `commitHost()`; on the GPU path that means a `syncToHost()` first, or a partial upload — decide then) → replace the Phase 0 `main.cpp` with the real loop → Phase 1 acceptance run (Life, HighLife, Brian's Brain, cyclic CA at 1024², ≥ 200 gen/s, CPU/GPU agreeing).
-
-Interim throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s (budget 30). The Intel iGPU is at the 2D budget and far below the 3D one.
-
-Open design gaps noticed on the way, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-004.
+Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-004.
 
 ## Architectural invariants
 

@@ -17,7 +17,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 1 — 2D discrete core
 **Goal:** A working 2D automaton with declarative rules, a lookup-table backend, and a drawing canvas.
-**Status:** In progress (started 2026-09-11)
+**Status:** Complete 2026-09-11
 **Features delivered:** F-001, F-002, F-003, F-007, F-011, F-013, F-014, F-018
 **Deliverables:**
 - [x] `core/` grid and ping-pong texture pair, host and GPU, with the VRAM guard (2026-09-11)
@@ -27,11 +27,12 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] `sim/` accumulator-driven scheduler with step, pause, burst, per-frame cap and wall-clock budget (AV-003); `Simulation` owning grid, rule, both paths and the step/swap sequence (2026-09-11)
 - [x] CPU reference stepper, all table kinds, all three boundaries, 1D/2D/3D; 28 gen/s at 1024² Life against a budget of 5 (2026-09-11). Runtime flag arrives with the scheduler.
 - [x] Compute shader for the LUT execution path — `shaders/lut_step.comp`, specialised per rule shape and cached; a table change is a buffer upload (2026-09-11)
-- [ ] Painting canvas and random fill — random fill done via stream A PCG32 (2026-09-11); canvas pending
+- [x] Painting canvas and random fill — `ui/` canvas paints through `Simulation::paintSpan` with no readback; fill via stream A (2026-09-11)
 - [x] Palette rendering with pan and zoom — `render/renderer2d` + `View2D`, pixel-exact at integer zoom, tested against a render texture (2026-09-11); mouse/keyboard binding arrives with `ui/`
 - [x] Equivalence test harness: CPU vs GPU, 1000 generations, bitwise — 15 fixture rules × 3 boundaries across 1D/2D/3D, passing on the Intel iGPU and the T1200 (2026-09-11)
 **Acceptance:** Conway's Life, HighLife, Brian's Brain and a cyclic CA all run correctly at 1024² and ≥ 200 gen/s, with CPU and GPU agreeing bit-for-bit.
-**Interim figures (2026-09-11, T1200):** Life 1024² 3,684 gen/s; 2048² 1,210 gen/s; Brian's Brain 1024² 4,233 gen/s; 3D B5/S45 256³ 69 gen/s. Intel iGPU: 198 gen/s at 1024², 4 gen/s at 256³.
+**Acceptance run (2026-09-11, T1200):** Life, Brian's Brain and the 8-state cyclic CA run in the application at 1024² at a 2,000 gen/s target, achieved, with the display at 60 fps; all four acceptance rules are in the CPU/GPU equivalence fixture set.
+**Throughput figures (2026-09-11, T1200):** Life 1024² 3,684 gen/s; 2048² 1,210 gen/s; Brian's Brain 1024² 4,233 gen/s; 3D B5/S45 256³ 69 gen/s. Intel iGPU: 198 gen/s at 1024², 4 gen/s at 256³.
 
 ## Phase 2 — Mutation, lineage, sessions
 **Goal:** The two mutation controls, the lineage log that makes them useful, and reproducible sessions.

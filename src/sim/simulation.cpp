@@ -106,6 +106,14 @@ void Simulation::clear() {
     commitHost();
 }
 
+void Simulation::paintSpan(uint32_t x0, uint32_t x1, uint32_t y, uint32_t z, uint8_t state) {
+    auto cells = host_.current();
+    const size_t start = host_.index(x0, y, z);
+    const size_t n = x1 - x0 + 1;
+    std::fill_n(cells.begin() + static_cast<std::ptrdiff_t>(start), n, state);
+    gpu_.uploadRegion(x0, y, z, static_cast<uint32_t>(n), 1, 1, cells.subspan(start, n));
+}
+
 void Simulation::fillRandom(std::span<const double> density) {
     sim::fillRandom(host_, density, streamA_);
     commitHost();

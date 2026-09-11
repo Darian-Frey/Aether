@@ -62,6 +62,11 @@ public:
     void upload(std::span<const uint8_t> cells);
     void download(std::span<uint8_t> cells) const;
 
+    // A box within the current texture. `cells` is w*h*d bytes, x fastest.
+    // For painting: small, targeted, and no readback.
+    void uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
+                      std::span<const uint8_t> cells);
+
 private:
     GpuGrid(GridSpec spec, unsigned int target, unsigned int a, unsigned int b);
     void release();

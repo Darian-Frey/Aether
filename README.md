@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
 > **Last reviewed:** 2026-08-30
-> **Why this status:** Phase 0 complete (builds, GL 4.3 compute verified on target); Phase 1 not yet started.
+> **Why this status:** Phase 1 complete (2D discrete core, interactive); Phase 2 (mutation, lineage, sessions) not yet started.
 
 # Aether
 
@@ -11,18 +11,16 @@ The name was confirmed on 2026-09-11 (see D-009).
 
 ## Quick start
 
-Phase 0 builds to a window that verifies the GL 4.3 compute path. Phase 1 (the automaton) is unstarted — see [ROADMAP.md](ROADMAP.md).
-
 ```bash
 git clone https://github.com/Darian-Frey/Aether.git
 cd Aether
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/aether --gl-check     # exit 0 means compute shaders work here
-./build/aether                # the window
+./build/aether --gl-check                   # exit 0 means compute shaders work here
+./build/aether --rule B3/S23 --size 512x512
 ```
 
-Once Phase 1 lands, the intended shortest path will be `./build/aether --rule B3/S23 --size 512x512`. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU.
+In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block — and compile with Ctrl+Enter. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements
 

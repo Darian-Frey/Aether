@@ -1,0 +1,85 @@
+// The application: window, simulation, renderer, panels and canvas.
+//
+// Owns everything with a GL lifetime inside run(), so it is all destroyed
+// before the window closes. The canvas is the one place user input mutates
+// grid state, and it does so through Simulation::paintSpan, never by
+// touching a texture (ARCHITECTURE §ui/).
+
+#pragma once
+
+#include "render/renderer2d.hpp"
+#include "render/view2d.hpp"
+#include "rule/dsl.hpp"
+#include "sim/simulation.hpp"
+#include "ui/log.hpp"
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace aether::ui {
+
+struct Options {
+    std::string rule   = "B3/S23";
+    uint32_t    width  = 512;
+    uint32_t    height = 512;
+    bool        cpu    = false;
+    uint64_t    seed   = 1;
+    double      targetGps = 60.0;
+    int         windowWidth  = 1280;
+    int         windowHeight = 800;
+    int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
+    std::string screenshot;            // if set, written just before exiting
+};
+
+class App {
+public:
+    explicit App(Options opts) : opts_(std::move(opts)) {}
+    int run();
+
+private:
+    // Lifecycle
+    bool createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& ir, sim::Path path);
+    bool compileRuleText();            // ruleText_ -> IR -> sim; reports to log and ruleError_
+    void applyPaletteForStates();
+
+    // Per frame
+    void updateCanvas(double dt);
+    void drawPanels();
+    void drawRulePanel();
+    void drawSimulationPanel();
+    void drawGridPanel();
+    void drawBrushPanel();
+    void drawPalettePanel();
+    void drawLogPanel();
+
+    void paintAt(int cx, int cy);
+    void fitView();
+
+    Options opts_;
+
+    std::optional<sim::Simulation>    sim_;
+    std::optional<render::Renderer2D> renderer_;
+    render::View2D view_;
+    render::Rect   viewport_;
+
+    rule::DslContext ctx_;
+    std::array<char, 8192> ruleText_{};
+    std::string ruleError_;
+    std::string ruleSummary_;
+
+    struct { uint8_t state = 1; int radius = 1; } brush_;
+    std::optional<std::pair<int, int>> lastPaintCell_;
+    bool panning_ = false;
+
+    std::vector<float> density_;
+    int newWidth_ = 512, newHeight_ = 512;
+    int burstCount_ = 1000;
+    float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
+
+    Log log_;
+};
+
+}  // namespace aether::ui

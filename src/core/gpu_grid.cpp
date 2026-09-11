@@ -172,6 +172,22 @@ void GpuGrid::upload(std::span<const uint8_t> cells) {
     glBindTexture(target_, 0);
 }
 
+void GpuGrid::uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
+                           std::span<const uint8_t> cells) {
+    glBindTexture(target_, pair_.current());
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (target_ == GL_TEXTURE_3D) {
+        glTexSubImage3D(target_, 0, static_cast<GLint>(x), static_cast<GLint>(y), static_cast<GLint>(z),
+                        static_cast<GLsizei>(w), static_cast<GLsizei>(h), static_cast<GLsizei>(d),
+                        transferFormat(spec_.cell_type), transferType(spec_.cell_type), cells.data());
+    } else {
+        glTexSubImage2D(target_, 0, static_cast<GLint>(x), static_cast<GLint>(y),
+                        static_cast<GLsizei>(w), static_cast<GLsizei>(h),
+                        transferFormat(spec_.cell_type), transferType(spec_.cell_type), cells.data());
+    }
+    glBindTexture(target_, 0);
+}
+
 void GpuGrid::download(std::span<uint8_t> cells) const {
     glBindTexture(target_, pair_.current());
     glPixelStorei(GL_PACK_ALIGNMENT, 1);

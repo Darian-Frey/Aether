@@ -26,10 +26,11 @@ add_subdirectory(src/core)
 add_subdirectory(src/rule)
 add_subdirectory(src/sim)
 add_subdirectory(src/render)
+add_subdirectory(src/ui)
 
 add_executable(aether src/main.cpp)
 target_compile_options(aether PRIVATE ${AETHER_WARNINGS})
-target_link_libraries(aether PRIVATE aether_core aether_rule aether_sim aether_render raylib rlimgui imgui)
+target_link_libraries(aether PRIVATE aether_ui aether_core raylib)
 
 if(AETHER_BUILD_TESTS)
     enable_testing()

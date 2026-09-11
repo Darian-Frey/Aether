@@ -59,6 +59,7 @@ struct View2D {
     // Zoom so the whole grid fits the viewport, centred, at an integer zoom
     // where one fits and a fractional one otherwise (tiny viewports).
     void fit(unsigned width, unsigned height, const Rect& vp) {
+        if (vp.w <= 0 || vp.h <= 0 || width == 0 || height == 0) return;   // nothing to fit into yet
         const double z = std::min(static_cast<double>(vp.w) / width, static_cast<double>(vp.h) / height);
         zoom = z >= 1.0 ? std::floor(z) : z;
         centre_x = width * 0.5;

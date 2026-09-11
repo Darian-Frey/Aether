@@ -47,7 +47,7 @@ Omit `-G Ninja` to use Make. `CMAKE_BUILD_TYPE` defaults to Release if unset. Th
 
 Opens a hidden window, compiles a `#version 430` compute shader, dispatches it over a 4096-element SSBO, reads the result back and checks every element. Exit code 0 on success, 1 on any failure, with the renderer and version strings printed either way. This is the check that D-001 rests on; run it on any new machine before anything else.
 
-Without the flag, `./build/aether` opens a window with an ImGui panel showing the same result. Close the window to exit.
+Without the flag, `./build/aether` opens the laboratory: a 512² Life grid from random soup. `--rule`, `--size WxH`, `--cpu`, `--seed N` and `--rate G` configure the start; `--frames N --screenshot F` runs N frames headlessly-in-a-window, writes a PNG and exits, which is how the acceptance screenshots were taken.
 
 ## Running on the NVIDIA GPU
 

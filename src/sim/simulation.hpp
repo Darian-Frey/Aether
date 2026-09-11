@@ -66,6 +66,11 @@ public:
     void commitHost();                            // host -> GPU
     void clear();
     void fillRandom(std::span<const double> density);   // draws from stream A
+
+    // Sets cells x0..x1 inclusive on row (y, z) to `state`, on both the
+    // host copy and the GPU texture, with no readback. The canvas's one way
+    // in. Coordinates must be in range; x0 <= x1.
+    void paintSpan(uint32_t x0, uint32_t x1, uint32_t y, uint32_t z, uint8_t state);
     Pcg32& streamA() { return streamA_; }
 
     // The texture holding the current generation, for the renderer.

@@ -27,7 +27,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Runs multi-state generations rules (Brian's Brain, cyclic CA, Wireworld) with up to 256 states
 - Moore and von Neumann neighbourhoods at radius 1 and 2
 - Selectable boundary condition: toroidal wrap, fixed zero, mirror
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-11. B/S, Generations and count-condition table blocks; Moore and von Neumann at any radius (r=1,2 exercised); wrap/zero/mirror on both paths.
 
 ### F-002 CPU reference implementation
 **Priority:** Must
@@ -36,7 +37,7 @@ People who want to explore cellular automata rather than run one specific automa
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
 **Status:** In progress
-**Progress:** `sim/cpu_step` executes every table-backed kind on 1D/2D/3D grids under all three boundaries; the equivalence test runs 15 fixture rules × 3 boundaries for 1000 generations and passes on both GPUs (2026-09-11). `Simulation::setPath` switches paths at runtime with state carried across; a mid-run switch is tested against an unswitched reference (2026-09-11). Remaining: the bundled library as the fixture set, cell mutation (Phase 2), a command-line flag.
+**Progress:** CPU oracle for every table kind; equivalence suite of 15 rules × 3 boundaries × 1000 generations on both GPUs; runtime path switch in the UI and `--cpu` flag (2026-09-11). Remaining: the bundled library as the fixture set (Phase 4) and cell mutation on both paths (Phase 2).
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping
@@ -45,8 +46,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Grid resident in GPU texture memory; ping-pong pair swapped per generation
 - No per-generation host readback during a free-running simulation
 - 1024×1024 binary 2D grid steps at ≥ 200 generations/second on the target machine
-**Status:** In progress
-**Progress:** `sim/gpu_step` steps the `GpuGrid` pair with no host readback; 3,684 gen/s at 1024² Life on the T1200 against the 200 target (2026-09-11). Free-running mode arrives with the scheduler.
+**Status:** Complete
+**Progress:** 2026-09-11. GPU-resident pair, no per-generation readback, 3,684 gen/s at 1024² Life on the T1200.
 
 ### F-004 3D lattice support
 **Priority:** Must
@@ -80,8 +81,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Generations notation parses (`B2/S/C3`)
 - Explicit transition-table blocks parse for rules the shorthand cannot express
 - Syntax errors report line and column, and never leave the engine in a half-updated state
-**Status:** In progress
-**Progress:** DSL parses all three notations to a validated IR with line/column errors (2026-09-11); signature literals for non-totalistic blocks not yet specified.
+**Status:** Complete
+**Progress:** 2026-09-11. Errors carry line and column and leave the engine untouched. Note: `signature_literal` awaits a definition in SPEC §7; non-totalistic rules are expressible by hand-built IR only until then.
 
 ### F-008 Lua rule scripting
 **Priority:** Should
@@ -116,7 +117,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Paint cells directly with a per-state brush, adjustable radius
 - Works on a paused or running simulation
 - In 3D, painting operates on a selectable axis-aligned slice
-**Status:** Not started
+**Status:** In progress
+**Progress:** 2D brush with per-state colour and radius, working on a paused or running simulation, uploading by row span with no readback (2026-09-11). 3D slice painting is Phase 3.
 
 ### F-012 RLE pattern import
 **Priority:** Should
@@ -130,8 +132,8 @@ People who want to explore cellular automata rather than run one specific automa
 **Acceptance:**
 - Fill grid randomly with per-state density weights
 - Seeded from the session RNG so the same seed reproduces the same fill
-**Status:** In progress
-**Progress:** `sim::fillRandom` with per-state density weights, one PCG32 draw per cell from stream A (2026-09-11). Session seed plumbing is Phase 2.
+**Status:** Complete
+**Progress:** 2026-09-11. Per-state densities, one stream-A draw per cell, `--seed` reproduces the fill.
 
 ## Dynamics
 
@@ -141,8 +143,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Target generations/second set independently of frame rate, via an accumulator
 - Single-step, pause, and burst (run N generations as fast as possible, then stop)
 - Multiple generations per frame when the target rate exceeds the frame rate
-**Status:** In progress
-**Progress:** `sim::Scheduler` — accumulator, pause, single-step, burst, per-frame cap and wall-clock budget with a below-target flag (2026-09-11). UI controls pending.
+**Status:** Complete
+**Progress:** 2026-09-11. Accumulator, pause, single-step, burst, per-frame cap and wall-clock budget with a below-target indicator in the UI.
 
 ### F-015 Rule mutation
 **Priority:** Must
@@ -178,8 +180,8 @@ People who want to explore cellular automata rather than run one specific automa
 - State index mapped to colour through an editable palette
 - Pan and zoom with pixel-exact display at 1:1
 - Optional state-age shading for generations rules
-**Status:** In progress
-**Progress:** `render::Renderer2D` samples the state texture through a 256-entry palette texture with `View2D` pan/zoom, snapped for pixel-exact integer zoom; optional age shading (2026-09-11). Palette editing UI pending.
+**Status:** Complete
+**Progress:** 2026-09-11. Palette lookup, editable per state in the UI, pan and zoom pixel-exact at integer zoom, age shading toggle.
 
 ### F-019 3D rendering
 **Priority:** Must
