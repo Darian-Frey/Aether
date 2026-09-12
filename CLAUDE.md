@@ -36,7 +36,7 @@ Phase 3 — three dimensions (F-004, F-019). The engine already steps 3D grids (
 4. `--size WxHxD` on the command line; sessions already carry `d`.
 5. Acceptance: a 3D life variant at 256³ at ≥ 30 gen/s and ≥ 30 fps within 4 GB, same IR as its 2D counterpart where the family permits.
 
-Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-006; BUG-007 was a code defect (moved stepper).
+Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); IMP-002 (SPEC §7 `signature_literal` undefined; Langton's loops is the design case, scheduled Phase 4 with the rule library F-010, whose acceptance now lists the bundled rules). F-024 screensaver mode is a Should in Phase 6. Spec defects resolved and recorded: BUG-001 to BUG-006; BUG-007 was a code defect (moved stepper).
 
 ## Architectural invariants
 

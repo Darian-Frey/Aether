@@ -67,6 +67,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Status:** Not started
 **Features delivered:** F-008, F-009, F-010
 **Deliverables:**
+- [ ] `signature_literal` syntax defined in SPEC §7 and parsed, with Langton's loops as the design case (IMP-002)
+- [ ] Bundled rule library per the F-010 list, each rule with palette and description
 - [ ] Sandboxed Lua front end emitting IR
 - [ ] Instruction budget and abort path
 - [ ] GLSL codegen backend with template and shader cache
@@ -88,8 +90,9 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 ## Phase 6 — Presentation and release
 **Goal:** The things that make it pleasant rather than merely correct.
 **Status:** Not started
-**Features delivered:** F-005, F-012, F-021, F-022
+**Features delivered:** F-005, F-012, F-021, F-022, F-024
 **Deliverables:**
+- [ ] Screensaver mode: fullscreen playlist of bundled rules with optional mutation, exits on input (F-024, added 2026-09-12)
 - [ ] 1D elementary automata with space-time rendering
 - [ ] RLE import with placement
 - [ ] PNG and frame-sequence export

@@ -238,7 +238,7 @@ neighbourhood moore 1;
 ```
 Statements are evaluated in order; the first match wins. Cells matching no statement retain their state. The compiler expands the statement list exhaustively into a `Table`, or into an `Expression` if the table would exceed the threshold.
 
-Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. `signature_literal` is named in the grammar but not yet defined or accepted — a table block for a non-totalistic rule is deferred until a literal syntax is specified. Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
+Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. `signature_literal` is named in the grammar but not yet defined or accepted — a table block for a non-totalistic rule is deferred until a literal syntax is specified; IMP-002 proposes one with Langton's loops as the design case. Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
 
 ---
 

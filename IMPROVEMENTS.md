@@ -33,6 +33,16 @@ Entry format:
 **Trade-offs.** Changes the IR schema (SPEC §4), which is out of scope without a DECISIONS entry, and adds a kind that both execution paths must implement identically (AV-007). Doing nothing means the Phase 1 acceptance set (Brian's Brain, a cyclic CA of ≤ 8 states) still works, and larger rules wait for Phase 4 codegen.
 **Notes.** The DSL parser emits an `Expression` instead of a `Table` when the table would exceed the threshold (SPEC §7), so the rule is still representable; it just cannot execute until the expression backend exists.
 
+### IMP-002: Define `signature_literal` so non-totalistic rules can be written in the DSL
+**Status:** suggested
+**Found:** 2026-09-12 (planning the rule library)
+**Location:** SPEC.md §7; `src/rule/dsl.cpp`
+**Effort:** medium
+**Description.** SPEC §7's grammar names `signature_literal` as a condition form and never defines it, so a non-totalistic rule can only be built as a hand-made IR. Langton's self-reproducing loops (xscreensaver `loop`) is the concrete case: 8 states, von Neumann, 219 rotation-symmetric transitions written as `CTRBL -> N` in the literature, plus an implicit "no match retains" default.
+**Proposal.** A literal is the ordered neighbour states in canonical order, e.g. `0: [1, 0, 2, 0] -> 3;` for N=4, with `_` as a wildcard per position and an optional `rot` flag that expands a statement to its rotations (which is how the loop tables are published). Statements expand into the table exactly as count conditions do; first match wins. The canonical order is SPEC §3's, so the literal's meaning is pinned by the spec already.
+**Trade-offs.** Rotational expansion is only well defined for the four von Neumann neighbours and the eight Moore ones at radius 1; the syntax should refuse it elsewhere rather than guess. A large literal table is slow to expand naively (8⁴ per statement per own state is fine; Moore r=2 is not) — bound it with a diagnostic.
+**Notes.** Until this lands, the loop rule can enter through the Lua front end (F-008) computing the table, which may be the better home for a 219-line rule anyway. Either way the rule library (F-010) needs one of them.
+
 Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate features, and choices between design alternatives live in [DECISIONS.md](DECISIONS.md). This file is for internal changes that are neither: "is this worth doing at all?" rather than "which alternative?" or "is this user-visible?"
 
 ## Applied

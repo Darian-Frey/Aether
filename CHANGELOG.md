@@ -58,6 +58,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- F-010's acceptance now names the bundled rule set, with xscreensaver/xlockmore provenance; F-024 Screensaver mode promoted from candidate to Should (Phase 6); stochastic and two-phase rule forms recorded as candidates with the xscreensaver hacks that need them; IMP-002 proposes the `signature_literal` syntax (2026-09-12).
 - Per-step compute parameters (generation, mutation threshold, seed B) are uniforms rather than an SSBO update, avoiding a buffer-in-flight write each step (2026-09-11).
 - Scripted screenshots are captured before the swap; the back buffer after a swap is undefined on Mesa (2026-09-11).
 - The app calls `glFinish()` before scheduling so a driver's deferred vsync throttle is not charged to the step budget (2026-09-11).

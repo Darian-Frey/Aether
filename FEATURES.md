@@ -118,7 +118,18 @@ People who want to explore cellular automata rather than run one specific automa
 **Acceptance:**
 - Bundled named rules covering each supported family, loadable by name
 - User rules savable to and loadable from `rules/`
+- The bundled set includes at least these classics, with provenance noted where an xscreensaver/xlockmore hack is the reference (2026-09-12):
+  - Life-like: Conway's Life `B3/S23`, HighLife `B36/S23`, Seeds `B2/S`, Day & Night `B3678/S34678`, Diamoeba `B35678/S5678` (xlock `life`)
+  - Generations: Brian's Brain `B2/S/C3`, Star Wars `B2/S345/C4`
+  - Cyclic: Griffeath's cyclic CA, 8 and 14 states (xscreensaver `demon`)
+  - Wireworld
+  - Langton's self-reproducing loops (xscreensaver `loop`; 8 states, von Neumann, non-totalistic — needs the `signature_literal` syntax or the Lua front end, see IMP-002)
+  - 1D: Rules 30, 90, 110 (xscreensaver `life1d`; with F-005)
+  - 3D: Bays' 5766 and 4555 (xlock `life3d`; with F-004)
+  - Hexagonal: a hex Life-like such as `B2/S34` (F-023)
+- Each bundled rule carries its palette and a one-line description
 **Status:** Not started
+**Notes:** `voters` and `dilemma` from xscreensaver are *not* on the list: the first needs a stochastic transition form and the second a two-phase or radius-2 rule; see Candidate features.
 
 ## Initial state
 
@@ -205,6 +216,16 @@ People who want to explore cellular automata rather than run one specific automa
 - Holds ≥ 30 fps at 256³ on the target machine
 **Status:** Not started
 
+### F-024 Screensaver mode
+**Priority:** Should
+**Acceptance:**
+- A fullscreen mode with no UI chrome that cycles through a playlist of bundled rules on a timer, reseeding each
+- Optional rule mutation and cell mutation per playlist entry, so a run drifts rather than repeats
+- Exits on any input; usable as a standalone fullscreen binary, and as an X screensaver hack via the `XSCREENSAVER_WINDOW` convention if that proves practical
+- Session reproducibility unaffected: every run it shows is saveable
+**Status:** Not started
+**Notes:** Promoted from Candidate features 2026-09-12; this is the project's original motivation. Phase 6.
+
 ## Session and export
 
 ### F-020 Session serialisation
@@ -233,7 +254,9 @@ People who want to explore cellular automata rather than run one specific automa
 
 ## Candidate features (uncommitted)
 
-- Screensaver mode: cycle rules on a timer with no UI chrome, as an X screensaver or standalone fullscreen binary. This is where the original motivation came from and it may deserve promotion to a Should.
+- ~~Screensaver mode.~~ Promoted to F-024 (2026-09-12).
+- Stochastic transition form: rules where a cell's next state is drawn at random from its neighbours or by a per-rule probability — the voter model (xscreensaver `voters`), forest fire, Ising-like dynamics. Not expressible today: cell mutation is the engine's only randomness. Would need a new `Kind` and transition form in the IR, draws from a stream-B-style hash so both paths agree, and a D-entry (2026-09-12).
+- Two-phase or score-based rules: spatial prisoner's dilemma (xscreensaver `dilemma`) scores each cell against its neighbours and then copies the best-scoring neighbour's strategy, which is a radius-2 non-totalistic rule with a 2²⁴-entry table — codegen only (Phase 4), or a two-pass step the engine does not have (2026-09-12).
 - Agent-based automata (Langton's ant, turmites) behind a second engine.
 - Fitness-directed rule search: score each mutated rule on population entropy or activity and keep the branches that score well, turning F-015 from a random walk into a search. The lineage log (F-017) is already the substrate this would need.
 - Triangular lattice: representable on the square storage with two offset lists selected by the parity of x + y. Bounded but bends the uniform-lattice assumption both steppers and the table index rely on (D-012).
