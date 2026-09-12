@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
 > **Last reviewed:** 2026-08-30
-> **Why this status:** Phases 1 and 2 complete (2D discrete core, mutation, lineage, sessions, hex lattices); Phase 3 (three dimensions) not yet started.
+> **Why this status:** Phases 1–3 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions); Phase 4 (Lua and codegen) not yet started.
 
 # Aether
 
@@ -18,9 +18,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/aether --gl-check                   # exit 0 means compute shaders work here
 ./build/aether --rule B3/S23 --size 512x512
+./build/aether --rule B5/S45 --size 128x128x128   # a depth makes it 3D
 ```
 
-In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block such as `states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 3 or n(1) > 4 -> 0;` — and compile with Ctrl+Enter. The Mutation section turns on cell mutation (a per-cell probability) and rule mutation (point edits to the rule every N generations); every rule the run passes through is in the Lineage list, where it can be pinned by name or rewound to. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on. The Session section saves and loads `.aether` files; a saved run replays bit-for-bit from its initial state — Verify replay checks it on the other execution path, and `aether replay in.aether out.aether` does it headlessly. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
+In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. In 3D, right-drag orbits, the View section clips the volume or shows a single slice (S), and painting happens on that slice; each state's palette alpha is its opacity. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block such as `states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 3 or n(1) > 4 -> 0;` — and compile with Ctrl+Enter. The Mutation section turns on cell mutation (a per-cell probability) and rule mutation (point edits to the rule every N generations); every rule the run passes through is in the Lineage list, where it can be pinned by name or rewound to. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on. The Session section saves and loads `.aether` files; a saved run replays bit-for-bit from its initial state — Verify replay checks it on the other execution path, and `aether replay in.aether out.aether` does it headlessly. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements
 

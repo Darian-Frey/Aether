@@ -52,15 +52,16 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 3 — Three dimensions
 **Goal:** The same engine on cubic lattices, with volume rendering.
-**Status:** Not started
+**Status:** Complete 2026-09-12
 **Features delivered:** F-004, F-019
 **Deliverables:**
-- [ ] 3D texture grid path and 3D neighbourhood gathering
-- [ ] Volume raymarch renderer with per-state opacity
-- [ ] Orbit camera, clipping planes, slice view
-- [ ] Slice-based painting for 3D
-- [ ] VRAM budget guard rejecting grid sizes that will not fit
+- [x] 3D texture grid path and 3D neighbourhood gathering (delivered in Phase 1: `GpuGrid` 3D textures, `lut_step.comp` 3D variant, 3D equivalence fixtures)
+- [x] Volume raymarch renderer with per-state opacity — `render/renderer3d`, Amanatides–Woo voxel traversal, palette alpha as opacity, face shading (2026-09-12)
+- [x] Orbit camera, clipping planes, slice view — `render/orbit`, View panel (2026-09-12)
+- [x] Slice-based painting for 3D — `Orbit::pickOnSlab` → `paintSpan` with z (2026-09-12)
+- [x] VRAM budget guard rejecting grid sizes that will not fit — `GpuGrid::create` (Phase 1); the Grid panel shows the footprint and the log carries the guard's message (2026-09-12)
 **Acceptance:** A 3D life variant runs at 256³ and ≥ 30 fps within the 4 GB VRAM budget, with the same rule IR as its 2D counterpart where the rule family permits.
+**Acceptance run (2026-09-12, T1200):** `B5/S45` at 256³ with the volume rendered every frame: 49 gen/s and 49 fps at a 60 gen/s target; 33.5 MB of VRAM for the pair. The rule is the same `outer_totalistic` IR family as its 2D form, with N = 26.
 
 ## Phase 4 — Lua and codegen
 **Goal:** Rules too exotic for the DSL, and the GLSL backend that large rules need.

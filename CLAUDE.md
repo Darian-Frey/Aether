@@ -8,35 +8,35 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phases 1 and 2 complete (2026-09-11, 2026-09-12). The 2D core runs interactively on square and hexagonal lattices with both mutation controls, a lineage log with pin and rewind, and sessions that replay bit-identically across processes. Phase 3 (three dimensions) not started.
+Phases 1–3 complete (2026-09-11 to 2026-09-12). The discrete core runs interactively in 2D (square and hexagonal) and 3D (volume raymarch, orbit, clip, slice painting) with both mutation controls, a lineage log with pin and rewind, and sessions that replay bit-identically across processes. Phase 4 (Lua and codegen) not started.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
 - `CMakeLists.txt` + `cmake/`: `Dependencies.cmake` fetches raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, nlohmann/json `v3.12.0`, Catch2 `v3.9.1`; `EmbedShaders.cmake` turns `shaders/*` into string constants under `build/generated/`.
 - `src/core/` (`aether_core`): `cell`, `grid` (GridSpec, `PingPong<T>` — the one swap — HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download/uploadRegion, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). Boundary handling is deliberately *not* here.
 - `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `ir_json` (IR ↔ JSON, base64; the one place an IR is built from external data, validated), `neighbourhood`, `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`).
 - `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `hash` (stream B: `hash32`, `mutationThreshold`, `CellMutation`, `mutatedState` — twin of `shaders/hash.glsl`), `fill`, `rule_mutation` (`mutateRule`: point edits from stream A, validate-or-redraw ×8; `RuleMutationParams`), `lineage` (`Lineage`: entries with full IR, origin, journal index, pin), `journal` (event types), `session` (`Session` struct, cell codec, JSON, save/load with sidecar), `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A + lineage; `setRule` is all-or-nothing and *every* successful install appends to the lineage — `installRule` is the single route, so mutation cannot bypass the log; `maybeMutateRule` runs at the top of `step()`; `rewind(i)` reinstalls entry i and records itself; every user-reachable mutator journals itself with the generation; `session()` snapshots; `resume()` continues from stored state; `replay()` rebuilds from initial + journal; `rewindGrid()` is replay-then-truncate; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
-- `src/render/` (`aether_render`): `view2d` (camera with `Lattice::{Square,Hex}`; pixel-exact snapping on square; axial↔cell-space matrices and `hexRound` on hex; `cellAt` shared with the canvas), `palette`, `renderer2d` (palette pass over raylib's batch; `lattice` uniform).
-- `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`, session save/load/verify, `adoptSimulation` after load/rewind), `panels` (ImGui), `canvas` (paint/pan/zoom/keys), `brush` (pure geometry), `log` (ring buffer), `headless` (`headless`/`replay`/`compare` subcommands; exit 77 = no GL context, which CTest treats as skip).
+- `src/render/` (`aether_render`): `view2d` (camera with `Lattice::{Square,Hex}`; pixel-exact snapping on square; axial↔cell-space matrices and `hexRound` on hex; `cellAt` shared with the canvas), `palette` (alpha = 3D opacity), `renderer2d` (palette pass over raylib's batch; `lattice` uniform), `orbit` (header-only orbit camera: `rayFor`, `pickOnSlab`, `fit`), `renderer3d` (`shaders/volume.frag`: Amanatides–Woo DDA, bounded by W+H+D; binds its textures on units 6/7 by hand because raylib's sampler registration is 2D-only).
+- `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`, session save/load/verify, `adoptSimulation` after load/rewind, `is3D()` selects renderer and input), `panels` (ImGui; View panel for 3D), `canvas` (2D: paint/pan/zoom; 3D: orbit/zoom, slice painting via `paintAt3D`; keys), `brush` (pure geometry), `log` (ring buffer), `headless` (`headless`/`replay`/`compare` subcommands; exit 77 = no GL context, which CTest treats as skip).
 - `src/main.cpp`: subcommand dispatch (`headless`, `replay`, `compare`) and argument parsing → `ui::App::run()`. `--gl-check` is the compute-path probe; `--frames N --screenshot F` gives a scripted run; `--load FILE` resumes a session.
 - `shaders/`: `hash.glsl` (prepended to every shader that mutates cells), `lut_step.comp` (specialised by `#define`s the stepper prepends), `palette2d.{vert,frag}` (both GLSL 430). Edit these, never the generated copies.
-- `tests/`: Catch2, one file per module, 150 cases plus the five cross-process `replay.*` cases under `ctest` (155). `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
+- `tests/`: Catch2, one file per module, 157 cases plus the five cross-process `replay.*` cases under `ctest` (162). `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
 - `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 
 Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes through `paintSpan`, which writes both.
 
-Throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s (budget 30). The Intel iGPU is at the 2D budget and far below the 3D one; every SPEC §12 figure is a T1200 figure.
+Throughput on the T1200: Life 1024² 3,684 gen/s (budget 200); 256³ 3D 69 gen/s stepping alone, 49 gen/s and 49 fps with the volume rendered (budget 30/30). The Intel iGPU is at the 2D budget and far below the 3D one; every SPEC §12 figure is a T1200 figure.
 
 ## Active task
 
-Phase 3 — three dimensions (F-004, F-019). The engine already steps 3D grids (`GpuGrid` 3D textures, `lut_step.comp` 3D variant, 3D equivalence fixtures, 69 gen/s at 256³ on the T1200); what is missing is everything that lets a person see and touch one. Suggested order:
+Phase 4 — Lua and codegen (F-008, F-009, F-010). Suggested order:
 
-1. `render/renderer3d`: front-to-back raymarch through the `GL_TEXTURE_3D` state texture with per-state colour and opacity from the palette (SPEC §13), step count from grid extent, adjustable clipping planes, single-slice mode. A new fragment shader riding raylib's batch like `Renderer2D`; both stages GLSL 430. Orbit camera as a pure struct like `View2D`.
-2. `ui/`: grid panel gains depth and a 2D/3D switch (the `Simulation` is created with `dimensions = 3`); a 3D view section (orbit, clip, slice); painting on a selectable axis-aligned slice through `paintSpan` with `z` (F-011).
-3. VRAM guard in the UI: refuse a grid the `checkFootprint` rejects with the message it gives; it already exists in `GpuGrid::create`.
-4. `--size WxHxD` on the command line; sessions already carry `d`.
-5. Acceptance: a 3D life variant at 256³ at ≥ 30 gen/s and ≥ 30 fps within 4 GB, same IR as its 2D counterpart where the family permits.
+1. `signature_literal` (IMP-002): define the syntax in SPEC §7, parse it in `rule/dsl`, expand to a non-totalistic `Table`; Langton's loops as the fixture. This is a SPEC §7 change, not §4, so no D-entry is needed — but write it in SPEC first.
+2. Lua front end (`rule/lua`, D-003): Lua 5.4 via `liblua5.4-dev` (present on the machine; add a `find_package`/pkg-config step in `cmake/Dependencies.cmake`), sandbox per SPEC §8, `LUA_INSTRUCTION_BUDGET` via a count hook, returned table → IR through `rule/ir_json`-style conversion, validated. The `lua_State` is created and destroyed inside one compile call so it is unreachable from `sim/` by construction (AV-008). Test the infinite-loop abort (AV-009).
+3. Bundled rule library (`rules/*.aether-rule` or `.lua`, F-010 list), loadable by name from the UI and `--rule @name`; each with palette and description. Langton's loops enters through Lua or the literal syntax, whichever lands first.
+4. GLSL codegen backend (`rule/glsl`, D-004): `Expression` → `aether_rule()` body per SPEC §6, a second compute shader variant, shader cache keyed on `ir_hash`; `selectBackend` already routes. `Simulation::setRule` then stops refusing codegen rules. CPU side needs an `Expression` interpreter in `cpu_step` (the oracle must cover every rule the GPU runs).
+5. Backend equivalence test: every fixture expressible both ways compiled through both, 1000 generations, bitwise (AV-007).
 
-Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); IMP-002 (SPEC §7 `signature_literal` undefined; Langton's loops is the design case, scheduled Phase 4 with the rule library F-010, whose acceptance now lists the bundled rules). F-024 screensaver mode is a Should in Phase 6. Spec defects resolved and recorded: BUG-001 to BUG-006; BUG-007 was a code defect (moved stepper).
+Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules — codegen makes it moot in practice; keep the entry). IMP-002 is step 1 above. F-024 screensaver mode is a Should in Phase 6.
 
 ## Architectural invariants
 
@@ -95,6 +95,7 @@ Build-specific:
 - `TakeScreenshot` must run before `EndDrawing`: after the swap the back buffer is undefined (black on Mesa).
 - Objects that own GL handles and are moved (`GpuStepper`, `GpuGrid`, `Renderer2D`) keep plain state in a struct copied wholesale and handles in a struct exchanged on move. Do not add a member outside those structs: a hand-listed move constructor silently drops it (BUG-007).
 - Every user-reachable `Simulation` mutator must journal itself. A new one that does not breaks replay silently; the `replay.*` CTest and `tests/sim/session_test.cpp` are the guard.
+- The volume shader binds its samplers on texture units 6 and 7 itself; `rlSetUniformSampler` binds `GL_TEXTURE_2D` and cannot take a 3D texture. Units 0–4 are raylib's.
 - Hex lattices are axial storage: a W×H grid is a rhombus on screen, `wrap` is a rhombic torus, and hex neighbourhoods are 2D only. `View2D::hexRound` and the shader's `hexRound` are twins.
 - `sim/hash.hpp` and `shaders/hash.glsl` are twins. Change both or neither; `tests/sim/hash_test.cpp` compares them on the GPU.
 - GL RAII objects (`GpuGrid`, `GpuStepper`, `Renderer2D`) must be destroyed before `CloseWindow()`. Scope them inside the window's lifetime; a destructor after context teardown segfaults.

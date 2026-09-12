@@ -58,5 +58,5 @@ void main() {
         float t = float(s - 1u) / float(states - 1);
         c.rgb *= mix(1.0, 0.3, t);
     }
-    finalColor = c;
+    finalColor = vec4(c.rgb, 1.0);   // palette alpha is the 3D opacity; 2D is opaque
 }

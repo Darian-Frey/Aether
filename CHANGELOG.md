@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- 3D presentation (F-019): `render/renderer3d` with `shaders/volume.frag` (Amanatides–Woo traversal, palette alpha as opacity, face shading), `render/orbit` camera with slab picking; View panel with opacity, clip ranges, slice mode; slice painting; `--size WxHxD`, Depth in the Grid panel, headless 3D runs (2026-09-12).
 - Hexagonal lattices (F-023, D-012): `NeighbourhoodType::Hexagonal` with axial offsets, `neighbourhood hex r` in the DSL, `View2D` hex mode (cube rounding, rhombus fit), hex path in `palette2d.frag`, hex-shaped brush, hex equivalence fixtures (2026-09-12).
 - Sessions (F-020): `sim/session` — `.aether` JSON per SPEC §11 with a journal of every user action, delta-encoded lineage, a raw sidecar for grids over 4M cells; `Simulation::session/resume/replay/rewindGrid`; `rule/ir_json` with base64 (2026-09-12).
 - Headless subcommands `aether headless | replay | compare` and the cross-process `replay.*` CTest cases (AV-006 detection implemented) (2026-09-12).
@@ -42,7 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 155 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 162 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -58,6 +59,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- Palette alpha now means opacity in the 3D view and the default palette makes state 0 transparent; the 2D pass is opaque regardless (2026-09-12).
 - F-010's acceptance now names the bundled rule set, with xscreensaver/xlockmore provenance; F-024 Screensaver mode promoted from candidate to Should (Phase 6); stochastic and two-phase rule forms recorded as candidates with the xscreensaver hacks that need them; IMP-002 proposes the `signature_literal` syntax (2026-09-12).
 - Per-step compute parameters (generation, mutation threshold, seed B) are uniforms rather than an SSBO update, avoiding a buffer-in-flight write each step (2026-09-11).
 - Scripted screenshots are captured before the swap; the back buffer after a swap is undefined on Mesa (2026-09-11).
@@ -67,6 +69,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - D-009 project name moved from Proposed to Accepted on author confirmation; GitHub repository created at `Darian-Frey/Aether` (2026-09-11).
 
 ### Notes
+- Phase 3 complete 2026-09-12: 3D grids rendered as volumes with orbit, clip and slice; 256³ at 49 gen/s and 49 fps on the target GPU.
 - Phase 2 complete 2026-09-12: both mutation controls, lineage with pin/rewind, sessions that replay bit-identically across processes, and hexagonal lattices.
 - Phase 1 complete 2026-09-11: the 2D discrete core runs interactively with Life, HighLife, Brian's Brain and cyclic CAs at 1024² above 2,000 gen/s on the target GPU, CPU and GPU agreeing bitwise.
 - The project name is confirmed (D-009).

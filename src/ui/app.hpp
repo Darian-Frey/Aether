@@ -7,7 +7,9 @@
 
 #pragma once
 
+#include "render/orbit.hpp"
 #include "render/renderer2d.hpp"
+#include "render/renderer3d.hpp"
 #include "render/view2d.hpp"
 #include "rule/dsl.hpp"
 #include "sim/simulation.hpp"
@@ -25,6 +27,7 @@ struct Options {
     std::string rule   = "B3/S23";
     uint32_t    width  = 512;
     uint32_t    height = 512;
+    uint32_t    depth  = 1;      // > 1 makes a 3D grid
     bool        cpu    = false;
     uint64_t    seed   = 1;      // stream A
     uint64_t    seedB  = 2;      // stream B
@@ -46,7 +49,11 @@ public:
 
 private:
     // Lifecycle
-    bool createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& ir, sim::Path path);
+    bool createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path);
+    bool is3D() const;
+    render::VolumeSettings volumeSettings() const;
+    void drawViewPanel();
+    void paintAt3D(const std::array<int, 3>& cell);
     bool adoptSimulation(sim::Simulation&& s, const char* what);   // after load/rewind
     void drawSessionPanel();
     void saveSessionTo(const std::string& path);
@@ -74,7 +81,15 @@ private:
 
     std::optional<sim::Simulation>    sim_;
     std::optional<render::Renderer2D> renderer_;
+    std::optional<render::Renderer3D> renderer3d_;
     render::View2D view_;
+    render::Orbit  orbit_;
+    std::array<float, 3> clipLo_{0, 0, 0};   // fractions of the grid
+    std::array<float, 3> clipHi_{1, 1, 1};
+    float opacity_ = 1.0f;
+    bool  sliceMode_ = false;
+    int   sliceAxis_ = 2;
+    int   sliceIndex_ = 0;
     render::Rect   viewport_;
 
     rule::DslContext ctx_;
@@ -87,7 +102,7 @@ private:
     bool panning_ = false;
 
     std::vector<float> density_;
-    int newWidth_ = 512, newHeight_ = 512;
+    int newWidth_ = 512, newHeight_ = 512, newDepth_ = 1;
     int burstCount_ = 1000;
     float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
     bool  cellMutationOn_ = false;

@@ -9,6 +9,7 @@
 #include <raylib.h>
 
 #include <cmath>
+#include <cstring>
 #include <format>
 
 namespace aether::ui {
@@ -43,6 +44,7 @@ void App::drawPanels() {
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
+    if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
     if (ImGui::CollapsingHeader("Mutation", ImGuiTreeNodeFlags_DefaultOpen)) drawMutationPanel();
     if (ImGui::CollapsingHeader("Lineage", ImGuiTreeNodeFlags_DefaultOpen)) drawLineagePanel();
     if (ImGui::CollapsingHeader("Session")) drawSessionPanel();
@@ -130,13 +132,34 @@ void App::drawGridPanel() {
     ImGui::PushID("grid");
     ImGui::InputInt("Width", &newWidth_, 16, 256);
     ImGui::InputInt("Height", &newHeight_, 16, 256);
+    ImGui::InputInt("Depth", &newDepth_, 16, 64);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("1 for a 2D grid; more for 3D (the rule must be 3D too)");
     newWidth_ = std::clamp(newWidth_, 1, 16384);
     newHeight_ = std::clamp(newHeight_, 1, 16384);
+    newDepth_ = std::clamp(newDepth_, 1, 2048);
+    {
+        const core::GridSpec want{static_cast<uint8_t>(newDepth_ > 1 ? 3 : 2), static_cast<uint32_t>(newWidth_),
+                                  static_cast<uint32_t>(newHeight_), static_cast<uint32_t>(newDepth_)};
+        ImGui::TextDisabled("%.1f MB for the pair", static_cast<double>(want.footprintBytes()) / 1048576.0);
+    }
     if (ImGui::Button("New grid")) {
-        const rule::RuleIR ir = sim_->rule();
+        const uint8_t dims = newDepth_ > 1 ? 3 : 2;
+        rule::RuleIR ir = sim_->rule();
+        if (ir.dimensions != dims) {
+            // The rule must match the lattice; re-parse the text for the new
+            // dimensionality, falling back to a sensible default.
+            rule::DslContext ctx = ctx_;
+            ctx.dimensions = dims;
+            auto parsed = rule::parseDsl(ruleText_.data(), ctx);
+            if (!parsed) parsed = rule::parseDsl(dims == 3 ? "B5/S45" : "B3/S23", ctx);
+            ir = *parsed.ir;
+            ctx_.dimensions = dims;
+            std::strncpy(ruleText_.data(), ir.metadata.source_notation.value_or("").c_str(), ruleText_.size() - 1);
+        }
         const sim::Path path = sim_->path();
         sim_.reset();
-        if (createSimulation(static_cast<uint32_t>(newWidth_), static_cast<uint32_t>(newHeight_), ir, path)) {
+        if (createSimulation(static_cast<uint32_t>(newWidth_), static_cast<uint32_t>(newHeight_),
+                             static_cast<uint32_t>(newDepth_), ir, path)) {
             sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
         }
     }
@@ -233,6 +256,37 @@ void App::drawLineagePanel() {
     ImGui::PopID();
 }
 
+void App::drawViewPanel() {
+    if (!sim_) return;
+    ImGui::PushID("view");
+    const auto& sp = sim_->spec();
+    ImGui::SliderFloat("Opacity", &opacity_, 0.0f, 1.0f);
+    ImGui::TextUnformatted("Clip");
+    const char* axisNames[3] = {"x", "y", "z"};
+    for (int a = 0; a < 3; ++a) {
+        ImGui::PushID(a);
+        float lo = clipLo_[static_cast<size_t>(a)], hi = clipHi_[static_cast<size_t>(a)];
+        if (ImGui::DragFloatRange2(axisNames[a], &lo, &hi, 0.002f, 0.0f, 1.0f, "%.2f", "%.2f")) {
+            clipLo_[static_cast<size_t>(a)] = std::min(lo, hi);
+            clipHi_[static_cast<size_t>(a)] = std::max(lo, hi);
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("reset clip")) { clipLo_ = {0, 0, 0}; clipHi_ = {1, 1, 1}; }
+    ImGui::Separator();
+    ImGui::Checkbox("Slice mode (S)", &sliceMode_);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show one plane; left-drag paints on it");
+    ImGui::BeginDisabled(!sliceMode_);
+    ImGui::Combo("Axis", &sliceAxis_, "x\0y\0z\0");
+    const int ext = static_cast<int>(sliceAxis_ == 0 ? sp.width : sliceAxis_ == 1 ? sp.height : sp.depth);
+    sliceIndex_ = std::clamp(sliceIndex_, 0, ext - 1);
+    ImGui::SliderInt("Index (, .)", &sliceIndex_, 0, ext - 1);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Right drag orbits, wheel zooms, F fits.");
+    if (ImGui::SmallButton("Fit (F)")) fitView();
+    ImGui::PopID();
+}
+
 void App::drawBrushPanel() {
     if (!sim_) return;
     ImGui::PushID("brush");
@@ -260,7 +314,11 @@ void App::drawPalettePanel() {
         }
     }
     if (ImGui::Button("Reset palette")) { pal = render::Palette::defaultFor(sim_->rule().states); changed = true; }
-    if (changed) renderer_->setPalette(pal);
+    if (is3D()) ImGui::TextDisabled("Alpha is each state's opacity in the volume.");
+    if (changed) {
+        renderer_->setPalette(pal);
+        if (renderer3d_) renderer3d_->setPalette(pal);
+    }
     ImGui::PopID();
 }
 

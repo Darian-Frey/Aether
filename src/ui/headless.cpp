@@ -39,9 +39,11 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
     if (!win.ready()) return kExitNoContext;
     int code = 0;
     {
-        auto parsed = rule::parseDsl(opts.rule);
+        rule::DslContext ctx;
+        ctx.dimensions = opts.depth > 1 ? 3 : 2;
+        auto parsed = rule::parseDsl(opts.rule, ctx);
         if (!parsed) return fail(std::format("rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
-        auto made = sim::Simulation::create(core::GridSpec{2, opts.width, opts.height, 1}, *parsed.ir,
+        auto made = sim::Simulation::create(core::GridSpec{ctx.dimensions, opts.width, opts.height, opts.depth}, *parsed.ir,
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);
         auto sim = std::get<sim::Simulation>(std::move(made));

@@ -1,4 +1,5 @@
-// State palette (SPEC §13): 256 RGBA entries indexed by state.
+// State palette (SPEC §13): 256 RGBA entries indexed by state. Alpha is the
+// state's opacity in the 3D view; the 2D view ignores it.
 
 #pragma once
 

@@ -40,7 +40,7 @@ int glCheck() {
 void usage() {
     std::puts("usage: aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--gl-check]\n"
               "  --rule R     B/S, B/S/C or a table block (default B3/S23)\n"
-              "  --size WxH   grid extents (default 512x512)\n"
+              "  --size WxH[xD]  grid extents (default 512x512); a depth makes it 3D\n"
               "  --cpu        start on the CPU reference path\n"
               "  --seed N     stream A seed for the random fill (default 1)\n"
               "  --seed-b N   stream B seed for cell mutation (default 2)\n"
@@ -90,11 +90,12 @@ int main(int argc, char** argv) {
         if (a == "--help" || a == "-h") { usage(); return 0; }
         if (a == "--rule") opts.rule = value("--rule");
         else if (a == "--size") {
-            unsigned w = 0, h = 0;
-            if (std::sscanf(value("--size"), "%ux%u", &w, &h) != 2 || w == 0 || h == 0) {
-                std::puts("--size expects WxH"); return 2;
+            unsigned w = 0, h = 0, d = 1;
+            const int n = std::sscanf(value("--size"), "%ux%ux%u", &w, &h, &d);
+            if (n < 2 || w == 0 || h == 0 || d == 0) {
+                std::puts("--size expects WxH or WxHxD"); return 2;
             }
-            opts.width = w; opts.height = h;
+            opts.width = w; opts.height = h; opts.depth = d;
         }
         else if (a == "--cpu") opts.cpu = true;
         else if (a == "--seed") opts.seed = std::strtoull(value("--seed"), nullptr, 10);

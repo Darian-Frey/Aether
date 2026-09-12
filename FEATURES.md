@@ -55,7 +55,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Cubic lattices up to at least 256³ on 4 GB VRAM
 - 3D Moore (26) and von Neumann (6) neighbourhoods
 - Same rule IR and same compute path as 2D; dimensionality is an IR field, not a separate engine
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-12. 3D grids up to the VRAM guard's limit (256³ is 33.5 MB); Moore 26 and von Neumann 6; same IR and compute path as 2D; 49 gen/s at 256³ with rendering on the T1200.
 
 ### F-005 1D elementary automata
 **Priority:** Should
@@ -139,8 +140,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Paint cells directly with a per-state brush, adjustable radius
 - Works on a paused or running simulation
 - In 3D, painting operates on a selectable axis-aligned slice
-**Status:** In progress
-**Progress:** 2D brush with per-state colour and radius, working on a paused or running simulation, uploading by row span with no readback (2026-09-11). 3D slice painting is Phase 3.
+**Status:** Complete
+**Progress:** 2026-09-12. 2D brush on square and hex lattices; in 3D, painting on the selected axis-aligned slice in slice mode, picked by ray–slab intersection. All painting through `paintSpan` with no readback.
 
 ### F-012 RLE pattern import
 **Priority:** Should
@@ -214,7 +215,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Volume raymarch through the state texture with per-state colour and opacity
 - Orbit camera with adjustable clipping planes and slice view
 - Holds ≥ 30 fps at 256³ on the target machine
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-12. Voxel-exact raymarch with per-state colour and opacity from the palette; orbit camera; per-axis clip ranges; single-slice mode; 49 fps at 256³ on the T1200.
 
 ### F-024 Screensaver mode
 **Priority:** Should

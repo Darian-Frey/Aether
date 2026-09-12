@@ -25,7 +25,7 @@ Rgba hsv(double h, double s, double v) {
 
 Palette Palette::defaultFor(uint16_t states) {
     Palette p;
-    p.entries[0] = {14, 16, 20, 255};
+    p.entries[0] = {14, 16, 20, 0};   // alpha is opacity in the 3D view: quiescent is invisible
     p.entries[1] = {236, 240, 238, 255};
     for (uint16_t s = 2; s < 256; ++s) {
         // Spread the remaining states evenly round the circle; states past

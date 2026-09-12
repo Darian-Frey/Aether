@@ -22,6 +22,8 @@ add_executable(aether_tests
     sim/simulation_test.cpp
     render/view2d_test.cpp
     render/renderer2d_test.cpp
+    render/orbit_test.cpp
+    render/renderer3d_test.cpp
     ui/brush_test.cpp
     sim/paint_test.cpp)
 
