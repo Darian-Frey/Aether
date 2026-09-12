@@ -3,6 +3,7 @@
 #include "ui/app.hpp"
 
 #include "rule/lut.hpp"
+#include "sim/session.hpp"
 
 #include <imgui.h>
 #include <raylib.h>
@@ -44,6 +45,7 @@ void App::drawPanels() {
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (ImGui::CollapsingHeader("Mutation", ImGuiTreeNodeFlags_DefaultOpen)) drawMutationPanel();
     if (ImGui::CollapsingHeader("Lineage", ImGuiTreeNodeFlags_DefaultOpen)) drawLineagePanel();
+    if (ImGui::CollapsingHeader("Session")) drawSessionPanel();
     if (ImGui::CollapsingHeader("Brush", ImGuiTreeNodeFlags_DefaultOpen)) drawBrushPanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
     if (ImGui::CollapsingHeader("Log")) drawLogPanel();
@@ -207,9 +209,23 @@ void App::drawLineagePanel() {
         }
         if (!current) {
             ImGui::SameLine();
-            if (ImGui::SmallButton("rewind")) {
+            if (ImGui::SmallButton("rule")) {
                 if (auto err = sim_->rewind(k)) log_.error(err->message);
             }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Restore this rule; keep the grid");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("grid")) {
+                // Time travel: replay to this entry and abandon the future.
+                auto made = sim::Simulation::rewindGrid(sim_->session(), k, sim_->path());
+                if (const auto* err = std::get_if<core::Error>(&made)) log_.error("rewind: " + err->message);
+                else {
+                    sim_.reset();
+                    adoptSimulation(std::get<sim::Simulation>(std::move(made)), std::format("rewound to #{}", k).c_str());
+                    ImGui::PopID();
+                    break;   // the entries vector is gone
+                }
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replay to this point: grid and rule, journal truncated");
         }
         ImGui::PopID();
     }
@@ -245,6 +261,22 @@ void App::drawPalettePanel() {
     }
     if (ImGui::Button("Reset palette")) { pal = render::Palette::defaultFor(sim_->rule().states); changed = true; }
     if (changed) renderer_->setPalette(pal);
+    ImGui::PopID();
+}
+
+void App::drawSessionPanel() {
+    if (!sim_) return;
+    ImGui::PushID("session");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##path", "path/to/session.aether", sessionPath_.data(), sessionPath_.size());
+    if (ImGui::Button("Save")) saveSessionTo(sessionPath_.data());
+    ImGui::SameLine();
+    if (ImGui::Button("Load")) loadSessionFrom(sessionPath_.data());
+    ImGui::SameLine();
+    if (ImGui::Button("Verify replay")) verifyReplay();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replay from the initial state on the other path and compare");
+    ImGui::TextDisabled("%zu journal events; seeds A %llu, B %llu", sim_->journal().size(),
+                        static_cast<unsigned long long>(sim_->seedA()), static_cast<unsigned long long>(sim_->seedB()));
     ImGui::PopID();
 }
 

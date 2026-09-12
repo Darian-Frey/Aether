@@ -181,8 +181,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Every rule the run has passed through is recorded with the generation index at which it took effect
 - Any entry can be pinned (named and saved to the rule library) or rewound to (restores that rule and, optionally, the grid state)
 - Log survives session save/load
-**Status:** In progress
-**Progress:** Append on every rule change, pin/unpin with a name, rewind of the rule with its own entry; lineage browser in the UI (2026-09-11). Remaining: grid rewind by replay, and surviving save/load — both with sessions.
+**Status:** Complete
+**Progress:** 2026-09-12. Append on every rule change, pin by name, rule-only rewind (appends) and grid rewind (replay, truncates), survives save/load with delta-encoded entries.
 **Notes:** Without this, F-015 produces interesting rules and immediately loses them. Treated as part of the mutation feature, not an extra.
 
 ## Presentation
@@ -212,7 +212,8 @@ People who want to explore cellular automata rather than run one specific automa
 - A saved session replays to a bit-identical grid at any generation index
 - Session records initial state, rule IR, both RNG seeds, and the mutation schedule (SPEC §11)
 - Format version field present from the first release
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-12. `.aether` JSON per SPEC §11 with a journal of user actions; replays bit-identically on either path across processes (`ctest -R replay`); format version checked on load.
 
 ### F-021 Frame export
 **Priority:** Should
@@ -225,7 +226,8 @@ People who want to explore cellular automata rather than run one specific automa
 **Priority:** Could
 **Acceptance:**
 - Run a session file for N generations with no window and dump the final grid or a frame sequence
-**Status:** Not started
+**Status:** In progress
+**Progress:** `aether headless`, `aether replay` and `aether compare` exist for the cross-process replay test (2026-09-12); frame-sequence dump pending.
 **Notes:** Makes CPU/GPU equivalence testing (F-002) scriptable in CI.
 
 ## Candidate features (uncommitted)

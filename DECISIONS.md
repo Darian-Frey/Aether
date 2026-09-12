@@ -310,3 +310,29 @@ Status vocabulary: Proposed | Accepted | Superseded by D-NNN | Deprecated.
 - The Out of scope line in FEATURES is narrowed rather than deleted, per the append-only convention.
 
 **Reversal conditions.** Revisit triangular if a rule family emerges that needs it and the parity branch proves cheap in practice. Revisit Penrose only as a deliberate graph-lattice engine with its own decision.
+
+---
+
+### D-013 Sessions record a journal of user actions; snapshots are conveniences
+**Decided:** 2026-09-12
+**Recorded:** 2026-09-12
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, Phase 2 session 2026-09-12)
+**Related:** F-017, F-020, D-006, SPEC.md §11, AV-006
+
+**Context.** D-006 makes a session the quadruple *initial state, rule, seeds, mutation schedule*. Implementing it showed that "mutation schedule" was doing more work than it looked: a laboratory run also has brush strokes, fills, clears, rule changes and parameter changes at arbitrary generations, and none of them is derivable from the seeds.
+
+**Options.**
+- **A. Forbid mid-run edits, or make each one restart the session at generation 0.** Rejected: painting into a running automaton is the point of the canvas, and restarting loses the lineage.
+- **B. Snapshot the grid on every edit.** Rejected: a 256³ grid per brush stroke.
+- **C. Journal every externally driven change with its generation, and replay the journal against the initial state.** Chosen. Rule mutations are not journaled — they regenerate from stream A — so the journal is small.
+
+**Decision.** Option C. The session's reproducibility set is `grid`, `initial`, the two seeds and the journal. The current grid and stream A's state are stored as well, so a session resumes without replay; they are conveniences the replay test re-derives, which is D-006's deferred option C taken in its harmless form.
+
+**Consequences.**
+- Every `Simulation` mutator that a user can reach journals itself; `installRule` is the one route for rule changes, so a change cannot escape both the lineage and the journal.
+- Replay is exact on either path, across processes; `aether replay` and `aether compare` make it a CTest.
+- Grid rewind becomes time travel with truncation (BUG-006).
+- Headless mode (F-022) arrives early in reduced form because the cross-process test needs it.
+
+**Reversal conditions.** Revisit if journals grow large enough to dominate session files in practice — a long painting session could — at which point periodic snapshots plus journal-since-snapshot would be the next form.

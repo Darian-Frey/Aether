@@ -71,6 +71,24 @@ Entry format:
 **Reproduction.** With `p = 0.001`, `h < 4.3×10⁶`, so `(h·S) >> 32 = 0` for all `S ≤ 256`.
 **Notes.** The state now comes from `uniform_state(mix32(h ^ 0xA5A5A5A5))`. `tests/sim/hash_test.cpp` checks that replacement states among cells that passed a 0.1% threshold are spread across the range.
 
+### BUG-006: SPEC §9.3 called the lineage append-only and also offered a grid rewind
+**Status:** fixed
+**Found:** 2026-09-12 (Phase 2, implementing sessions)
+**Location:** SPEC.md §9.3, §11
+**Severity:** medium
+**Description.** Rewinding the grid to an earlier entry means replaying to that point and continuing from there; the run's original future (later journal events, later mutations) no longer describes the run. Keeping those entries in an append-only list would make later mutations regenerate identically and appear twice, and a replayed journal would re-apply abandoned brush strokes at their old generations. The two requirements conflict.
+**Reproduction.** Rewind the grid to entry 3 of a 10-entry run and step: with an untruncated lineage, entry 4's rule reappears as entry 11.
+**Notes.** Resolved: grid rewind truncates journal and lineage to the target point (time travel); rule-only rewind appends and keeps everything. SPEC §11 states this.
+
+### BUG-007: GpuStepper's move constructor dropped fields added after it was written
+**Status:** fixed
+**Found:** 2026-09-12 (Phase 2, the session replay test)
+**Location:** `src/sim/gpu_step.cpp`
+**Severity:** high
+**Description.** `Simulation::create` returns by value, so its `GpuStepper` is moved. The hand-written move constructor listed members by name and never learned about `mutation_` or the five uniform locations added later. In a moved stepper the locations were −1, `rlSetUniform` ignored them silently, and the threshold stayed 0: the GPU path of every `Simulation` ran without cell mutation while the CPU path mutated. The stepper-level equivalence tests never move a stepper and could not see it; the Simulation-level test that should have caught it earlier happened to compare GPU against GPU on the checks that mattered.
+**Reproduction.** Create a `Simulation` on each path, set `p = 0.05`, step once, compare.
+**Notes.** State is now split into `Owned` (GL handles, exchanged on move) and `Config` (plain data, copied wholesale), so a new field cannot be forgotten. `tests/sim/simulation_test.cpp` has a moved-stepper regression case.
+
 ## Won't Fix
 
 *None.*

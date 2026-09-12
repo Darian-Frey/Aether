@@ -7,6 +7,7 @@ add_library(aether_sim STATIC
     gpu_step.cpp
     lineage.cpp
     rule_mutation.cpp
+    session.cpp
     simulation.cpp
     ${HASH_GLSL_CPP}
     ${LUT_STEP_CPP})

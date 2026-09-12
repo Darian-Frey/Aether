@@ -2,6 +2,7 @@ add_library(aether_ui STATIC
     app.cpp
     brush.cpp
     canvas.cpp
+    headless.cpp
     panels.cpp)
 
 target_include_directories(aether_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)

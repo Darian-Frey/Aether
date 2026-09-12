@@ -1,12 +1,16 @@
 // Aether entry point.
 //
-//   aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--gl-check]
+//   aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--load FILE] [--gl-check]
+//   aether headless ... --generations G --save FILE
+//   aether replay IN OUT [--to G] [--cpu]
+//   aether compare A B
 //
 // --gl-check opens a hidden window, verifies the GL 4.3 compute path and
 // exits 0 or 1; the rest configure the interactive session.
 
 #include "core/gl.hpp"
 #include "ui/app.hpp"
+#include "ui/headless.hpp"
 
 #include <raylib.h>
 #include <rlgl.h>
@@ -44,6 +48,7 @@ void usage() {
               "  --rule-mutation N[:M]  mutate the rule every N generations with M edits\n"
               "  --cell-mutation P      per-cell mutation probability\n"
               "  --gl-check   verify the compute path and exit\n"
+              "  --load FILE  resume a saved session\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
               "  --screenshot F  write the final frame to F before exiting");
 }
@@ -52,7 +57,30 @@ void usage() {
 
 int main(int argc, char** argv) {
     aether::ui::Options opts;
-    for (int i = 1; i < argc; ++i) {
+    // Subcommands.
+    std::string_view sub = argc > 1 ? argv[1] : "";
+    uint64_t generations = 0;
+    std::string savePath, loadPath;
+    uint64_t replayTo = UINT64_MAX;
+    int first = 1;
+    if (sub == "headless" || sub == "replay" || sub == "compare") first = 2;
+    if (sub == "compare") {
+        if (argc != 4) { std::puts("usage: aether compare A B"); return 2; }
+        return aether::ui::runCompare(argv[2], argv[3]);
+    }
+    if (sub == "replay") {
+        if (argc < 4) { std::puts("usage: aether replay IN OUT [--to G] [--cpu]"); return 2; }
+        std::string in = argv[2], out = argv[3];
+        bool cpu = false;
+        for (int i = 4; i < argc; ++i) {
+            const std::string_view a = argv[i];
+            if (a == "--cpu") cpu = true;
+            else if (a == "--to" && i + 1 < argc) replayTo = std::strtoull(argv[++i], nullptr, 10);
+            else { std::printf("unknown option %s\n", argv[i]); return 2; }
+        }
+        return aether::ui::runReplay(in, out, replayTo, cpu);
+    }
+    for (int i = first; i < argc; ++i) {
         const std::string_view a = argv[i];
         auto value = [&](const char* flag) -> const char* {
             if (i + 1 >= argc) { std::printf("%s needs a value\n", flag); std::exit(2); }
@@ -80,9 +108,17 @@ int main(int argc, char** argv) {
             opts.ruleMutationInterval = n; opts.ruleMutationMagnitude = std::max(1u, m);
         }
         else if (a == "--cell-mutation") opts.cellMutationP = std::strtod(value("--cell-mutation"), nullptr);
+        else if (a == "--generations") generations = std::strtoull(value("--generations"), nullptr, 10);
+        else if (a == "--save") savePath = value("--save");
+        else if (a == "--load") loadPath = value("--load");
         else if (a == "--frames") opts.exitAfterFrames = std::atoi(value("--frames"));
         else if (a == "--screenshot") opts.screenshot = value("--screenshot");
         else { std::printf("unknown option %s\n", argv[i]); usage(); return 2; }
     }
+    if (sub == "headless") {
+        if (savePath.empty()) { std::puts("headless needs --save FILE"); return 2; }
+        return aether::ui::runHeadless(opts, generations, savePath);
+    }
+    opts.load = loadPath;
     return aether::ui::App(opts).run();
 }

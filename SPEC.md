@@ -343,30 +343,48 @@ where `gen_lo/hi` and `seed_lo/hi` are the low and high 32 bits of the 64-bit `g
 
 ## 11. Session format
 
-Extension `.aether`. A JSON document, optionally accompanied by a binary sidecar for large initial grids.
+Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid` for grids over 4M cells (2026-09-12: the sidecar holds the initial cells followed by the current cells).
 
 ```
 {
   "format_version": 1,
   "grid":      { "dimensions": 2, "w": 1024, "h": 1024, "d": 1,
                  "cell_type": "u8", "boundary": "wrap" },
-  "initial":   { "encoding": "rle" | "raw" | "random",
-                 "data": "...",            // inline for rle, sidecar path for raw
-                 "density": { "1": 0.35 }  // for random
-               },
-  "rule":      { "ir": { ... }, "ir_hash": "0x...",
-                 "source_notation": "B3/S23" },
-  "rng":       { "seed_a": 12345, "seed_b": 67890 },
+  "initial":   { "encoding": "rle" | "raw", "data": "..." },   // cells at generation 0, before any event
+  "rule":      { "ir": { ... }, "ir_hash": "0x...", "source_notation": "B3/S23" },   // the current rule
+  "rng":       { "seed_a": 12345, "seed_b": 67890,
+                 "stream_a_state": ["0x...", "0x..."] },       // convenience: stream A at `generation`
   "mutation":  { "rule": { "interval": 250, "magnitude": 1, "enabled": true },
-                 "cell": { "p": 0.0001, "enabled": true } },
-  "lineage":   [ { "generation": 0, "ir_hash": "0x...", "pinned": false }, ... ],
-  "generation": 4210
+                 "cell": { "p": 0.0001, "enabled": true } },   // current parameters
+  "journal":   [ { "generation": 0, "type": "fill", "density": [0.3] },
+                 { "generation": 0, "type": "rule_mutation", "enabled": true, "interval": 250, "magnitude": 1 },
+                 { "generation": 812, "type": "paint", "x0": 3, "x1": 20, "y": 7, "z": 0, "state": 1 },
+                 { "generation": 1500, "type": "set_rule", "ir": { ... } },
+                 ... ],
+  "lineage":   [ { "generation": 0, "ir_hash": "0x...", "origin": "initial", "journal_index": 0,
+                   "pinned": false, "ir": { ... } },
+                 { "generation": 250, "ir_hash": "0x...", "origin": "mutation", "journal_index": 3,
+                   "pinned": false, "delta": [[17, 1]], "metadata": { "name": "B3/S23*" } },
+                 ... ],
+  "generation": 4210,
+  "state":     { "encoding": "rle", "data": "..." },           // convenience: cells at `generation`
+  "counters":  { "rule_mutations": 16, "rule_mutations_skipped": 0 }
 }
 ```
 
-**Determinism contract.** Given `initial`, `rule`, `rng` and `mutation`, replaying from generation 0 reproduces the grid at any generation bit-for-bit, on either execution path, on any machine meeting the build requirements. `generation` and `lineage` are conveniences, derivable from the other four; they are stored so that a loaded session can display its history without replaying.
+**The journal** (2026-09-12) is the record of every externally driven change, stamped with the generation at which it happened: `set_rule`, `rewind` (rule-only), `paint` (one row span), `fill` (draws from stream A), `clear`, `cell_mutation` (a change of `p`) and `rule_mutation` (a change of the parameters). Rule mutations themselves are *not* journaled; they regenerate from stream A. This is the "mutation schedule" of D-006 made concrete: without it, a brush stroke at generation 700 would make the run irreproducible.
+
+**Replay.** Starting from `initial` with stream A seeded by `seed_a`, apply every journal event with generation `g` before the step from `g` to `g+1`, in journal order; rule mutation runs at the top of each step as §9.1 says. This reproduces the grid at any generation bit-for-bit on either execution path.
+
+**Determinism contract.** Given `grid`, `initial`, `rng.seed_a`, `rng.seed_b` and `journal`, replaying from generation 0 reproduces the grid at any generation bit-for-bit, on either execution path, on any machine meeting the build requirements. `rule`, `mutation`, `lineage`, `generation`, `state`, `stream_a_state` and `counters` are conveniences derivable from those five; they are stored so that a session resumes instantly and displays its history without replaying. `aether replay` re-derives them and `aether compare` checks them; the CTest `replay.*` cases do exactly this across processes.
+
+**Lineage entries** carry `origin` (`initial` | `user` | `mutation` | `rewind`) and `journal_index`, the journal length when the entry was made. The initial and pinned entries store the full IR; other table-form entries store a `delta` of `[index, value]` pairs against the previous entry plus their `metadata`. Every entry stores its `ir_hash` and the loader verifies it after reconstruction.
+
+**Cell encoding.** `rle` is byte run-length pairs `(count ≤ 255, value)`, base64. `raw` names the sidecar.
 
 `format_version` is checked on load. An unknown version is an error, not a best-effort parse.
+
+**Grid rewind** (F-017) to lineage entry *i* is a replay to `journal_index` and the entry's generation (running the mutation due there if the entry is one); the journal and lineage are then truncated to that point, since the run's future from there is abandoned. The rule-only rewind keeps everything and appends. (Clarified 2026-09-12, BUG-006.)
 
 ---
 

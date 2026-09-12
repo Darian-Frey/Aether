@@ -36,6 +36,7 @@ struct Options {
     int         windowHeight = 800;
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
     std::string screenshot;            // if set, written just before exiting
+    std::string load;                  // session to resume instead of starting fresh
 };
 
 class App {
@@ -46,6 +47,11 @@ public:
 private:
     // Lifecycle
     bool createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& ir, sim::Path path);
+    bool adoptSimulation(sim::Simulation&& s, const char* what);   // after load/rewind
+    void drawSessionPanel();
+    void saveSessionTo(const std::string& path);
+    void loadSessionFrom(const std::string& path);
+    void verifyReplay();
     bool compileRuleText();            // ruleText_ -> IR -> sim; reports to log and ruleError_
     void applyPaletteForStates();
 
@@ -89,6 +95,7 @@ private:
     int   ruleInterval_ = 250;
     int   ruleMagnitude_ = 1;
     std::array<char, 64> pinName_{};
+    std::array<char, 512> sessionPath_{};
     size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p
 

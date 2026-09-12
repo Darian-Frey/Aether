@@ -139,3 +139,31 @@ TEST_CASE("Simulation refuses a grid the VRAM guard or spec check rejects", "[gp
     REQUIRE(std::holds_alternative<core::Error>(mismatch));
     CHECK(std::get<core::Error>(mismatch).message.find("3D") != std::string::npos);
 }
+
+TEST_CASE("a Simulation returned by value keeps mutating on the GPU path (moved stepper)", "[gpu][simulation]") {
+    // Simulation::create returns by value, so the GpuStepper is moved. A
+    // move that drops any per-step parameter shows up here as the GPU path
+    // silently running without mutation while the CPU path mutates.
+    GlContext gl;
+    requireGl(gl);
+    const core::GridSpec spec{2, 40, 30, 1};
+    auto g = make(spec, life(), Path::Gpu);
+    auto c = make(spec, life(), Path::Cpu);
+    for (auto* s : {&g, &c}) {
+        s->paintSpan(10, 20, 10, 0, 1);
+        s->paintSpan(10, 20, 11, 0, 1);
+        s->setCellMutation(0.05);
+    }
+    // Move again, deliberately.
+    Simulation g2 = std::move(g);
+    for (int i = 0; i < 20; ++i) { g2.step(); c.step(); }
+    CHECK(snapshot(g2) == snapshot(c));
+
+    // And mutation did happen: a static block under Life with p = 0 would
+    // be unchanged, so with p > 0 the grid differs from the p = 0 run.
+    auto z = make(spec, life(), Path::Gpu);
+    z.paintSpan(10, 20, 10, 0, 1);
+    z.paintSpan(10, 20, 11, 0, 1);
+    for (int i = 0; i < 20; ++i) z.step();
+    CHECK(snapshot(z) != snapshot(g2));
+}

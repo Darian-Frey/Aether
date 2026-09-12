@@ -9,6 +9,7 @@
 #include <cassert>
 #include <format>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace aether::sim {
@@ -35,35 +36,34 @@ unsigned int makeSsbo(const void* data, size_t bytes) {
 
 GpuStepper::~GpuStepper() {
     releaseBuffers();
-    for (auto& [key, prog] : programs_) rlUnloadShaderProgram(prog);
+    for (auto& [key, prog] : owned_.programs) rlUnloadShaderProgram(prog);
 }
 
 GpuStepper::GpuStepper(GpuStepper&& o) noexcept
-    : programs_(std::move(o.programs_)), program_(o.program_),
-      paramsSsbo_(o.paramsSsbo_), offsetsSsbo_(o.offsetsSsbo_), compsSsbo_(o.compsSsbo_), tableSsbo_(o.tableSsbo_),
-      target_(o.target_), groupsX_(o.groupsX_), groupsY_(o.groupsY_), groupsZ_(o.groupsZ_),
-      width_(o.width_), height_(o.height_), depth_(o.depth_), generation_(o.generation_) {
-    o.programs_.clear();
-    o.program_ = o.paramsSsbo_ = o.offsetsSsbo_ = o.compsSsbo_ = o.tableSsbo_ = 0;
+    : owned_(std::exchange(o.owned_, Owned{})), cfg_(o.cfg_) {
+    o.cfg_.program = 0;
 }
 
 GpuStepper& GpuStepper::operator=(GpuStepper&& o) noexcept {
     if (this != &o) {
-        this->~GpuStepper();
-        new (this) GpuStepper(std::move(o));
+        releaseBuffers();
+        for (auto& [key, prog] : owned_.programs) rlUnloadShaderProgram(prog);
+        owned_ = std::exchange(o.owned_, Owned{});
+        cfg_ = o.cfg_;
+        o.cfg_.program = 0;
     }
     return *this;
 }
 
 void GpuStepper::releaseBuffers() {
-    for (unsigned int* b : {&paramsSsbo_, &offsetsSsbo_, &compsSsbo_, &tableSsbo_}) {
+    for (unsigned int* b : {&owned_.paramsSsbo, &owned_.offsetsSsbo, &owned_.compsSsbo, &owned_.tableSsbo}) {
         if (*b != 0) rlUnloadShaderBuffer(*b);
         *b = 0;
     }
 }
 
 std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key) {
-    if (programs_.contains(key)) return std::nullopt;
+    if (owned_.programs.contains(key)) return std::nullopt;
     const auto& [dims, N, S, kind, boundary] = key;
 
     std::string src = "#version 430\n";
@@ -80,7 +80,7 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key) {
     rlUnloadShader(shader);
     if (program == 0) return core::Error{"lut_step.comp failed to link (see raylib log)"};
 
-    programs_[key] = program;
+    owned_.programs[key] = program;
     return std::nullopt;
 }
 
@@ -107,58 +107,58 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
     std::vector<uint32_t> table(rule.table.begin(), rule.table.end());
 
     releaseBuffers();
-    paramsSsbo_  = makeSsbo(params, sizeof(params));
-    offsetsSsbo_ = makeSsbo(offsets.data(), offsets.size() * sizeof(int32_t));
-    compsSsbo_   = makeSsbo(rule.w.data(), rule.w.size() * sizeof(uint32_t));
-    tableSsbo_   = makeSsbo(table.data(), table.size() * sizeof(uint32_t));
+    owned_.paramsSsbo  = makeSsbo(params, sizeof(params));
+    owned_.offsetsSsbo = makeSsbo(offsets.data(), offsets.size() * sizeof(int32_t));
+    owned_.compsSsbo   = makeSsbo(rule.w.data(), rule.w.size() * sizeof(uint32_t));
+    owned_.tableSsbo   = makeSsbo(table.data(), table.size() * sizeof(uint32_t));
 
-    program_ = programs_[key];
-    locGenLo_     = rlGetLocationUniform(program_, "generationLo");
-    locGenHi_     = rlGetLocationUniform(program_, "generationHi");
-    locThreshold_ = rlGetLocationUniform(program_, "mutationThreshold");
-    locSeedLo_    = rlGetLocationUniform(program_, "seedBLo");
-    locSeedHi_    = rlGetLocationUniform(program_, "seedBHi");
-    target_  = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
-    width_ = spec.width; height_ = spec.height; depth_ = spec.depth;
+    cfg_.program = owned_.programs[key];
+    cfg_.locGenLo     = rlGetLocationUniform(cfg_.program, "generationLo");
+    cfg_.locGenHi     = rlGetLocationUniform(cfg_.program, "generationHi");
+    cfg_.locThreshold = rlGetLocationUniform(cfg_.program, "mutationThreshold");
+    cfg_.locSeedLo    = rlGetLocationUniform(cfg_.program, "seedBLo");
+    cfg_.locSeedHi    = rlGetLocationUniform(cfg_.program, "seedBHi");
+    cfg_.target = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
+    cfg_.width = spec.width; cfg_.height = spec.height; cfg_.depth = spec.depth;
     const uint32_t* local = spec.dimensions == 3 ? kLocal3D : kLocal2D;
-    groupsX_ = groups(spec.width, local[0]);
-    groupsY_ = groups(spec.height, local[1]);
-    groupsZ_ = groups(spec.depth, local[2]);
+    cfg_.groupsX = groups(spec.width, local[0]);
+    cfg_.groupsY = groups(spec.height, local[1]);
+    cfg_.groupsZ = groups(spec.depth, local[2]);
     return std::nullopt;
 }
 
 void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
-    assert(program_ != 0 && "setRule before step");
+    assert(cfg_.program != 0 && "setRule before step");
     assert(srcTexture != dstTexture && "step must not read the texture it writes (AV-004)");
 
-    rlEnableShader(program_);
+    rlEnableShader(cfg_.program);
     // Per-step values as uniforms (see the shader for why not a buffer).
-    const uint32_t genLo = static_cast<uint32_t>(generation_), genHi = static_cast<uint32_t>(generation_ >> 32);
-    const uint32_t seedLo = static_cast<uint32_t>(mutation_.seedB), seedHi = static_cast<uint32_t>(mutation_.seedB >> 32);
-    rlSetUniform(locGenLo_, &genLo, RL_SHADER_UNIFORM_UINT, 1);
-    rlSetUniform(locGenHi_, &genHi, RL_SHADER_UNIFORM_UINT, 1);
-    rlSetUniform(locThreshold_, &mutation_.threshold, RL_SHADER_UNIFORM_UINT, 1);
-    rlSetUniform(locSeedLo_, &seedLo, RL_SHADER_UNIFORM_UINT, 1);
-    rlSetUniform(locSeedHi_, &seedHi, RL_SHADER_UNIFORM_UINT, 1);
+    const uint32_t genLo = static_cast<uint32_t>(cfg_.generation), genHi = static_cast<uint32_t>(cfg_.generation >> 32);
+    const uint32_t seedLo = static_cast<uint32_t>(cfg_.mutation.seedB), seedHi = static_cast<uint32_t>(cfg_.mutation.seedB >> 32);
+    rlSetUniform(cfg_.locGenLo, &genLo, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(cfg_.locGenHi, &genHi, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(cfg_.locThreshold, &cfg_.mutation.threshold, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(cfg_.locSeedLo, &seedLo, RL_SHADER_UNIFORM_UINT, 1);
+    rlSetUniform(cfg_.locSeedHi, &seedHi, RL_SHADER_UNIFORM_UINT, 1);
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  GL_R8UI);
     glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
-    rlBindShaderBuffer(paramsSsbo_, 0);
-    rlBindShaderBuffer(offsetsSsbo_, 1);
-    rlBindShaderBuffer(compsSsbo_, 2);
-    rlBindShaderBuffer(tableSsbo_, 3);
-    rlComputeShaderDispatch(groupsX_, groupsY_, groupsZ_);
+    rlBindShaderBuffer(owned_.paramsSsbo, 0);
+    rlBindShaderBuffer(owned_.offsetsSsbo, 1);
+    rlBindShaderBuffer(owned_.compsSsbo, 2);
+    rlBindShaderBuffer(owned_.tableSsbo, 3);
+    rlComputeShaderDispatch(cfg_.groupsX, cfg_.groupsY, cfg_.groupsZ);
     rlDisableShader();
 
     // Visible to the next dispatch's imageLoad, to samplers, and to
     // glGetTexImage.
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT |
                     GL_TEXTURE_UPDATE_BARRIER_BIT);
-    ++generation_;
+    ++cfg_.generation;
 }
 
 void GpuStepper::step(core::GpuGrid& grid) {
-    assert(grid.target() == target_ && grid.spec().width == width_ &&
-           grid.spec().height == height_ && grid.spec().depth == depth_);
+    assert(grid.target() == cfg_.target && grid.spec().width == cfg_.width &&
+           grid.spec().height == cfg_.height && grid.spec().depth == cfg_.depth);
     step(grid.current(), grid.next());
     grid.swap();
 }

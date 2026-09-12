@@ -16,18 +16,26 @@
 
 namespace aether::sim {
 
+enum class LineageOrigin : uint8_t { Initial, User, Mutation, Rewind };
+
 struct LineageEntry {
     uint64_t                   generation;
     uint64_t                   ir_hash;
     rule::RuleIR               ir;
     bool                       pinned = false;
     std::optional<std::string> name;
-    std::optional<size_t>      rewound_from;   // set when this entry restores an earlier one
+    LineageOrigin              origin = LineageOrigin::User;
+    std::optional<size_t>      rewound_from;   // set when origin == Rewind
+    size_t                     journal_index = 0;   // journal length when this entry was made;
+                                                    // replaying events [0, journal_index) and, for a
+                                                    // Mutation, the mutation at `generation`, reaches it
 };
 
 class Lineage {
 public:
-    size_t append(uint64_t generation, const rule::RuleIR& ir, std::optional<size_t> rewoundFrom = {});
+    size_t append(uint64_t generation, const rule::RuleIR& ir, LineageOrigin origin, size_t journalIndex,
+                  std::optional<size_t> rewoundFrom = {});
+    void truncate(size_t keep) { if (keep < entries_.size()) entries_.resize(keep); }
 
     const std::vector<LineageEntry>& entries() const { return entries_; }
     const LineageEntry& at(size_t i) const { return entries_.at(i); }

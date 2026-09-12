@@ -55,7 +55,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-006 Non-reproducible runs from unseeded or ambient randomness
 **Severity:** Critical
 **Description.** A single `rand()`, a time-derived seed, or a thread-index-derived value anywhere in the step path makes the session record (SPEC §11) a lie: the file claims reproducibility it cannot deliver, and the user discovers this only when a saved result fails to replay — typically the one result worth keeping.
-**Detection.** Not implemented. Planned: replay determinism test — save at generation 0, run 5000 generations with both mutations active, replay in a fresh process, assert bitwise equality. Manual: a grep-based pre-commit check for prohibited RNG sources (SPEC §10) in `sim/` and `shaders/`.
+**Detection.** Implemented 2026-09-12. CTest `replay.record` runs 5000 generations with both mutations active in one process and saves; `replay.gpu` and `replay.cpu` replay the file from its initial state in fresh processes on each path; `replay.compare_*` assert bitwise equality of the grids and the lineage hashes. In-process tests (`tests/sim/session_test.cpp`) do the same with paints, fills, rule changes, rewinds and parameter changes in the journal. Still manual: a grep for prohibited RNG sources (SPEC §10) in `sim/` and `shaders/`.
 **Related decisions.** D-005 (dual streams), D-006 (reproducibility quadruple).
 
 ### AV-007 Backend divergence on the same rule

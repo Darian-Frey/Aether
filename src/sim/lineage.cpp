@@ -2,11 +2,14 @@
 
 namespace aether::sim {
 
-size_t Lineage::append(uint64_t generation, const rule::RuleIR& ir, std::optional<size_t> rewoundFrom) {
+size_t Lineage::append(uint64_t generation, const rule::RuleIR& ir, LineageOrigin origin, size_t journalIndex,
+                       std::optional<size_t> rewoundFrom) {
     LineageEntry e;
     e.generation = generation;
     e.ir_hash = rule::irHash(ir);
     e.ir = ir;
+    e.origin = origin;
+    e.journal_index = journalIndex;
     e.rewound_from = rewoundFrom;
     entries_.push_back(std::move(e));
     return entries_.size() - 1;

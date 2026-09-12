@@ -8,18 +8,18 @@ Aether is a cellular automata laboratory: one GPU-resident engine running discre
 
 ## Current state
 
-Phase 1 complete (2026-09-11); Phase 2 in progress. Both mutation controls and the lineage log run; sessions (save/load/replay) and the hexagonal lattice remain.
+Phase 1 complete (2026-09-11); Phase 2 in progress. Both mutation controls, the lineage log and sessions (save/load/resume/replay/grid rewind) run and replay bit-identically across processes; the hexagonal lattice is the last Phase 2 item.
 
 - Documentation set written 2026-08-30; `BUILD.md` added 2026-09-11.
-- `CMakeLists.txt` + `cmake/`: `Dependencies.cmake` fetches raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, Catch2 `v3.9.1`; `EmbedShaders.cmake` turns `shaders/*` into string constants under `build/generated/`.
+- `CMakeLists.txt` + `cmake/`: `Dependencies.cmake` fetches raylib `6.0` (with `OPENGL_VERSION=4.3`), Dear ImGui `v1.92.7`, rlImGui `Raylib_6_0`, nlohmann/json `v3.12.0`, Catch2 `v3.9.1`; `EmbedShaders.cmake` turns `shaders/*` into string constants under `build/generated/`.
 - `src/core/` (`aether_core`): `cell`, `grid` (GridSpec, `PingPong<T>` — the one swap — HostGrid), `gpu_grid` (GL_R8UI texture pair, upload/download/uploadRegion, `queryVram`, VRAM guard), `gl.hpp` (the single glad include). Boundary handling is deliberately *not* here.
-- `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `neighbourhood`, `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`).
-- `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `hash` (stream B: `hash32`, `mutationThreshold`, `CellMutation`, `mutatedState` — twin of `shaders/hash.glsl`), `fill`, `rule_mutation` (`mutateRule`: point edits from stream A, validate-or-redraw ×8; `RuleMutationParams`), `lineage` (`Lineage`: append-only entries with full IR, pin, rewind marker), `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A + lineage; `setRule` is all-or-nothing and *every* successful install appends to the lineage — `installRule` is the single route, so mutation cannot bypass the log; `maybeMutateRule` runs at the top of `step()`; `rewind(i)` reinstalls entry i and records itself; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
+- `src/rule/` (`aether_rule`): `ir` (type, validation, hash, names), `ir_json` (IR ↔ JSON, base64; the one place an IR is built from external data, validated), `neighbourhood`, `table_layout` (sizes, index arithmetic, `kLutMaxEntries`), `dsl` (B/S, B/S/C, table block → IR), `lut` (`LutRule` + `selectBackend`).
+- `src/sim/` (`aether_sim`): `boundary` (`resolve()`, the reference for wrap/zero/mirror), `cpu_step` (the oracle), `gpu_step` (`GpuStepper`, per-shape program cache, SSBOs), `scheduler` (pure timing), `rng` (PCG32 stream A), `hash` (stream B: `hash32`, `mutationThreshold`, `CellMutation`, `mutatedState` — twin of `shaders/hash.glsl`), `fill`, `rule_mutation` (`mutateRule`: point edits from stream A, validate-or-redraw ×8; `RuleMutationParams`), `lineage` (`Lineage`: entries with full IR, origin, journal index, pin), `journal` (event types), `session` (`Session` struct, cell codec, JSON, save/load with sidecar), `simulation` (`Simulation`: grid + rule + both paths + scheduler + stream A + lineage; `setRule` is all-or-nothing and *every* successful install appends to the lineage — `installRule` is the single route, so mutation cannot bypass the log; `maybeMutateRule` runs at the top of `step()`; `rewind(i)` reinstalls entry i and records itself; every user-reachable mutator journals itself with the generation; `session()` snapshots; `resume()` continues from stored state; `replay()` rebuilds from initial + journal; `rewindGrid()` is replay-then-truncate; `setPath` syncs; `paintSpan` writes host and GPU with no readback; `texture()` for the renderer).
 - `src/render/` (`aether_render`): `view2d` (camera, pixel-exact snapping, `cellAt` shared with the canvas), `palette`, `renderer2d` (palette pass over raylib's batch).
-- `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`), `panels` (ImGui), `canvas` (paint/pan/zoom/keys), `brush` (pure geometry), `log` (ring buffer).
-- `src/main.cpp`: argument parsing → `ui::App::run()`. `--gl-check` is the compute-path probe; `--frames N --screenshot F` gives a scripted run.
+- `src/ui/` (`aether_ui`): `app` (window, loop, lifecycle, `Options`, session save/load/verify, `adoptSimulation` after load/rewind), `panels` (ImGui), `canvas` (paint/pan/zoom/keys), `brush` (pure geometry), `log` (ring buffer), `headless` (`headless`/`replay`/`compare` subcommands; exit 77 = no GL context, which CTest treats as skip).
+- `src/main.cpp`: subcommand dispatch (`headless`, `replay`, `compare`) and argument parsing → `ui::App::run()`. `--gl-check` is the compute-path probe; `--frames N --screenshot F` gives a scripted run; `--load FILE` resumes a session.
 - `shaders/`: `hash.glsl` (prepended to every shader that mutates cells), `lut_step.comp` (specialised by `#define`s the stepper prepends), `palette2d.{vert,frag}` (both GLSL 430). Edit these, never the generated copies.
-- `tests/`: Catch2, one file per module, 130 cases under `ctest`. `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
+- `tests/`: Catch2, one file per module, 143 cases plus the five cross-process `replay.*` cases under `ctest` (148). `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
 - `rules/`, `patterns/`, `docs/`: empty apart from `.gitkeep`.
 
 Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes through `paintSpan`, which writes both.
@@ -33,11 +33,11 @@ Phase 2 — mutation, lineage, sessions (F-015, F-016, F-017, F-020). Suggested 
 1. ~~Stream B and cell mutation.~~ Done 2026-09-11. `Simulation::setCellMutation(p)`; both steppers take `(generation, CellMutation)`.
 2. ~~Rule mutation on the IR.~~ Done 2026-09-11.
 3. ~~Lineage log: append, pin, rewind (rule only).~~ Done 2026-09-11. Grid rewind by replay comes with 4.
-4. Session save/load (SPEC §11) with `format_version`, and the replay-determinism test (AV-006): save at generation 0, run 5000 with both mutations on, replay in a fresh process, compare.
-5. ~~UI: mutation controls, lineage browser.~~ Done 2026-09-11. Session save/load buttons come with 4.
+4. ~~Session save/load and the replay-determinism test.~~ Done 2026-09-12 (D-013: the journal).
+5. ~~UI: mutation controls, lineage browser, session buttons.~~ Done.
 6. Hexagonal lattice (F-023, D-012): `NeighbourhoodType::Hexagonal` with axial offsets and N = 3r(r+1); `neighbourhood hex r` in the DSL; SPEC §3 extended; a hex fragment shader and `View2D::cellAt` for the hex tiling; hexagonal equivalence fixtures. Last, so the session format settles first.
 
-Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-005.
+Open design gaps, logged not fixed: IMP-001 (outer-totalistic tables oversized for single-state-count rules); SPEC §7 `signature_literal` undefined. Spec defects resolved and recorded: BUG-001 to BUG-006; BUG-007 was a code defect (moved stepper).
 
 ## Architectural invariants
 
@@ -94,6 +94,8 @@ Build-specific:
 - Per-step values reach the compute shader as uniforms. Do not move them back into an SSBO: a `glBufferSubData` on a buffer the previous frame still references stalls on some drivers.
 - The scheduler's wall-clock budget cannot see GPU time; the frame-time feedback (`setSlowFrame`) is what keeps the UI alive under an unreachable target. `App` calls `glFinish()` before `frame(dt)` so Mesa's deferred vsync throttle is not charged to the first step.
 - `TakeScreenshot` must run before `EndDrawing`: after the swap the back buffer is undefined (black on Mesa).
+- Objects that own GL handles and are moved (`GpuStepper`, `GpuGrid`, `Renderer2D`) keep plain state in a struct copied wholesale and handles in a struct exchanged on move. Do not add a member outside those structs: a hand-listed move constructor silently drops it (BUG-007).
+- Every user-reachable `Simulation` mutator must journal itself. A new one that does not breaks replay silently; the `replay.*` CTest and `tests/sim/session_test.cpp` are the guard.
 - `sim/hash.hpp` and `shaders/hash.glsl` are twins. Change both or neither; `tests/sim/hash_test.cpp` compares them on the GPU.
 - GL RAII objects (`GpuGrid`, `GpuStepper`, `Renderer2D`) must be destroyed before `CloseWindow()`. Scope them inside the window's lifetime; a destructor after context teardown segfaults.
 

@@ -43,10 +43,12 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Cell mutation inside the compute step and the CPU oracle, equivalence suite extended to `p > 0`; UI control and `--seed-b` (2026-09-11)
 - [x] Rule mutation operating on the IR, with recompile and invariant validation — validate-or-redraw ×8, million-edit fuzz, UI controls and `--rule-mutation` (2026-09-11)
 - [x] Lineage log with pin and rewind — every rule change appends; rewind restores the rule and records itself; browser in the UI (2026-09-11). Grid rewind (replay to an entry's generation) arrives with sessions.
-- [ ] Session save/load with format version
-- [ ] Replay determinism test: save at generation 0, replay 5000 generations, compare
+- [x] Session save/load with format version — JSON with journal, lineage deltas, sidecar for big grids; `--load`, Save/Load/Verify in the UI (2026-09-12)
+- [x] Replay determinism test: `replay.*` CTest records 5000 generations under both mutations in one process, replays in fresh processes on each path, compares bitwise; in-process tests cover paints, fills, rule changes, rewinds and parameter changes (2026-09-12)
+- [x] Grid rewind by replay, with journal and lineage truncated (2026-09-12)
 - [ ] Hexagonal lattice: neighbourhood type, DSL keyword, hex renderer and `cellAt`, hexagonal equivalence fixtures (F-023; after sessions so the format changes once)
 **Acceptance:** A session with both mutations active replays to a bit-identical grid on a fresh process, and any rule seen during the run can be recovered from the lineage log. A hexagonal Life-like rule runs on both paths and renders as a hex tiling.
+**Progress (2026-09-12):** everything but the hexagonal lattice is delivered; the session acceptance holds (`ctest -R replay`).
 
 ## Phase 3 — Three dimensions
 **Goal:** The same engine on cubic lattices, with volume rendering.

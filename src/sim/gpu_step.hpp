@@ -32,7 +32,7 @@ public:
     // stays active (AV-014).
     std::optional<core::Error> setRule(const rule::LutRule& rule, const core::GridSpec& spec);
 
-    bool hasRule() const { return program_ != 0; }
+    bool hasRule() const { return cfg_.program != 0; }
 
     // One generation: reads `src`, writes `dst`, then a memory barrier so
     // the result is visible to the next dispatch, to samplers and to
@@ -42,14 +42,14 @@ public:
     // One generation on a GpuGrid, then swap.
     void step(core::GpuGrid& grid);
 
-    uint64_t generation() const { return generation_; }
-    void setGeneration(uint64_t g) { generation_ = g; }
+    uint64_t generation() const { return cfg_.generation; }
+    void setGeneration(uint64_t g) { cfg_.generation = g; }
 
     // Cell mutation parameters, applied from the next step on.
-    void setCellMutation(CellMutation m) { mutation_ = m; }
-    CellMutation cellMutation() const { return mutation_; }
+    void setCellMutation(CellMutation m) { cfg_.mutation = m; }
+    CellMutation cellMutation() const { return cfg_.mutation; }
 
-    size_t cachedPrograms() const { return programs_.size(); }
+    size_t cachedPrograms() const { return owned_.programs.size(); }
 
 private:
     using ShapeKey = std::tuple<uint8_t, uint32_t, uint16_t, rule::Kind, rule::Boundary>;
@@ -57,15 +57,24 @@ private:
     std::optional<core::Error> compileVariant(const ShapeKey& key);
     void releaseBuffers();
 
-    std::map<ShapeKey, unsigned int> programs_;
-    unsigned int program_ = 0;
-    int locGenLo_ = -1, locGenHi_ = -1, locThreshold_ = -1, locSeedLo_ = -1, locSeedHi_ = -1;
-    unsigned int paramsSsbo_ = 0, offsetsSsbo_ = 0, compsSsbo_ = 0, tableSsbo_ = 0;
-    unsigned int target_ = 0;
-    uint32_t     groupsX_ = 0, groupsY_ = 0, groupsZ_ = 0;
-    uint32_t     width_ = 0, height_ = 0, depth_ = 0;
-    uint64_t     generation_ = 0;
-    CellMutation mutation_;
+    // GL handles, exchanged on move; everything else is plain data copied
+    // wholesale, so a field added to Config can never be forgotten by the
+    // move constructor.
+    struct Owned {
+        std::map<ShapeKey, unsigned int> programs;
+        unsigned int paramsSsbo = 0, offsetsSsbo = 0, compsSsbo = 0, tableSsbo = 0;
+    };
+    struct Config {
+        unsigned int program = 0;
+        int locGenLo = -1, locGenHi = -1, locThreshold = -1, locSeedLo = -1, locSeedHi = -1;
+        unsigned int target = 0;
+        uint32_t     groupsX = 0, groupsY = 0, groupsZ = 0;
+        uint32_t     width = 0, height = 0, depth = 0;
+        uint64_t     generation = 0;
+        CellMutation mutation;
+    };
+    Owned  owned_;
+    Config cfg_;
 };
 
 }  // namespace aether::sim

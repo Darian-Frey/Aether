@@ -2,6 +2,7 @@
 
 #include "core/gl.hpp"
 #include "rule/lut.hpp"
+#include "sim/session.hpp"
 
 #include <imgui.h>
 #include <raylib.h>
@@ -54,7 +55,11 @@ int App::run() {
             cellMutationLog_ = static_cast<float>(std::log10(opts_.cellMutationP));
         }
 
-        if (exitCode == 0) {
+        std::strncpy(sessionPath_.data(), "session.aether", sessionPath_.size() - 1);
+        if (exitCode == 0 && !opts_.load.empty()) {
+            loadSessionFrom(opts_.load);
+            if (!sim_) exitCode = 1;
+        } else if (exitCode == 0) {
             auto parsed = rule::parseDsl(ruleText_.data(), ctx_);
             if (!parsed) {
                 log_.error(std::format("initial rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
@@ -148,6 +153,71 @@ bool App::createSimulation(uint32_t width, uint32_t height, const rule::RuleIR& 
     applyPaletteForStates();
     fitView();
     return true;
+}
+
+bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
+    sim_.emplace(std::move(s));
+    sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
+    sim_->scheduler().setPaused(true);
+    newWidth_ = static_cast<int>(sim_->spec().width);
+    newHeight_ = static_cast<int>(sim_->spec().height);
+    ctx_.boundary = sim_->rule().boundary;
+    const auto& ir = sim_->rule();
+    std::strncpy(ruleText_.data(), ir.metadata.source_notation.value_or(ir.metadata.name.value_or("")).c_str(), ruleText_.size() - 1);
+    ruleMutationOn_ = sim_->ruleMutation().enabled;
+    ruleInterval_ = static_cast<int>(sim_->ruleMutation().interval);
+    ruleMagnitude_ = static_cast<int>(sim_->ruleMutation().magnitude);
+    cellMutationOn_ = sim_->cellMutation() > 0.0;
+    if (cellMutationOn_) cellMutationLog_ = static_cast<float>(std::log10(sim_->cellMutation()));
+    lastLineageSize_ = sim_->lineage().size();
+    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {:#018x}",
+                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
+                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
+                               sim_->lut().table.size(), sim_->lut().ir_hash);
+    ruleError_.clear();
+    if (renderer_) renderer_->setPalette(render::Palette::defaultFor(ir.states));
+    density_.assign(ir.states - 1u, 0.1f);
+    density_[0] = ir.states == 2 ? 0.3f : 0.2f;
+    fitView();
+    log_.info(std::format("{}: generation {}, {} lineage entries, {} journal events (paused)", what,
+                          sim_->generation(), sim_->lineage().size(), sim_->journal().size()));
+    return true;
+}
+
+void App::saveSessionTo(const std::string& path) {
+    if (!sim_) return;
+    if (auto e = sim::saveSession(path, sim_->session())) log_.error("save: " + e->message);
+    else log_.info(std::format("saved {} at generation {}", path, sim_->generation()));
+}
+
+void App::loadSessionFrom(const std::string& path) {
+    auto loaded = sim::loadSession(path);
+    if (const auto* e = std::get_if<sim::SessionError>(&loaded)) { log_.error("load: " + e->message); return; }
+    const sim::Path path_ = sim_ ? sim_->path() : (opts_.cpu ? sim::Path::Cpu : sim::Path::Gpu);
+    sim_.reset();
+    auto made = sim::Simulation::resume(std::get<sim::Session>(loaded), path_);
+    if (const auto* e = std::get_if<core::Error>(&made)) { log_.error("load: " + e->message); return; }
+    adoptSimulation(std::get<sim::Simulation>(std::move(made)), ("loaded " + path).c_str());
+}
+
+void App::verifyReplay() {
+    if (!sim_) return;
+    const sim::Session snap = sim_->session();
+    auto made = sim::Simulation::replay(snap, {snap.generation}, sim_->path() == sim::Path::Gpu ? sim::Path::Cpu : sim::Path::Gpu);
+    if (const auto* e = std::get_if<core::Error>(&made)) { log_.error("replay: " + e->message); return; }
+    auto replayed = std::get<sim::Simulation>(std::move(made));
+    replayed.syncToHost();
+    size_t diff = 0;
+    const auto cells = replayed.host().current();
+    for (size_t i = 0; i < cells.size(); ++i) diff += cells[i] != snap.current[i];
+    bool lineageOk = replayed.lineage().size() == snap.lineage.size();
+    for (size_t i = 0; lineageOk && i < snap.lineage.size(); ++i) lineageOk = replayed.lineage().at(i).ir_hash == snap.lineage[i].ir_hash;
+    if (diff == 0 && lineageOk) {
+        log_.info(std::format("replay verified: {} generations on the other path reproduce the grid and {} rules",
+                              snap.generation, snap.lineage.size()));
+    } else {
+        log_.error(std::format("replay DIVERGED: {} cells differ; lineage {}", diff, lineageOk ? "matches" : "differs"));
+    }
 }
 
 void App::applyPaletteForStates() {

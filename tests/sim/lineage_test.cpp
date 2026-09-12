@@ -13,8 +13,10 @@ TEST_CASE("lineage is append-only with hashes and pins", "[lineage]") {
     sim::Lineage log;
     const auto life = *rule::parseDsl("B3/S23").ir;
     const auto high = *rule::parseDsl("B36/S23").ir;
-    CHECK(log.append(0, life) == 0);
-    CHECK(log.append(250, high) == 1);
+    CHECK(log.append(0, life, sim::LineageOrigin::Initial, 0) == 0);
+    CHECK(log.append(250, high, sim::LineageOrigin::Mutation, 3) == 1);
+    CHECK(log.at(1).origin == sim::LineageOrigin::Mutation);
+    CHECK(log.at(1).journal_index == 3);
     CHECK(log.size() == 2);
     CHECK(log.at(0).ir_hash == rule::irHash(life));
     CHECK(log.at(1).generation == 250);
@@ -52,6 +54,9 @@ TEST_CASE("every rule change goes into the lineage; rewind restores and records"
     REQUIRE(s.lineage().size() == 3);
     CHECK(s.lineage().at(2).generation == 8);
     CHECK(s.lineage().at(2).rewound_from == 0);
+    CHECK(s.lineage().at(2).origin == sim::LineageOrigin::Rewind);
+    CHECK(s.lineage().at(1).origin == sim::LineageOrigin::User);
+    CHECK(s.lineage().at(0).origin == sim::LineageOrigin::Initial);
     CHECK(rule::irHash(s.rule()) == s.lineage().at(0).ir_hash);
     CHECK(s.rewind(99).has_value());
 }

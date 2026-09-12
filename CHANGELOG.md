@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Sessions (F-020): `sim/session` — `.aether` JSON per SPEC §11 with a journal of every user action, delta-encoded lineage, a raw sidecar for grids over 4M cells; `Simulation::session/resume/replay/rewindGrid`; `rule/ir_json` with base64 (2026-09-12).
+- Headless subcommands `aether headless | replay | compare` and the cross-process `replay.*` CTest cases (AV-006 detection implemented) (2026-09-12).
+- UI Session section (path, Save, Load, Verify replay), `grid` rewind on lineage entries, `--load FILE` (2026-09-12).
+- nlohmann/json `v3.12.0` as a dependency (2026-09-12).
 - Rule mutation (F-015): `sim/rule_mutation` with class-preserving point edits on tables and expressions, validate-or-redraw, million-edit fuzz; fired from `Simulation::step` on the interval (2026-09-11).
 - Lineage log (F-017): `sim/lineage`, appended by every successful rule install; pin/unpin; `Simulation::rewind`; lineage browser and rule-mutation controls in the UI; `--rule-mutation N[:M]`, `--cell-mutation P` (2026-09-11).
 - Scheduler frame-time feedback: the effective per-frame cap halves on a long frame and recovers on short ones (AV-003 detection implemented) (2026-09-11).
@@ -37,13 +41,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 130 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 148 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-007: `GpuStepper`'s move constructor dropped later-added fields, so the GPU path of any `Simulation` ran without cell mutation; state is now split into exchanged handles and copied config (2026-09-12).
+- BUG-006: append-only lineage versus grid rewind; grid rewind now truncates (2026-09-12).
 - BUG-005: SPEC §9.2 took the mutated state from the hash that had just passed the threshold, which would have made every mutation a decay to state 0; the state now comes from a second mixing (2026-09-11).
 - BUG-001: SPEC §3 closed form for the 3D von Neumann count (2026-09-11).
 - BUG-004: SPEC §5 specified a 1D texture for the table, which cannot hold `LUT_MAX_ENTRIES` on NVIDIA; now an SSBO (2026-09-11).

@@ -18,8 +18,10 @@
 #include "rule/lut.hpp"
 #include "sim/gpu_step.hpp"
 #include "sim/hash.hpp"
+#include "sim/journal.hpp"
 #include "sim/lineage.hpp"
 #include "sim/rule_mutation.hpp"
+#include "sim/session.hpp"
 #include "sim/rng.hpp"
 #include "sim/scheduler.hpp"
 
@@ -37,6 +39,35 @@ public:
     static std::variant<Simulation, core::Error> create(const core::GridSpec& spec, const rule::RuleIR& ir,
                                                         Path path = Path::Gpu, uint64_t seedA = 0,
                                                         uint64_t seedB = 0);
+
+    // --- Sessions (F-020, SPEC §11) --------------------------------------------
+    // The complete record of this run, including the current cells and
+    // stream A's state so it can be resumed without replay.
+    Session session();
+
+    // Resumes a session at its saved generation from the stored state. If the
+    // file carries no state, replays to it.
+    static std::variant<Simulation, core::Error> resume(const Session& s, Path path = Path::Gpu);
+
+    // Rebuilds the run from the initial cells, the seeds and the journal,
+    // stopping at `generation` with journal events [0, journalEnd) applied
+    // (SIZE_MAX = all events up to and at that generation) and, if
+    // `mutateAtEnd`, the rule mutation due at that generation performed.
+    struct ReplayTarget {
+        uint64_t generation;
+        size_t   journalEnd  = SIZE_MAX;
+        bool     mutateAtEnd = false;
+    };
+    static std::variant<Simulation, core::Error> replay(const Session& s, ReplayTarget target, Path path = Path::Gpu);
+
+    // Time travel to lineage entry `i`: the grid and rule as they were when
+    // that entry took effect. Journal and lineage are truncated to that
+    // point, since the run's future from there is abandoned.
+    static std::variant<Simulation, core::Error> rewindGrid(const Session& s, size_t entry, Path path = Path::Gpu);
+
+    const Journal& journal() const { return journal_; }
+    const std::vector<uint8_t>& initialCells() const { return initial_; }
+    uint64_t seedA() const { return seedA_; }
 
     Simulation(Simulation&&) noexcept = default;
     Simulation& operator=(Simulation&&) noexcept = default;
@@ -105,8 +136,10 @@ public:
 private:
     Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB);
     void resetOutOfRangeStates(uint16_t states);
-    std::optional<core::Error> installRule(const rule::RuleIR& ir, std::optional<size_t> rewoundFrom);
+    std::optional<core::Error> installRule(const rule::RuleIR& ir, LineageOrigin origin, std::optional<size_t> rewoundFrom);
     void maybeMutateRule();
+    void applyEvent(const Event& ev);
+    void journal(uint64_t generation, EventBody body) { journal_.push_back({generation, std::move(body)}); }
 
     core::HostGrid host_;
     core::GpuGrid  gpu_;
@@ -122,6 +155,10 @@ private:
     RuleMutationParams ruleMutation_;
     Lineage        lineage_;
     Counters       counters_;
+    Journal        journal_;
+    std::vector<uint8_t> initial_;         // cells at generation 0 before any event
+    uint64_t       seedA_ = 0;
+    uint64_t       mutatedAt_ = UINT64_MAX;   // generation whose rule mutation has already run
 };
 
 }  // namespace aether::sim

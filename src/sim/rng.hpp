@@ -44,9 +44,15 @@ public:
     // Uniform in [0, 1).
     double unit() { return next() * (1.0 / 4294967296.0); }
 
+    // Full generator state, so a session can resume exactly where it was.
+    struct State { uint64_t state; uint64_t inc; };
+    State state() const { return {state_, inc_}; }
+    static Pcg32 fromState(State s) { Pcg32 r; r.state_ = s.state; r.inc_ = s.inc; return r; }
+
 private:
-    uint64_t state_;
-    uint64_t inc_;
+    Pcg32() = default;
+    uint64_t state_ = 0;
+    uint64_t inc_ = 1;
 };
 
 }  // namespace aether::sim
