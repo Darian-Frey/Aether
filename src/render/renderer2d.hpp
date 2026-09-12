@@ -47,7 +47,7 @@ private:
 
     unsigned int shaderId_ = 0;
     int locState_ = -1, locPalette_ = -1, locFrame_ = -1, locViewport_ = -1, locOrigin_ = -1,
-        locZoom_ = -1, locGrid_ = -1, locStates_ = -1, locAge_ = -1, locBackground_ = -1;
+        locZoom_ = -1, locGrid_ = -1, locStates_ = -1, locAge_ = -1, locBackground_ = -1, locLattice_ = -1;
     unsigned int paletteTex_ = 0;
     Palette      palette_;
     Rgba         background_{22, 24, 28, 255};

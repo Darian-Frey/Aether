@@ -250,3 +250,14 @@ TEST_CASE("enum names round-trip", "[ir]") {
         CHECK(parseNeighbourhoodType(toString(v)) == v);
     CHECK_FALSE(parseKind("hexagonal").has_value());
 }
+
+TEST_CASE("hexagonal neighbourhoods are 2D only", "[ir][hex]") {
+    auto ir = life();
+    ir.neighbourhood = {NeighbourhoodType::Hexagonal, 1};
+    std::get<Table>(ir.transition).entries.assign(14, 0);   // 2 * (6 + 1)
+    CHECK(isValid(ir));
+    ir.dimensions = 3;
+    CHECK(hasDiagnostic(validate(ir), "1D and 2D lattices only"));
+    CHECK(parseNeighbourhoodType("hex") == NeighbourhoodType::Hexagonal);
+    CHECK(parseNeighbourhoodType(toString(NeighbourhoodType::Hexagonal)) == NeighbourhoodType::Hexagonal);
+}

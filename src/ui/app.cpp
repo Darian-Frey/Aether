@@ -254,11 +254,15 @@ bool App::compileRuleText() {
                           sim_->lut().table.size()));
     if (ir.states != oldStates) applyPaletteForStates();
     if (brush_.state >= ir.states) brush_.state = static_cast<uint8_t>(ir.states - 1);
+    const auto lattice = ir.neighbourhood.type == rule::NeighbourhoodType::Hexagonal ? render::Lattice::Hex : render::Lattice::Square;
+    if (lattice != view_.lattice) fitView();
     return true;
 }
 
 void App::fitView() {
     if (!sim_) return;
+    view_.lattice = sim_->rule().neighbourhood.type == rule::NeighbourhoodType::Hexagonal
+                        ? render::Lattice::Hex : render::Lattice::Square;
     view_.fit(sim_->spec().width, sim_->spec().height, viewport_);
 }
 

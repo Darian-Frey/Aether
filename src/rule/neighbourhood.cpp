@@ -1,5 +1,6 @@
 #include "rule/neighbourhood.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 
 namespace aether::rule {
@@ -13,6 +14,9 @@ bool isMember(NeighbourhoodType type, int r, int dx, int dy, int dz) {
             return std::abs(dx) <= r && std::abs(dy) <= r && std::abs(dz) <= r;
         case NeighbourhoodType::VonNeumann:
             return std::abs(dx) + std::abs(dy) + std::abs(dz) <= r;
+        case NeighbourhoodType::Hexagonal:
+            // Axial hex distance: max(|dq|, |dr|, |dq + dr|).
+            return dz == 0 && std::max({std::abs(dx), std::abs(dy), std::abs(dx + dy)}) <= r;
     }
     return false;
 }

@@ -59,10 +59,13 @@ A neighbourhood is a type and a radius `r ≥ 1`. The cell itself is never a mem
 |---|---|---|---|---|
 | `moore` | 2r | (2r+1)²−1 | (2r+1)³−1 | `(2r+1)^d − 1` |
 | `von_neumann` | 2r | 2r(r+1) | see below | Manhattan distance ≤ r |
+| `hexagonal` | 2r | 3r(r+1) | — | axial hex distance `max(|dq|, |dr|, |dq+dr|) ≤ r` (added 2026-09-12, D-012) |
 
 For `d=3` von Neumann, `N = (2r+1)(2r²+2r+3)/3 − 1`; at `r=1, 2, 3` this is 6, 24, 62. (Corrected 2026-09-11, BUG-001.)
 
-Concrete counts in use: 2D Moore r=1 gives `N=8`; 3D Moore r=1 gives `N=26`; 3D von Neumann r=1 gives `N=6`.
+Concrete counts in use: 2D Moore r=1 gives `N=8`; 3D Moore r=1 gives `N=26`; 3D von Neumann r=1 gives `N=6`; hexagonal r=1 gives `N=6`, r=2 gives 18.
+
+**Hexagonal lattices** (D-012, F-023) reuse the square storage: cell `(x, y)` is the axial coordinate `(q, r)` of a pointy-topped hex lattice, and the neighbourhood is the fixed offset set above, so every execution path and the table layout are unchanged. A `W × H` grid is therefore a rhombus of hexes on screen rather than a rectangle, and `wrap` is a rhombic torus. Offset ("odd-r") coordinates would give a rectangle but need parity-dependent neighbourhoods, which is the triangular-lattice problem D-012 declined. Hexagonal neighbourhoods are rejected in 3D.
 
 **Neighbour ordering.** For non-totalistic rules the neighbour order is part of the rule's meaning and must be identical on both execution paths. The canonical order is lexicographic by offset `(dz, dy, dx)` ascending, skipping `(0,0,0)`. Bit `i` of a neighbourhood signature corresponds to the `i`-th neighbour in this order.
 
@@ -216,7 +219,7 @@ rule := "B" digits "/" "S" digits "/" "C" integer
 ```
 rule_block := header statement*
 header     := "states" integer ";"
-              "neighbourhood" ("moore"|"von_neumann") integer ";"
+              "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
               [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
 statement  := integer ":" condition "->" integer ";"
 condition  := count_expr | signature_literal

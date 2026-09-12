@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Hexagonal lattices (F-023, D-012): `NeighbourhoodType::Hexagonal` with axial offsets, `neighbourhood hex r` in the DSL, `View2D` hex mode (cube rounding, rhombus fit), hex path in `palette2d.frag`, hex-shaped brush, hex equivalence fixtures (2026-09-12).
 - Sessions (F-020): `sim/session` — `.aether` JSON per SPEC §11 with a journal of every user action, delta-encoded lineage, a raw sidecar for grids over 4M cells; `Simulation::session/resume/replay/rewindGrid`; `rule/ir_json` with base64 (2026-09-12).
 - Headless subcommands `aether headless | replay | compare` and the cross-process `replay.*` CTest cases (AV-006 detection implemented) (2026-09-12).
 - UI Session section (path, Save, Load, Verify replay), `grid` rewind on lineage entries, `--load FILE` (2026-09-12).
@@ -41,7 +42,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 148 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 155 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -65,5 +66,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - D-009 project name moved from Proposed to Accepted on author confirmation; GitHub repository created at `Darian-Frey/Aether` (2026-09-11).
 
 ### Notes
+- Phase 2 complete 2026-09-12: both mutation controls, lineage with pin/rewind, sessions that replay bit-identically across processes, and hexagonal lattices.
 - Phase 1 complete 2026-09-11: the 2D discrete core runs interactively with Life, HighLife, Brian's Brain and cyclic CAs at 1024² above 2,000 gen/s on the target GPU, CPU and GPU agreeing bitwise.
 - The project name is confirmed (D-009).

@@ -134,7 +134,7 @@ Table buildLifeLikeTable(const LifeLike& rule, const TableLayout& layout) {
 //
 //   rule_block := header statement*
 //   header     := "states" integer ";"
-//                 "neighbourhood" ("moore"|"von_neumann") integer ";"
+//                 "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
 //                 [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
 //   statement  := integer ":" condition "->" integer ";"
 //   condition  := count_expr
@@ -255,7 +255,7 @@ public:
         if (auto e = expectIdent("neighbourhood")) return *e;
         {
             const Token& t = cur();
-            if (t.kind != Tok::Ident) return err(t, "expected 'moore' or 'von_neumann'");
+            if (t.kind != Tok::Ident) return err(t, "expected 'moore', 'von_neumann' or 'hex'");
             const auto type = parseNeighbourhoodType(t.text);
             if (!type) return err(t, std::format("unknown neighbourhood '{}'", t.text));
             b.nb.type = *type;

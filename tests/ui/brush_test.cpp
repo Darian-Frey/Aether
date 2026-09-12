@@ -37,3 +37,12 @@ TEST_CASE("stroke points include both ends and step no further than asked", "[br
     }
     CHECK(strokePoints(3, 3, 3, 3, 5) == std::vector<std::pair<int, int>>{{3, 3}, {3, 3}});
 }
+
+TEST_CASE("hex brush is a hexagon in axial coordinates", "[brush][hex]") {
+    // Radius 1: seven cells — the centre and its six axial neighbours.
+    CHECK(brushSpans(5, 5, 1, 10, 10, true) == std::vector<Span>{{5, 6, 4}, {4, 6, 5}, {4, 5, 6}});
+    size_t cells = 0;
+    for (const Span& s : brushSpans(10, 10, 3, 30, 30, true)) cells += s.x1 - s.x0 + 1;
+    CHECK(cells == 1 + 3 * 3 * 4);   // 1 + 3r(r+1) = 37
+    CHECK(brushSpans(5, 5, 0, 10, 10, true) == std::vector<Span>{{5, 5, 5}});
+}

@@ -79,7 +79,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Every table kind, both execution paths, all three boundaries, with hexagonal fixtures in the equivalence suite
 - Rendered as a hex tiling with pan and zoom; painting lands on the hex under the cursor
 - Rule and cell mutation unchanged
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-12. Axial storage, six fixed offsets, N = 3r(r+1); both paths and all boundaries via three hex equivalence fixtures; hex tiling rendered as a rhombus with painting landing on the hex under the cursor; mutation unchanged.
 **Notes:** Added 2026-09-11 by D-012. Axial coordinates on the existing square storage; nothing in `core/` or `sim/` changes.
 
 ## Rule authoring

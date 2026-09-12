@@ -231,11 +231,11 @@ TEST_CASE("table block: errors report line and column", "[dsl]") {
     CHECK(r.error->line == 3);
     CHECK(r.error->column == 9);
 
-    r = parseDsl("states 2;\nneighbourhood hex 1;");
+    r = parseDsl("states 2;\nneighbourhood penrose 1;");
     REQUIRE_FALSE(r);
     CHECK(r.error->line == 2);
     CHECK(r.error->column == 15);
-    CHECK(r.error->message.find("hex") != std::string::npos);
+    CHECK(r.error->message.find("penrose") != std::string::npos);
 
     r = parseDsl("states 2;\nneighbourhood moore 1;\n0: n(1) == 3 -> 2;");
     REQUIRE_FALSE(r);
@@ -280,4 +280,20 @@ TEST_CASE("empty input and nonsense are rejected without an IR", "[dsl]") {
     DslContext ctx;
     ctx.dimensions = 4;
     CHECK_FALSE(parseDsl("B3/S23", ctx));
+}
+
+TEST_CASE("table block: hexagonal neighbourhood", "[dsl][hex]") {
+    const auto r = parseDsl("states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    REQUIRE(r);
+    CHECK(r.ir->neighbourhood == Neighbourhood{NeighbourhoodType::Hexagonal, 1});
+    CHECK(std::get<Table>(r.ir->transition).entries.size() == 2 * 7);
+    CHECK(binaryEntry(*r.ir, 0, 2) == 1);
+    CHECK(binaryEntry(*r.ir, 1, 3) == 1);
+    CHECK(binaryEntry(*r.ir, 1, 4) == 0);
+    const auto h2 = parseDsl("states 3; neighbourhood hexagonal 2;");
+    REQUIRE(h2);
+    CHECK(neighbourCount(2, h2.ir->neighbourhood) == 18);
+    DslContext ctx;
+    ctx.dimensions = 3;
+    CHECK_FALSE(parseDsl("states 2; neighbourhood hex 1;", ctx));
 }

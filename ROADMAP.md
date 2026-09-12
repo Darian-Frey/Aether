@@ -36,7 +36,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 2 — Mutation, lineage, sessions
 **Goal:** The two mutation controls, the lineage log that makes them useful, and reproducible sessions.
-**Status:** In progress (started 2026-09-11)
+**Status:** Complete 2026-09-12
 **Features delivered:** F-015, F-016, F-017, F-020, F-023 (added 2026-09-11, D-012)
 **Deliverables:**
 - [x] Dual RNG streams — stream A PCG32 (CPU), stream B stateless hash in C++ and GLSL with a million-input agreement test (2026-09-11)
@@ -46,9 +46,9 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Session save/load with format version — JSON with journal, lineage deltas, sidecar for big grids; `--load`, Save/Load/Verify in the UI (2026-09-12)
 - [x] Replay determinism test: `replay.*` CTest records 5000 generations under both mutations in one process, replays in fresh processes on each path, compares bitwise; in-process tests cover paints, fills, rule changes, rewinds and parameter changes (2026-09-12)
 - [x] Grid rewind by replay, with journal and lineage truncated (2026-09-12)
-- [ ] Hexagonal lattice: neighbourhood type, DSL keyword, hex renderer and `cellAt`, hexagonal equivalence fixtures (F-023; after sessions so the format changes once)
+- [x] Hexagonal lattice: `NeighbourhoodType::Hexagonal` on axial storage, `neighbourhood hex r`, hex fragment path and `View2D` hex mode with cube rounding, hex brush, three hexagonal equivalence fixtures (2026-09-12)
 **Acceptance:** A session with both mutations active replays to a bit-identical grid on a fresh process, and any rule seen during the run can be recovered from the lineage log. A hexagonal Life-like rule runs on both paths and renders as a hex tiling.
-**Progress (2026-09-12):** everything but the hexagonal lattice is delivered; the session acceptance holds (`ctest -R replay`).
+**Acceptance run (2026-09-12):** `ctest -R replay` replays 5000 generations under both mutations bit-identically in fresh processes on both paths; every lineage entry is pinnable and rewindable; hex B2/S34 runs on both paths (equivalence fixtures) and renders as a hex tiling.
 
 ## Phase 3 — Three dimensions
 **Goal:** The same engine on cubic lattices, with volume rendering.

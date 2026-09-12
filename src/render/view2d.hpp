@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <tuple>
 #include <utility>
 
 namespace aether::render {
@@ -15,10 +16,43 @@ struct Rect {
     float x = 0, y = 0, w = 0, h = 0;   // top-left origin, pixels
 };
 
+enum class Lattice { Square, Hex };
+
+// Hex lattices are pointy-topped, axial (q, r) = (x, y). At zoom z a hex is
+// z pixels wide; its centre sits at z * (q + r/2, r * sqrt(3)/2) from the
+// origin cell's centre. These two matrices map axial <-> "cell space", the
+// square-lattice frame the rest of the view works in.
+constexpr double kHexA = 0.5;                 // x += A * r
+constexpr double kHexB = 0.86602540378443865; // y  = B * r  (sqrt(3)/2)
+
 struct View2D {
-    double zoom     = 4.0;   // screen pixels per cell
-    double centre_x = 0.0;   // cell coordinate at the viewport centre
-    double centre_y = 0.0;
+    double  zoom     = 4.0;   // screen pixels per cell
+    double  centre_x = 0.0;   // cell coordinate at the viewport centre
+    double  centre_y = 0.0;
+    Lattice lattice  = Lattice::Square;
+
+    // Axial -> cell-space and back (identity on a square lattice).
+    std::pair<double, double> toCellSpace(double q, double r) const {
+        if (lattice == Lattice::Square) return {q, r};
+        return {q + kHexA * r, kHexB * r};
+    }
+    std::pair<double, double> fromCellSpace(double u, double v) const {
+        if (lattice == Lattice::Square) return {u, v};
+        const double r = v / kHexB;
+        return {u - kHexA * r, r};
+    }
+
+    // Nearest hex to a fractional axial coordinate (cube rounding).
+    static std::pair<int, int> hexRound(double q, double r) {
+        const double x = q, z = r, y = -x - z;
+        double rx = std::round(x), ry = std::round(y), rz = std::round(z);
+        const double dx = std::abs(rx - x), dy = std::abs(ry - y), dz = std::abs(rz - z);
+        if (dx > dy && dx > dz) rx = -ry - rz;
+        else if (dy > dz)       ry = -rx - rz;
+        else                    rz = -rx - ry;
+        (void)ry;
+        return {static_cast<int>(rx), static_cast<int>(rz)};
+    }
 
     // Cell coordinate at the viewport's top-left pixel.
     std::pair<double, double> origin(const Rect& vp) const {
@@ -26,10 +60,11 @@ struct View2D {
     }
 
     // Origin snapped so that at integer zoom every cell edge lands on a
-    // pixel edge (SPEC §13: pixel-exact at 1:1).
+    // pixel edge (SPEC §13: pixel-exact at 1:1). Square lattices only; a
+    // hex tiling has no pixel-exact zoom.
     std::pair<double, double> snappedOrigin(const Rect& vp) const {
         auto [ox, oy] = origin(vp);
-        if (std::abs(zoom - std::round(zoom)) < 1e-9) {
+        if (lattice == Lattice::Square && std::abs(zoom - std::round(zoom)) < 1e-9) {
             ox = std::round(ox * zoom) / zoom;
             oy = std::round(oy * zoom) / zoom;
         }
@@ -42,28 +77,51 @@ struct View2D {
         return {ox + (sx - vp.x) / zoom, oy + (sy - vp.y) / zoom};
     }
 
-    // Screen pixel -> integer cell, or nullopt if outside the grid.
+    // Screen pixel -> integer cell (axial on a hex lattice), or nullopt if
+    // outside the grid.
     std::optional<std::pair<int, int>> cellAt(double sx, double sy, const Rect& vp,
                                               unsigned width, unsigned height) const {
-        auto [cx, cy] = screenToCell(sx, sy, vp);
-        if (cx < 0 || cy < 0 || cx >= width || cy >= height) return std::nullopt;
-        return std::pair{static_cast<int>(std::floor(cx)), static_cast<int>(std::floor(cy))};
+        auto [u, v] = screenToCell(sx, sy, vp);
+        int ix, iy;
+        if (lattice == Lattice::Square) {
+            if (u < 0 || v < 0 || u >= width || v >= height) return std::nullopt;
+            ix = static_cast<int>(std::floor(u));
+            iy = static_cast<int>(std::floor(v));
+        } else {
+            // Cell-space (u, v) is measured from the origin cell's centre.
+            auto [q, r] = fromCellSpace(u - 0.5, v - 0.5);
+            std::tie(ix, iy) = hexRound(q, r);
+        }
+        if (ix < 0 || iy < 0 || ix >= static_cast<int>(width) || iy >= static_cast<int>(height)) return std::nullopt;
+        return std::pair{ix, iy};
     }
 
-    // Cell coordinate -> screen pixel (absolute).
+    // Cell coordinate -> screen pixel (absolute). On a hex lattice (cx, cy)
+    // is axial and the result is that hex's centre when cx, cy are integers
+    // plus 0.5 in cell space, matching the square convention.
     std::pair<double, double> cellToScreen(double cx, double cy, const Rect& vp) const {
         auto [ox, oy] = snappedOrigin(vp);
-        return {vp.x + (cx - ox) * zoom, vp.y + (cy - oy) * zoom};
+        auto [u, v] = lattice == Lattice::Square ? std::pair{cx, cy}
+                                                 : [&] { auto p = toCellSpace(cx, cy); return std::pair{p.first + 0.5, p.second + 0.5}; }();
+        return {vp.x + (u - ox) * zoom, vp.y + (v - oy) * zoom};
+    }
+
+    // Cell-space bounding box of the grid: [0, w) x [0, h) on a square
+    // lattice; the rhombus's box on a hex one.
+    std::pair<double, double> extent(unsigned width, unsigned height) const {
+        if (lattice == Lattice::Square) return {width, height};
+        return {width + kHexA * (height - 1) + 1.0, kHexB * (height - 1) + 1.0};
     }
 
     // Zoom so the whole grid fits the viewport, centred, at an integer zoom
     // where one fits and a fractional one otherwise (tiny viewports).
     void fit(unsigned width, unsigned height, const Rect& vp) {
         if (vp.w <= 0 || vp.h <= 0 || width == 0 || height == 0) return;   // nothing to fit into yet
-        const double z = std::min(static_cast<double>(vp.w) / width, static_cast<double>(vp.h) / height);
-        zoom = z >= 1.0 ? std::floor(z) : z;
-        centre_x = width * 0.5;
-        centre_y = height * 0.5;
+        auto [ew, eh] = extent(width, height);
+        const double z = std::min(static_cast<double>(vp.w) / ew, static_cast<double>(vp.h) / eh);
+        zoom = (z >= 1.0 && lattice == Lattice::Square) ? std::floor(z) : z;
+        centre_x = ew * 0.5;
+        centre_y = eh * 0.5;
     }
 
     // Multiply zoom by `factor`, keeping the cell under screen point

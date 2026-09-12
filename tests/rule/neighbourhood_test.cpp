@@ -70,3 +70,18 @@ TEST_CASE("offsets are unique, strictly ascending, and confined to used axes", "
         }
     }
 }
+
+TEST_CASE("hexagonal neighbourhoods: counts, order, and 3D rejection", "[neighbourhood][hex]") {
+    using T = NeighbourhoodType;
+    CHECK(neighbourCount(2, {T::Hexagonal, 1}) == 6);
+    CHECK(neighbourCount(2, {T::Hexagonal, 2}) == 18);
+    CHECK(neighbourCount(2, {T::Hexagonal, 3}) == 36);
+    CHECK(neighbourCount(1, {T::Hexagonal, 1}) == 2);
+    for (uint8_t r = 1; r <= 4; ++r) CHECK(neighbourCount(2, {T::Hexagonal, r}) == 3u * r * (r + 1u));
+
+    // Canonical (dz, dy, dx) order over the six axial offsets.
+    const std::vector<Offset> expected = {{0, -1, 0}, {1, -1, 0}, {-1, 0, 0}, {1, 0, 0}, {-1, 1, 0}, {0, 1, 0}};
+    CHECK(neighbourOffsets(2, {T::Hexagonal, 1}) == expected);
+    // Never (1,1) or (-1,-1): those are hex distance 2.
+    for (const Offset& o : neighbourOffsets(2, {T::Hexagonal, 1})) CHECK(o.dx + o.dy != 2);
+}

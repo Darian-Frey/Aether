@@ -35,6 +35,7 @@ std::string_view toString(NeighbourhoodType v) {
     switch (v) {
         case NeighbourhoodType::Moore:      return "moore";
         case NeighbourhoodType::VonNeumann: return "von_neumann";
+        case NeighbourhoodType::Hexagonal:  return "hexagonal";
     }
     return "?";
 }
@@ -84,6 +85,7 @@ std::optional<Kind> parseKind(std::string_view s) {
 std::optional<NeighbourhoodType> parseNeighbourhoodType(std::string_view s) {
     if (s == "moore")       return NeighbourhoodType::Moore;
     if (s == "von_neumann") return NeighbourhoodType::VonNeumann;
+    if (s == "hexagonal" || s == "hex") return NeighbourhoodType::Hexagonal;
     return std::nullopt;
 }
 
@@ -255,6 +257,10 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
     }
     if (ir.neighbourhood.radius < 1) {
         err("neighbourhood radius must be >= 1");
+        return out;
+    }
+    if (ir.neighbourhood.type == NeighbourhoodType::Hexagonal && ir.dimensions == 3) {
+        err("hexagonal neighbourhoods are defined for 1D and 2D lattices only");
         return out;
     }
 

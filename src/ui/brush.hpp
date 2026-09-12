@@ -16,8 +16,9 @@ struct Span {
 };
 
 // Row spans of a disc of `radius` cells centred on (cx, cy), clipped to
-// [0, width) x [0, height). radius 0 is a single cell.
-std::vector<Span> brushSpans(int cx, int cy, int radius, uint32_t width, uint32_t height);
+// [0, width) x [0, height). radius 0 is a single cell. On a hex lattice the
+// disc is hex distance <= radius in axial coordinates, which is a hexagon.
+std::vector<Span> brushSpans(int cx, int cy, int radius, uint32_t width, uint32_t height, bool hex = false);
 
 // Points along the segment from (x0, y0) to (x1, y1), spaced at most `step`
 // cells apart, always including both ends. For dragging a brush.

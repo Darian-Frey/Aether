@@ -11,7 +11,11 @@
 
 namespace aether::rule {
 
-enum class NeighbourhoodType : uint8_t { Moore, VonNeumann };
+// Hexagonal (D-012, F-023): the grid's (x, y) are axial (q, r) coordinates
+// on a hex lattice; the six neighbours at radius 1 are (±1,0), (0,±1),
+// (1,-1), (-1,1). Radius r covers hex distance <= r, N = 3r(r+1). 2D only
+// (1D degenerates to two neighbours); rejected in 3D by validation.
+enum class NeighbourhoodType : uint8_t { Moore, VonNeumann, Hexagonal };
 
 struct Neighbourhood {
     NeighbourhoodType type   = NeighbourhoodType::Moore;

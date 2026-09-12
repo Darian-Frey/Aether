@@ -97,3 +97,44 @@ TEST_CASE("drawing does not alter the state texture", "[gpu][render]") {
     CHECK(back == std::vector<uint8_t>(host.current().begin(), host.current().end()));
     UnloadRenderTexture(target);
 }
+
+TEST_CASE("hex rendering colours each hex from its axial cell", "[gpu][render][hex]") {
+    GlContext gl;
+    requireGl(gl);
+    const core::GridSpec spec{2, 5, 4, 1};
+    core::HostGrid host(spec);
+    // A distinct state per cell so any mis-mapping shows.
+    for (uint32_t y = 0; y < 4; ++y) for (uint32_t x = 0; x < 5; ++x) host.set(x, y, 0, static_cast<uint8_t>(1 + y * 5 + x));
+    auto gpu = std::get<core::GpuGrid>(core::GpuGrid::create(spec, core::queryVram()));
+    gpu.upload(host.current());
+    auto renderer = std::get<render::Renderer2D>(render::Renderer2D::create());
+    render::Palette pal;
+    for (int s = 0; s < 256; ++s) pal.entries[static_cast<size_t>(s)] = {static_cast<uint8_t>(s), static_cast<uint8_t>(255 - s), 7, 255};
+    renderer.setPalette(pal);
+    renderer.setBackground({0, 0, 0, 255});
+
+    render::View2D view;
+    view.lattice = render::Lattice::Hex;
+    view.fit(5, 4, Rect{0, 0, 160, 120});
+    RenderTexture2D target = LoadRenderTexture(160, 120);
+    BeginTextureMode(target);
+    ClearBackground(BLACK);
+    renderer.draw(gpu.current(), spec, view, Rect{0, 0, 160, 120}, 160, 120, 21);
+    EndTextureMode();
+    Image img = LoadImageFromTexture(target.texture);
+
+    for (uint32_t y = 0; y < 4; ++y) {
+        for (uint32_t x = 0; x < 5; ++x) {
+            const auto [sx, sy] = view.cellToScreen(x, y, Rect{0, 0, 160, 120});
+            const Rgba p = pixel(img, static_cast<int>(sx), static_cast<int>(sy));
+            CHECK(p.r == 1 + y * 5 + x);
+            // The point a third of the way toward the (1,0) neighbour is the same hex.
+            const Rgba q = pixel(img, static_cast<int>(sx + view.zoom / 3.0), static_cast<int>(sy));
+            CHECK(q.r == 1 + y * 5 + x);
+        }
+    }
+    // Far outside the rhombus: background.
+    CHECK(pixel(img, 1, 118) == Rgba{0, 0, 0, 255});
+    UnloadImage(img);
+    UnloadRenderTexture(target);
+}

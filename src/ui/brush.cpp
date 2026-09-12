@@ -5,16 +5,25 @@
 
 namespace aether::ui {
 
-std::vector<Span> brushSpans(int cx, int cy, int radius, uint32_t width, uint32_t height) {
+std::vector<Span> brushSpans(int cx, int cy, int radius, uint32_t width, uint32_t height, bool hex) {
     std::vector<Span> out;
     const int r = std::max(0, radius);
     const double rr = (r + 0.5) * (r + 0.5);
     for (int dy = -r; dy <= r; ++dy) {
         const int y = cy + dy;
         if (y < 0 || y >= static_cast<int>(height)) continue;
-        const int half = static_cast<int>(std::floor(std::sqrt(rr - dy * dy)));
-        const int x0 = std::max(0, cx - half);
-        const int x1 = std::min(static_cast<int>(width) - 1, cx + half);
+        int lo, hi;
+        if (hex) {
+            // max(|dq|, |dy|, |dq + dy|) <= r  <=>  dq in [max(-r, -r - dy), min(r, r - dy)]
+            lo = std::max(-r, -r - dy);
+            hi = std::min(r, r - dy);
+        } else {
+            const int half = static_cast<int>(std::floor(std::sqrt(rr - dy * dy)));
+            lo = -half;
+            hi = half;
+        }
+        const int x0 = std::max(0, cx + lo);
+        const int x1 = std::min(static_cast<int>(width) - 1, cx + hi);
         if (x0 > x1) continue;
         out.push_back({static_cast<uint32_t>(x0), static_cast<uint32_t>(x1), static_cast<uint32_t>(y)});
     }

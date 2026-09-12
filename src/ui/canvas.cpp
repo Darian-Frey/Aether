@@ -8,13 +8,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 namespace aether::ui {
 
 void App::paintAt(int cx, int cy) {
     if (!sim_) return;
     const auto& spec = sim_->spec();
-    for (const Span& s : brushSpans(cx, cy, brush_.radius, spec.width, spec.height)) {
+    const bool hex = sim_->rule().neighbourhood.type == rule::NeighbourhoodType::Hexagonal;
+    for (const Span& s : brushSpans(cx, cy, brush_.radius, spec.width, spec.height, hex)) {
         sim_->paintSpan(s.x0, s.x1, s.y, 0, brush_.state);
     }
 }
@@ -61,9 +63,17 @@ void App::updateCanvas(double /*dt*/) {
 
     // --- Paint with the left button -----------------------------------------
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && (lastPaintCell_ || overViewport)) {
-        const auto [cx, cy] = view_.screenToCell(m.x, m.y, viewport_);
-        const int ix = static_cast<int>(std::floor(cx));
-        const int iy = static_cast<int>(std::floor(cy));
+        // cellAt clips to the grid; for strokes that leave it we still want
+        // a coordinate, so derive one the same way without the clip.
+        const auto [u, v] = view_.screenToCell(m.x, m.y, viewport_);
+        int ix, iy;
+        if (view_.lattice == render::Lattice::Hex) {
+            const auto [q, r] = view_.fromCellSpace(u - 0.5, v - 0.5);
+            std::tie(ix, iy) = render::View2D::hexRound(q, r);
+        } else {
+            ix = static_cast<int>(std::floor(u));
+            iy = static_cast<int>(std::floor(v));
+        }
         if (lastPaintCell_) {
             for (const auto& [px, py] : strokePoints(lastPaintCell_->first, lastPaintCell_->second, ix, iy,
                                                      std::max(1, brush_.radius))) {

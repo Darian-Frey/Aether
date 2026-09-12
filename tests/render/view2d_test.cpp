@@ -90,3 +90,44 @@ TEST_CASE("pan moves the view by screen pixels", "[view]") {
     CHECK(v.centre_x == 0.0);
     CHECK(v.centre_y == 12.0);
 }
+
+TEST_CASE("hex lattice: every hex centre maps back to its own cell", "[view][hex]") {
+    using aether::render::Lattice;
+    View2D v;
+    v.lattice = Lattice::Hex;
+    v.zoom = 12.0;
+    v.centre_x = 8;
+    v.centre_y = 6;
+    const Rect vp{0, 0, 400, 300};
+    for (int r = 0; r < 12; ++r) {
+        for (int q = 0; q < 16; ++q) {
+            const auto [sx, sy] = v.cellToScreen(q, r, vp);
+            const auto c = v.cellAt(sx, sy, vp, 16, 12);
+            REQUIRE(c);
+            CHECK(c->first == q);
+            CHECK(c->second == r);
+            // A third of the way to each neighbour is still this cell.
+            const auto n = v.cellAt(sx + v.zoom / 3.0, sy, vp, 16, 12);
+            REQUIRE(n);
+            CHECK(n->first == q);
+        }
+    }
+    // Neighbouring centres are one zoom apart in all six directions.
+    const auto [ax, ay] = v.cellToScreen(5, 5, vp);
+    for (auto [dq, dr] : {std::pair{1, 0}, {0, 1}, {1, -1}, {-1, 1}, {-1, 0}, {0, -1}}) {
+        const auto [bx, by] = v.cellToScreen(5 + dq, 5 + dr, vp);
+        CHECK_THAT(std::hypot(bx - ax, by - ay), WithinAbs(v.zoom, 1e-9));
+    }
+}
+
+TEST_CASE("hex lattice: fit covers the rhombus", "[view][hex]") {
+    using aether::render::Lattice;
+    View2D v;
+    v.lattice = Lattice::Hex;
+    v.fit(20, 10, Rect{0, 0, 600, 400});
+    const auto [ew, eh] = v.extent(20, 10);
+    CHECK(ew > 20.0);           // sheared
+    CHECK(eh < 10.0);           // rows are closer than one cell
+    CHECK(v.zoom * ew <= 600.0 + 1e-9);
+    CHECK(v.zoom * eh <= 400.0 + 1e-9);
+}
