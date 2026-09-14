@@ -12,6 +12,7 @@
 #include "render/renderer3d.hpp"
 #include "render/view2d.hpp"
 #include "rule/dsl.hpp"
+#include "rule/lua.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
 
@@ -25,6 +26,7 @@ namespace aether::ui {
 
 struct Options {
     std::string rule   = "B3/S23";
+    bool        ruleIsLua = false;
     uint32_t    width  = 512;
     uint32_t    height = 512;
     uint32_t    depth  = 1;      // > 1 makes a 3D grid
@@ -61,6 +63,7 @@ private:
     void loadSessionFrom(const std::string& path);
     void verifyReplay();
     bool compileRuleText();            // ruleText_ -> IR -> sim; reports to log and ruleError_
+    std::optional<rule::RuleIR> compileRuleSource();   // the front end the language selector names
     void applyPaletteForStates();
     void refreshRuleSummary();
 
@@ -95,7 +98,8 @@ private:
     render::Rect   viewport_;
 
     rule::DslContext ctx_;
-    std::array<char, 8192> ruleText_{};
+    std::array<char, 65536> ruleText_{};   // Lua scripts are longer than B/S notation
+    int ruleLanguage_ = 0;                 // 0 = DSL, 1 = Lua
     std::string ruleError_;
     std::string ruleSummary_;
 

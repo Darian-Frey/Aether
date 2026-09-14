@@ -41,14 +41,24 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
     {
         rule::DslContext ctx;
         ctx.dimensions = opts.depth > 1 ? 3 : 2;
-        auto parsed = rule::parseDsl(opts.rule, ctx);
-        if (!parsed) return fail(std::format("rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
-        auto made = sim::Simulation::create(core::GridSpec{ctx.dimensions, opts.width, opts.height, opts.depth}, *parsed.ir,
+        rule::RuleIR ir;
+        if (opts.ruleIsLua) {
+            rule::LuaContext lctx;
+            lctx.dimensions = ctx.dimensions;
+            auto r = rule::compileLua(opts.rule, lctx);
+            if (const auto* e = std::get_if<rule::LuaError>(&r)) return fail("rule: " + e->message);
+            ir = std::get<rule::RuleIR>(std::move(r));
+        } else {
+            auto parsed = rule::parseDsl(opts.rule, ctx);
+            if (!parsed) return fail(std::format("rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
+            ir = *parsed.ir;
+        }
+        auto made = sim::Simulation::create(core::GridSpec{ctx.dimensions, opts.width, opts.height, opts.depth}, ir,
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);
         auto sim = std::get<sim::Simulation>(std::move(made));
-        std::vector<double> density(parsed.ir->states - 1u, 0.1);
-        density[0] = parsed.ir->states == 2 ? 0.3 : 0.2;
+        std::vector<double> density(ir.states - 1u, 0.1);
+        density[0] = ir.states == 2 ? 0.3 : 0.2;
         sim.fillRandom(density);
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
         if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));

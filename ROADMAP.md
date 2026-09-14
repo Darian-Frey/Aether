@@ -72,8 +72,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Correlated cell mutation in aligned blocks (F-026, D-015, 2026-09-14). Extends Phase 2's mutation work; landed here because it shares the step shader with the rest of this phase.
 - [x] `signature_literal` syntax defined in SPEC §7 and parsed — elements in canonical order, `_` wildcards, `rot` for rotation-symmetric tables, mixable with count conditions (IMP-002, 2026-09-14)
 - [ ] Bundled rule library per the F-010 list, each rule with palette and description
-- [ ] Sandboxed Lua front end emitting IR
-- [ ] Instruction budget and abort path
+- [x] Sandboxed Lua front end emitting IR (F-008, 2026-09-14)
+- [x] Instruction budget and abort path, plus a memory budget for scripts that fill memory rather than loop (2026-09-14)
 - [ ] GLSL codegen backend with template and shader cache
 - [ ] Automatic backend selection from IR shape
 - [ ] Backend equivalence test: rules expressible both ways compiled through both, compared

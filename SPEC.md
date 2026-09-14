@@ -284,9 +284,23 @@ A rule script is a Lua chunk returning a table convertible to a `RuleIR`. It exe
 
 **Sandbox.** Available: `math`, `string`, `table`, `ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, `error`, `assert`. Removed: `io`, `os`, `require`, `dofile`, `loadfile`, `load`, `package`, `debug`, and the global environment beyond the above.
 
-**Budget.** A debug hook aborts the script after `LUA_INSTRUCTION_BUDGET = 50_000_000` VM instructions, reported as a compile error naming the budget. Wall-clock is not used, so the budget is deterministic (AV-009).
+**Budget.** A debug hook aborts the script after `LUA_INSTRUCTION_BUDGET = 50_000_000` VM instructions, reported as a compile error naming the budget. Wall-clock is not used, so the budget is deterministic (AV-009). A second budget bounds memory: the interpreter runs on an allocator capped at `LUA_MEMORY_BUDGET = 256 MB`, since a script can exhaust memory well inside the instruction budget by building a table rather than by looping (added 2026-09-14). Exceeding either is a compile error naming the budget, and leaves the running rule alone like any other failed compile.
 
-**Returned table.** Field names mirror the IR. A returned table failing IR validation (§4) is a compile error, reported with the failing rule number.
+**Isolation.** The interpreter is created and destroyed inside one compile call, and the chunk runs with a fresh environment table as its `_ENV`, so the real global table is unreachable even by name. Nothing Lua-owned outlives the call, which is what keeps D-003 and AV-008 structural rather than a matter of discipline: there is no interpreter for a step loop to call into.
+
+**Returned table.** Field names mirror the IR: `dimensions`, `states`, `neighbourhood = {type, radius}`, `boundary`, `kind`, `transition`, and an optional `metadata`. A returned table failing IR validation (§4) is a compile error quoting the diagnostic.
+
+`transition` takes one of two forms (2026-09-14):
+
+- **An array of state indices**, in the layout order of §5, whose length must equal the computed table size exactly. This mirrors the IR as stored.
+- **A function**, which the host calls once per table entry while building it — at compile time, like everything else here, so D-003 is untouched. Its arguments follow the rule's kind:
+  - `outer_totalistic`: `f(own, counts)` where `counts[s]` is the number of neighbours in state `s`, including `counts[0]`.
+  - `non_totalistic`: `f(own, neighbours)` where `neighbours[i]` is the `i`-th neighbour in the canonical order of §3, one-based.
+  - `totalistic`: `f(sum)`, the sum over the cell and its neighbours.
+
+  The function must return a state in `0 … S-1`; anything else is a compile error naming the arguments that produced it.
+
+The function form is what makes a large hand-specified automaton practical to write, since the script can compute an entry rather than lay out a table of thousands. `expression` and `continuous` rules cannot yet be returned: no backend can execute one.
 
 ---
 

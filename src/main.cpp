@@ -18,6 +18,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -40,6 +42,7 @@ int glCheck() {
 void usage() {
     std::puts("usage: aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--gl-check]\n"
               "  --rule R     B/S, B/S/C or a table block (default B3/S23)\n"
+              "  --lua FILE   a Lua script returning a rule table, instead of --rule\n"
               "  --size WxH[xD]  grid extents (default 512x512); a depth makes it 3D\n"
               "  --cpu        start on the CPU reference path\n"
               "  --seed N     stream A seed for the random fill (default 1)\n"
@@ -88,7 +91,14 @@ int main(int argc, char** argv) {
         };
         if (a == "--gl-check") return glCheck();
         if (a == "--help" || a == "-h") { usage(); return 0; }
-        if (a == "--rule") opts.rule = value("--rule");
+        if (a == "--rule") { opts.rule = value("--rule"); opts.ruleIsLua = false; }
+        else if (a == "--lua") {
+            const char* path = value("--lua");
+            std::ifstream f(path);
+            if (!f) { std::printf("cannot open %s\n", path); return 2; }
+            opts.rule.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            opts.ruleIsLua = true;
+        }
         else if (a == "--size") {
             unsigned w = 0, h = 0, d = 1;
             const int n = std::sscanf(value("--size"), "%ux%ux%u", &w, &h, &d);

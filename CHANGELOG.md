@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Lua rule front end (F-008, D-003): `rule/lua` runs a script once per compile in a fresh interpreter with its own environment, an instruction budget and a memory budget; the transition may be an array or a function called per table entry. Language selector in the Rule panel, `--lua FILE` on the command line (2026-09-14).
+- Lua 5.4 as a system dependency via pkg-config (2026-09-14).
 - Signature literals in the rule DSL (IMP-002): `0: [1, _, 2, _] rot -> 3;` writes a non-totalistic rule directly, with wildcards, rotation expansion derived from the neighbourhood's own geometry, and free mixing with count conditions (2026-09-14).
 - `rule::rotationPermutation`: the quarter- or sixth-turn permutation of a 2D neighbourhood (2026-09-14).
 - Cell life cycle (F-025, D-014): `decay N;` gives any table-block rule an ageing tail through a front-end desugaring in `rule/decay`; tail states count as quiescent; `metadata.decay_from` drives a fading palette ramp and tail-only age shading (2026-09-14).
@@ -47,7 +49,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 187 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 200 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).

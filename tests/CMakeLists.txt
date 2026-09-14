@@ -10,6 +10,7 @@ add_executable(aether_tests
     rule/dsl_test.cpp
     rule/decay_test.cpp
     rule/signature_test.cpp
+    rule/lua_test.cpp
     rule/lut_test.cpp
     rule/ir_json_test.cpp
     sim/boundary_test.cpp

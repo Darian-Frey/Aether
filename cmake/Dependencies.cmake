@@ -47,6 +47,13 @@ add_library(rlimgui STATIC ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
 target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 target_link_libraries(rlimgui PUBLIC imgui raylib)
 
+# --- Lua 5.4 (rule scripting front end, D-003) ------------------------------------
+# Taken from the system rather than built in-tree: it is a compile-time
+# dependency of the rule front end, not of the engine, and every target
+# platform packages it.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LUA REQUIRED IMPORTED_TARGET lua5.4)
+
 # --- nlohmann/json (session files) ------------------------------------------------
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 set(JSON_Install OFF CACHE BOOL "" FORCE)

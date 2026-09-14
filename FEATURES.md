@@ -102,7 +102,8 @@ People who want to explore cellular automata rather than run one specific automa
 - A Lua script returns a rule IR table and is executed exactly once, at compile time
 - Sandboxed: no `io`, `os`, `require`, or filesystem access
 - Instruction-count budget enforced; a script exceeding it is aborted with a diagnostic
-**Status:** Not started
+**Status:** Complete
+**Progress:** 2026-09-14. `rule/lua` runs a script once per compile in a fresh interpreter with its own environment table, an instruction budget and a memory budget. A transition may be an array in layout order or a function the host calls once per table entry, which is what makes a large rule practical to write. Language selector in the Rule panel and `--lua FILE`.
 
 ### F-009 Rule IR and compiler backends
 **Priority:** Must

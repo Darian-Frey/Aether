@@ -70,12 +70,15 @@ int App::run() {
             if (!sim_) exitCode = 1;
         } else if (exitCode == 0) {
             ctx_.dimensions = opts_.depth > 1 ? 3 : 2;
-            auto parsed = rule::parseDsl(ruleText_.data(), ctx_);
-            if (!parsed) {
-                log_.error(std::format("initial rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
-                parsed = rule::parseDsl(opts_.depth > 1 ? "B5/S45" : "B3/S23", ctx_);
+            ruleLanguage_ = opts_.ruleIsLua ? 1 : 0;
+            auto initial = compileRuleSource();
+            if (!initial) {
+                log_.error("initial rule: " + ruleError_);
+                ruleLanguage_ = 0;
+                std::strncpy(ruleText_.data(), opts_.depth > 1 ? "B5/S45" : "B3/S23", ruleText_.size() - 1);
+                initial = compileRuleSource();
             }
-            if (!createSimulation(opts_.width, opts_.height, opts_.depth, *parsed.ir, opts_.cpu ? sim::Path::Cpu : sim::Path::Gpu)) {
+            if (!createSimulation(opts_.width, opts_.height, opts_.depth, *initial, opts_.cpu ? sim::Path::Cpu : sim::Path::Gpu)) {
                 exitCode = 1;
             } else {
                 sim_->scheduler().setTargetRate(opts_.targetGps);
@@ -280,16 +283,36 @@ void App::applyPaletteForStates() {
     for (size_t i = 1; i < density_.size(); ++i) density_[i] = 0.1f;
 }
 
-bool App::compileRuleText() {
+// The DSL or Lua, whichever the panel names. Both end at a validated IR.
+std::optional<rule::RuleIR> App::compileRuleSource() {
+    if (ruleLanguage_ == 1) {
+        rule::LuaContext lctx;
+        lctx.dimensions = ctx_.dimensions;
+        lctx.boundary = ctx_.boundary;
+        auto r = rule::compileLua(ruleText_.data(), lctx);
+        if (const auto* e = std::get_if<rule::LuaError>(&r)) {
+            ruleError_ = e->message;
+            return std::nullopt;
+        }
+        return std::get<rule::RuleIR>(std::move(r));
+    }
     auto parsed = rule::parseDsl(ruleText_.data(), ctx_);
     if (!parsed) {
         ruleError_ = std::format("{}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message);
+        return std::nullopt;
+    }
+    return *parsed.ir;
+}
+
+bool App::compileRuleText() {
+    auto compiled = compileRuleSource();
+    if (!compiled) {
         log_.error("rule: " + ruleError_);
         return false;
     }
     if (!sim_) return false;
     const uint16_t oldStates = sim_->rule().states;
-    if (auto e = sim_->setRule(*parsed.ir)) {
+    if (auto e = sim_->setRule(*compiled)) {
         ruleError_ = e->message;
         log_.error("rule: " + ruleError_);
         return false;
@@ -298,7 +321,7 @@ bool App::compileRuleText() {
     const auto& ir = sim_->rule();
     refreshRuleSummary();
     log_.info(std::format("compiled {} -> {} backend, {} entries",
-                          ir.metadata.source_notation.value_or("rule").substr(0, 40),
+                          ir.metadata.source_notation.value_or(ir.metadata.name.value_or("rule")).substr(0, 40),
                           rule::selectBackend(ir) == rule::Backend::Lut ? "table" : "codegen",
                           sim_->lut().table.size()));
     if (ir.states != oldStates) applyPaletteForStates();

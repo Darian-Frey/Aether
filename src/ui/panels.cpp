@@ -57,12 +57,18 @@ void App::drawPanels() {
 
 void App::drawRulePanel() {
     ImGui::PushID("rule");
-    ImGui::InputTextMultiline("##src", ruleText_.data(), ruleText_.size(), ImVec2(-1, 96),
+    ImGui::SetNextItemWidth(90);
+    ImGui::Combo("##lang", &ruleLanguage_, "DSL\0Lua\0");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lua scripts run once, at compile time, and return a rule table");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", ruleLanguage_ == 1 ? "a script returning a rule table (SPEC §8)"
+                                                 : "B3/S23, B2/S/C3, or a table block");
+    ImGui::InputTextMultiline("##src", ruleText_.data(), ruleText_.size(),
+                              ImVec2(-1, ruleLanguage_ == 1 ? 200 : 96),
                               ImGuiInputTextFlags_AllowTabInput);
     bool apply = ImGui::Button("Compile");
     ImGui::SameLine();
     ImGui::TextDisabled("Ctrl+Enter");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("B3/S23, B2/S/C3, or a table block");
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Enter)) apply = true;
     if (apply) compileRuleText();
 

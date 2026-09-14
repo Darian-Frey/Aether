@@ -77,13 +77,13 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-008 Lua reaching a per-cell path
 **Severity:** Critical
 **Description.** The compile-time-only invariant (D-003) is architecturally load-bearing and socially fragile. A future feature request — "let the rule read a user variable that changes each generation" — has an obvious implementation that involves calling into Lua from the step loop, and that implementation would be several thousand times too slow and impossible on the GPU.
-**Detection.** Manual/structural: the Lua interpreter handle is owned by `rule/lua` and is not reachable from `sim/` or `render/` by construction. Any change that widens its visibility is a review flag. Planned automated check: assert the Lua state is destroyed after compilation completes, so that a step-loop call would fault rather than merely be slow.
+**Detection.** Structural, and now enforced by construction (2026-09-14): `rule::compileLua` creates the `lua_State` in a local RAII object and returns a plain `RuleIR`, so no Lua handle exists outside the call and there is nothing for a step loop to call into. The chunk also runs with its own environment table rather than the real globals, so a script cannot stash anything either. `tests/rule/lua_test.cpp` checks the observable half: a global set by one script is gone by the next compile. Any change that lets a `lua_State` escape `rule/lua` is a review flag.
 **Related decisions.** D-003.
 
 ### AV-009 Pathological Lua script at compile time
 **Severity:** Major
 **Description.** A user rule script containing an unbounded loop hangs the application at rule-compile time with no way out. Since scripts are expected to do real work — a script may legitimately compute a large transition table exhaustively — a naive timeout would also kill valid scripts.
-**Detection.** Not implemented. Planned: a Lua debug hook enforcing `LUA_INSTRUCTION_BUDGET` (SPEC §8), tested with a fixture script containing an infinite loop, asserting a clean abort with the budget named in the diagnostic. The budget is instruction-counted rather than wall-clock so that the abort point is deterministic and does not vary with machine speed.
+**Detection.** Implemented 2026-09-14. A count hook enforces `LUA_INSTRUCTION_BUDGET` and a capped allocator enforces `LUA_MEMORY_BUDGET`; both abort with the budget named, and the running rule is untouched like any other failed compile. `tests/rule/lua_test.cpp` covers an endless loop, a script that fills memory without looping, and a script doing real work well inside its budget. The instruction budget is counted rather than timed, so the abort point does not vary with machine speed. The memory budget was added because the instruction budget alone does not bound a script that builds a table.
 **Related decisions.** D-003.
 
 ### AV-014 Rule compilation failure leaves the engine in a half-updated state

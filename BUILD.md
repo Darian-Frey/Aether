@@ -18,7 +18,7 @@ sudo apt install build-essential cmake ninja-build git \
 | CMake | 3.20 | 3.28.3 |
 | Ninja | any (optional; Make also works) | 1.11.1 |
 | OpenGL | 4.3 core | 4.6 (Intel Mesa 25.2), 4.3 (NVIDIA 595.84) |
-| Lua | 5.4 (Phase 4; not yet linked) | 5.4 |
+| Lua | 5.4, `liblua5.4-dev` via pkg-config | 5.4.6 |
 
 raylib, Dear ImGui and rlImGui are **not** taken from the system. They are fetched and built in-tree by CMake at pinned versions so that the GL backend raylib is compiled against is a property of this project, not of whatever is installed (see [cmake/Dependencies.cmake](cmake/Dependencies.cmake)):
 
