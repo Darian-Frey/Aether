@@ -27,6 +27,7 @@ std::variant<Renderer2D, core::Error> Renderer2D::create() {
     r.locAge_        = GetShaderLocation(sh, "ageShade");
     r.locBackground_ = GetShaderLocation(sh, "background");
     r.locLattice_    = GetShaderLocation(sh, "lattice");
+    r.locDecayFrom_  = GetShaderLocation(sh, "decayFrom");
     // raylib allocated locs[]; we keep only the id and free its table.
     RL_FREE(sh.locs);
 
@@ -45,7 +46,9 @@ Renderer2D::Renderer2D(Renderer2D&& o) noexcept
     : shaderId_(o.shaderId_), locState_(o.locState_), locPalette_(o.locPalette_), locFrame_(o.locFrame_),
       locViewport_(o.locViewport_), locOrigin_(o.locOrigin_), locZoom_(o.locZoom_), locGrid_(o.locGrid_),
       locStates_(o.locStates_), locAge_(o.locAge_), locBackground_(o.locBackground_), locLattice_(o.locLattice_),
-      paletteTex_(o.paletteTex_), palette_(o.palette_), background_(o.background_), ageShade_(o.ageShade_) {
+      locDecayFrom_(o.locDecayFrom_),
+      paletteTex_(o.paletteTex_), palette_(o.palette_), background_(o.background_), ageShade_(o.ageShade_),
+      decayFrom_(o.decayFrom_) {
     o.shaderId_ = 0;
     o.paletteTex_ = 0;
 }
@@ -85,6 +88,7 @@ void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, con
     const int   nStates     = static_cast<int>(states);
     const int   age         = ageShade_ ? 1 : 0;
     const int   lattice     = view.lattice == Lattice::Hex ? 1 : 0;
+    const int   decayFrom   = decayFrom_ ? static_cast<int>(*decayFrom_) : -1;
     const float bg[4]       = {background_.r / 255.0f, background_.g / 255.0f, background_.b / 255.0f, background_.a / 255.0f};
 
     // rlSetShader (inside BeginShaderMode) flushes the batch, and a flush
@@ -112,6 +116,7 @@ void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, con
     rlSetUniform(locAge_, &age, RL_SHADER_UNIFORM_INT, 1);
     rlSetUniform(locBackground_, bg, RL_SHADER_UNIFORM_VEC4, 1);
     rlSetUniform(locLattice_, &lattice, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(locDecayFrom_, &decayFrom, RL_SHADER_UNIFORM_INT, 1);
     rlSetUniformSampler(locState_, stateTexture);
     rlSetUniformSampler(locPalette_, paletteTex_);
 

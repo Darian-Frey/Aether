@@ -107,8 +107,9 @@ public:
     const Counters& counters() const { return counters_; }
 
     // --- Cell mutation (F-016, SPEC §9.2) -------------------------------------
-    void   setCellMutation(double p);
-    double cellMutation() const { return cellMutationP_; }
+    void    setCellMutation(double p, uint8_t blockShift = 0);
+    double  cellMutation() const { return cellMutationP_; }
+    uint8_t cellMutationBlock() const { return mutation_.blockShift; }
     uint64_t seedB() const { return mutation_.seedB; }
 
     // --- Path ---------------------------------------------------------------

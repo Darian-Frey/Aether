@@ -66,7 +66,7 @@ private:
     };
     struct Config {
         unsigned int program = 0;
-        int locGenLo = -1, locGenHi = -1, locThreshold = -1, locSeedLo = -1, locSeedHi = -1;
+        int locGenLo = -1, locGenHi = -1, locThreshold = -1, locSeedLo = -1, locSeedHi = -1, locBlockShift = -1;
         unsigned int target = 0;
         uint32_t     groupsX = 0, groupsY = 0, groupsZ = 0;
         uint32_t     width = 0, height = 0, depth = 0;

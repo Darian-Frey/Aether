@@ -1,5 +1,6 @@
 #include "rule/dsl.hpp"
 
+#include "rule/decay.hpp"
 #include "rule/table_layout.hpp"
 
 #include <cctype>
@@ -136,6 +137,7 @@ Table buildLifeLikeTable(const LifeLike& rule, const TableLayout& layout) {
 //   header     := "states" integer ";"
 //                 "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
 //                 [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
+//                 [ "decay" integer ";" ]
 //   statement  := integer ":" condition "->" integer ";"
 //   condition  := count_expr
 //   count_expr := "n" "(" integer ")" comparison integer
@@ -239,6 +241,7 @@ struct Block {
     uint16_t      states = 0;
     Neighbourhood nb;
     std::optional<Boundary> boundary;
+    uint16_t      decay = 0;
     std::vector<Statement> statements;
 };
 
@@ -272,6 +275,13 @@ public:
             if (!bd) return err(t, std::format("unknown boundary '{}'", t.text));
             b.boundary = *bd;
             ++i_;
+            if (auto e = expect(Tok::Semi, "';'")) return *e;
+        }
+
+        if (cur().kind == Tok::Ident && cur().text == "decay") {
+            decayToken_ = i_;
+            ++i_;
+            if (auto v = integer(0, 254, "decay length"); v) b.decay = static_cast<uint16_t>(*v); else return err_;
             if (auto e = expect(Tok::Semi, "';'")) return *e;
         }
 
@@ -372,8 +382,16 @@ private:
         return c;
     }
 
+public:
+    // Where `decay` appeared, so the compiler can point at it if the tail
+    // does not fit.
+    size_t decayToken() const { return decayToken_; }
+    const Token& token(size_t i) const { return toks_[i]; }
+
+private:
     std::vector<Token> toks_;
     size_t     i_ = 0;
+    size_t     decayToken_ = 0;
     ParseError err_;
 };
 
@@ -525,7 +543,8 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     // 3: table block.
     auto lexed = Lexer(source).run();
     if (const auto* e = std::get_if<ParseError>(&lexed)) { DslResult r; r.error = *e; return r; }
-    auto parsed = BlockParser(std::move(std::get<std::vector<Token>>(lexed))).run();
+    BlockParser parser(std::move(std::get<std::vector<Token>>(lexed)));
+    auto parsed = parser.run();
     if (const auto* e = std::get_if<ParseError>(&parsed)) { DslResult r; r.error = *e; return r; }
     const Block& b = std::get<Block>(parsed);
 
@@ -541,9 +560,21 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     const TableLayout layout(ir.kind, ir.states, N);
     if (layout.size() && *layout.size() <= kLutMaxEntries) {
         ir.transition = buildBlockTable(b, layout, N);
+    } else if (b.decay > 0) {
+        return fail(1, 1, "this rule is already too large for a table, so it cannot take a decay tail");
     } else {
         ir.kind = Kind::Expression;
         ir.transition = ExprBuilder().build(b);
+    }
+
+    if (b.decay > 0) {
+        auto decayed = applyDecay(ir, b.decay);
+        if (const auto* e = std::get_if<std::string>(&decayed)) {
+            const Token& t = parser.token(parser.decayToken());
+            return fail(t.line, t.column, *e);
+        }
+        ir = std::get<RuleIR>(std::move(decayed));
+        ir.metadata.source_notation = std::string(trim(source));
     }
     return finish(std::move(ir));
 }

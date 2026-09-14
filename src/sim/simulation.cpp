@@ -115,11 +115,12 @@ void Simulation::resetOutOfRangeStates(uint16_t states) {
     if (changed || path_ == Path::Gpu) commitHost();
 }
 
-void Simulation::setCellMutation(double p) {
+void Simulation::setCellMutation(double p, uint8_t blockShift) {
     cellMutationP_ = std::clamp(p, 0.0, 1.0);
     mutation_.threshold = mutationThreshold(cellMutationP_);
+    mutation_.blockShift = std::min<uint8_t>(blockShift, 16);
     gpuStepper_.setCellMutation(mutation_);
-    journal(generation_, EvCellMutation{cellMutationP_});
+    journal(generation_, EvCellMutation{cellMutationP_, mutation_.blockShift});
 }
 
 void Simulation::step() {
@@ -193,6 +194,7 @@ Session Simulation::session() {
     s.lineage = lineage_.entries();
     s.ruleMutation = ruleMutation_;
     s.cellMutationP = cellMutationP_;
+    s.cellMutationBlock = mutation_.blockShift;
     s.generation = generation_;
     s.current.assign(host_.current().begin(), host_.current().end());
     s.streamA = streamA_.state();
@@ -210,7 +212,7 @@ void Simulation::applyEvent(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvPaint>)         paintSpan(b.x0, b.x1, b.y, b.z, b.state);
         else if constexpr (std::is_same_v<T, EvFill>)          fillRandom(b.density);
         else if constexpr (std::is_same_v<T, EvClear>)         clear();
-        else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p);
+        else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p, b.blockShift);
         else if constexpr (std::is_same_v<T, EvRuleMutation>)  setRuleMutation(b.params);
     }, ev.body);
 }
@@ -271,6 +273,7 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.ruleMutation_ = s.ruleMutation;
     sim.cellMutationP_ = s.cellMutationP;
     sim.mutation_.threshold = mutationThreshold(s.cellMutationP);
+    sim.mutation_.blockShift = s.cellMutationBlock;
     sim.gpuStepper_.setCellMutation(sim.mutation_);
     sim.counters_.rule_mutations = s.ruleMutationsApplied;
     sim.counters_.rule_mutations_skipped = s.ruleMutationsSkipped;

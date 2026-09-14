@@ -34,6 +34,9 @@ public:
     void setAgeShading(bool on) { ageShade_ = on; }
     bool ageShading() const { return ageShade_; }
 
+    // First state of the rule's ageing tail, or nullopt (SPEC §7 decay).
+    void setDecayFrom(std::optional<uint16_t> from) { decayFrom_ = from; }
+
     // Draws `stateTexture` (a GL_R8UI 2D texture of `spec`'s extents) into
     // `viewport` under `view`. `frameWidth/Height` is the framebuffer being
     // drawn to — the window, or a render texture under BeginTextureMode.
@@ -47,11 +50,13 @@ private:
 
     unsigned int shaderId_ = 0;
     int locState_ = -1, locPalette_ = -1, locFrame_ = -1, locViewport_ = -1, locOrigin_ = -1,
-        locZoom_ = -1, locGrid_ = -1, locStates_ = -1, locAge_ = -1, locBackground_ = -1, locLattice_ = -1;
+        locZoom_ = -1, locGrid_ = -1, locStates_ = -1, locAge_ = -1, locBackground_ = -1, locLattice_ = -1,
+        locDecayFrom_ = -1;
     unsigned int paletteTex_ = 0;
     Palette      palette_;
     Rgba         background_{22, 24, 28, 255};
     bool         ageShade_ = false;
+    std::optional<uint16_t> decayFrom_;
 };
 
 }  // namespace aether::render

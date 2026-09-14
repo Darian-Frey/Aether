@@ -218,6 +218,28 @@ People who want to explore cellular automata rather than run one specific automa
 **Status:** Complete
 **Progress:** 2026-09-12. Voxel-exact raymarch with per-state colour and opacity from the palette; orbit camera; per-axis clip ranges; single-slice mode; 49 fps at 256³ on the T1200.
 
+### F-025 Cell life cycle
+**Priority:** Should
+**Acceptance:**
+- `decay N;` in a table block gives any rule an ageing tail: a cell the rule would kill fades through N states, one per generation, before reaching 0
+- Tail states count as quiescent, so a fading cell neither feeds a birth nor supports a survival
+- Equivalent to the Generations shorthand where both can express a rule: `B2/S/C3` and the same rule written longhand with `decay 1` compile to the same table
+- The tail is coloured as a ramp by default, fading in colour and in 3D opacity as a cell ages; age shading darkens only the tail
+- Works on every lattice and both execution paths, with a decayed rule in the equivalence fixture set
+**Status:** Complete
+**Progress:** 2026-09-14 (D-014). A front-end desugaring in `rule/decay`: nothing downstream changes. Limited to a 6-state tail on 2D Moore r=1, 8 on hexagonal, 14 on von Neumann until the codegen backend or IMP-001 lifts the table-size ceiling; the compiler names the limit when it refuses.
+
+### F-026 Correlated cell mutation
+**Priority:** Should
+**Acceptance:**
+- A block size for cell mutation: every cell in an aligned block of `2^k` per axis shares the decision to mutate while drawing its own replacement state
+- `k = 0` is identical to the per-cell form, bit for bit, so earlier sessions replay unchanged
+- `p` keeps its meaning at every block size: the expected fraction of cells changed per generation
+- Reproducible and order-independent on both paths, covered by the equivalence suite
+- Recorded in the session and journal
+**Status:** Complete
+**Progress:** 2026-09-14 (D-015). Block shift in `CellMutation`, twinned in `shaders/hash.glsl`; slider in the Mutation panel and `--cell-mutation P:K`.
+
 ### F-024 Screensaver mode
 **Priority:** Should
 **Acceptance:**
@@ -263,5 +285,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Fitness-directed rule search: score each mutated rule on population entropy or activity and keep the branches that score well, turning F-015 from a random walk into a search. The lineage log (F-017) is already the substrate this would need.
 - Triangular lattice: representable on the square storage with two offset lists selected by the parity of x + y. Bounded but bends the uniform-lattice assumption both steppers and the table index rely on (D-012).
 - Penrose or other aperiodic lattices: no integer coordinates, so cells become a graph with explicit adjacency, the step a gather by index, rendering a polygon list, and cell mutation hashed by cell index. A separate graph-lattice engine, not an extension of this one (D-012).
+- Structurally grouped mutation: a connected cluster of live cells mutating as a unit, rather than the spatial blocks of F-026. Needs connected-component labelling every generation, which is not a function of a cell's neighbourhood — it would take multi-pass label propagation on the GPU and would break the one-invocation-per-cell step model (D-015, 2026-09-14).
+- Hard cell lifespan: every cell dies at age L whatever its neighbours do, so still lifes and oscillators die and only patterns that keep producing new cells persist. Expressible by the same desugaring route as F-025 with no engine change, and set aside in favour of soft decay on 2026-09-14 (D-014).
+- Mutation patches: discs at a hashed centre instead of aligned blocks, for a less grid-aligned look (D-015 option B).
 - Rule diffing: show what changed between two lineage entries.
 - Audio-reactive parameter modulation.

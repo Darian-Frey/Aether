@@ -61,7 +61,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-007 Backend divergence on the same rule
 **Severity:** Critical
 **Description.** A rule near the size threshold may be expressible through both the table and codegen backends. If the two produce different results, behaviour depends on `LUT_MAX_ENTRIES` — meaning a tuning constant silently changes simulation semantics. The same class of divergence applies between CPU and GPU implementations of the stream-B hash (SPEC §10).
-**Detection.** Not implemented (requires Phase 4). Planned: for every rule in the fixture set expressible both ways, compile through both backends and compare 1000 generations bitwise. Separately, a direct test that the C++ and GLSL implementations of the stream-B hash agree over a large input sweep.
+**Detection.** Not implemented (requires Phase 4). Planned: for every rule in the fixture set expressible both ways, compile through both backends and compare 1000 generations bitwise. Separately, a direct test that the C++ and GLSL implementations of the stream-B hash agree over a large input sweep, block-correlated decisions included (2026-09-14).
 **Related decisions.** D-004 (two backends), D-011.
 
 ### AV-012 Rule mutation produces an invalid IR

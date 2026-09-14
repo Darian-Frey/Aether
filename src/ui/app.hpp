@@ -35,6 +35,7 @@ struct Options {
     uint32_t    ruleMutationInterval = 0;   // 0 = off
     uint32_t    ruleMutationMagnitude = 1;
     double      cellMutationP = 0.0;        // 0 = off
+    uint32_t    cellMutationBlock = 0;      // block shift
     int         windowWidth  = 1280;
     int         windowHeight = 800;
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
@@ -61,6 +62,7 @@ private:
     void verifyReplay();
     bool compileRuleText();            // ruleText_ -> IR -> sim; reports to log and ruleError_
     void applyPaletteForStates();
+    void refreshRuleSummary();
 
     // Per frame
     void updateCanvas(double dt);
@@ -106,6 +108,7 @@ private:
     int burstCount_ = 1000;
     float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
     bool  cellMutationOn_ = false;
+    int   cellMutationBlock_ = 0;   // shift: 0 = per cell
     bool  ruleMutationOn_ = false;
     int   ruleInterval_ = 250;
     int   ruleMagnitude_ = 1;

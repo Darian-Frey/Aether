@@ -30,5 +30,8 @@ uint aetherUniformState(uint h, uint states) {
 }
 
 // The decision for one cell, as in sim/hash.hpp.
+uint aetherBlockHash(uint x, uint y, uint z, uint genLo, uint genHi, uint seedLo, uint seedHi, uint shift) {
+    return aetherHash32(x >> shift, y >> shift, z >> shift, genLo, genHi, seedLo, seedHi);
+}
 bool aetherMutates(uint h, uint threshold) { return h < threshold; }
 uint aetherMutatedState(uint h, uint states) { return aetherUniformState(aetherMix32(h ^ 0xa5a5a5a5u), states); }

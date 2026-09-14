@@ -35,6 +35,7 @@ uniform uint generationHi;
 uniform uint mutationThreshold;   // 0 disables cell mutation
 uniform uint seedBLo;
 uniform uint seedBHi;
+uniform uint mutationBlockShift;  // 0 = per cell (SPEC §9.2)
 layout(std430, binding = 1) readonly buffer Offsets { int  off[]; };    // 4 ints per neighbour: dx dy dz pad
 layout(std430, binding = 2) readonly buffer Comps   { uint w[]; };      // (N+1) x S, row-major by n
 layout(std430, binding = 3) readonly buffer Table   { uint table[]; };  // one entry per uint
@@ -126,8 +127,12 @@ void main() {
     // Cell mutation (SPEC §9.2). At threshold 0 the comparison is false for
     // every invocation and the branch is uniform across the wavefront.
     if (mutationThreshold != 0u) {
-        uint h = aetherHash32(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi, seedBLo, seedBHi);
-        if (aetherMutates(h, mutationThreshold)) next = aetherMutatedState(h, uint(AETHER_S));
+        uint hb = aetherBlockHash(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi,
+                                  seedBLo, seedBHi, mutationBlockShift);
+        if (aetherMutates(hb, mutationThreshold)) {
+            uint hc = aetherHash32(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi, seedBLo, seedBHi);
+            next = aetherMutatedState(hc, uint(AETHER_S));
+        }
     }
     writeCell(gid, next);
 }

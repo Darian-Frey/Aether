@@ -23,16 +23,28 @@ Rgba hsv(double h, double s, double v) {
 
 }  // namespace
 
-Palette Palette::defaultFor(uint16_t states) {
+Palette Palette::defaultFor(uint16_t states, std::optional<uint16_t> decayFrom) {
     Palette p;
     p.entries[0] = {14, 16, 20, 0};   // alpha is opacity in the 3D view: quiescent is invisible
     p.entries[1] = {236, 240, 238, 255};
+
+    // Live states the rule uses in its own right.
+    const uint16_t live = decayFrom.value_or(states);
     for (uint16_t s = 2; s < 256; ++s) {
-        // Spread the remaining states evenly round the circle; states past
-        // the rule's count still get a colour so a stale cell is visible.
-        const uint16_t span = states > 2 ? states - 2 : 254;
+        const uint16_t span = live > 2 ? live - 2 : 254;
         const double h = 200.0 + 300.0 * static_cast<double>((s - 2) % span) / span;
         p.entries[s] = hsv(std::fmod(h, 360.0), 0.75, 0.85);
+    }
+    if (!decayFrom || *decayFrom >= states) return p;
+
+    // The ageing tail, cooling from the colour of state 1.
+    const uint16_t tail = static_cast<uint16_t>(states - *decayFrom);
+    const Rgba from = p.entries[1];
+    for (uint16_t i = 0; i < tail; ++i) {
+        const double t = static_cast<double>(i + 1) / (tail + 1);
+        auto fade = [&](uint8_t c) { return static_cast<uint8_t>(std::lround(c * (1.0 - 0.82 * t))); };
+        p.entries[static_cast<size_t>(*decayFrom + i)] =
+            {fade(from.r), fade(from.g), fade(from.b), static_cast<uint8_t>(std::lround(255.0 * (1.0 - t)))};
     }
     return p;
 }

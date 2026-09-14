@@ -92,6 +92,10 @@ struct Metadata {
     std::optional<std::string> name;
     std::optional<std::string> author;
     std::optional<std::string> source_notation;
+    // First state of the ageing tail, when the rule has one (SPEC §7 decay).
+    // A presentation hint for palettes and age shading, excluded from the
+    // hash with the rest of the metadata and carrying no semantics.
+    std::optional<uint16_t>    decay_from;
 
     bool operator==(const Metadata&) const = default;
 };

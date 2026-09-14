@@ -185,8 +185,15 @@ void App::drawMutationPanel() {
     ImGui::BeginDisabled(!cellMutationOn_);
     changed |= ImGui::SliderFloat("p per cell", &cellMutationLog_, -7.0f, 0.0f,
                                   std::format("{:.2e}", std::pow(10.0, cellMutationLog_)).c_str());
+    changed |= ImGui::SliderInt("block", &cellMutationBlock_, 0, 8,
+                                cellMutationBlock_ == 0 ? "one cell" : std::format("{} cells", 1 << cellMutationBlock_).c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cells mutate in aligned blocks of this size, so changes arrive in clumps.\n"
+                                                  "p stays the expected fraction of cells changed per generation.");
     ImGui::EndDisabled();
-    if (changed) sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
+    if (changed) {
+        sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0,
+                              static_cast<uint8_t>(cellMutationBlock_));
+    }
 
     ImGui::Separator();
     bool rchanged = ImGui::Checkbox("Rule mutation", &ruleMutationOn_);
@@ -313,12 +320,19 @@ void App::drawPalettePanel() {
             changed = true;
         }
     }
-    if (ImGui::Button("Reset palette")) { pal = render::Palette::defaultFor(sim_->rule().states); changed = true; }
+    if (ImGui::Button("Reset palette")) {
+        pal = render::Palette::defaultFor(sim_->rule().states, sim_->rule().metadata.decay_from);
+        changed = true;
+    }
+    if (sim_->rule().metadata.decay_from) {
+        ImGui::TextDisabled("States %u and up are the ageing tail.", *sim_->rule().metadata.decay_from);
+    }
     if (is3D()) ImGui::TextDisabled("Alpha is each state's opacity in the volume.");
     if (changed) {
         renderer_->setPalette(pal);
         if (renderer3d_) renderer3d_->setPalette(pal);
     }
+    (void)0;
     ImGui::PopID();
 }
 

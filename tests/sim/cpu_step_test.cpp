@@ -275,3 +275,42 @@ TEST_CASE("3D: B1/S on von Neumann grows a cross and kills the seed", "[cpu]") {
     for (uint8_t v : g.current()) total += v;
     CHECK(total == 6);
 }
+
+TEST_CASE("a cell with an ageing tail fades over the tail's length and then vanishes", "[cpu][decay]") {
+    const LutRule r = compile("states 2; neighbourhood moore 1; decay 3; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    HostGrid g({2, 8, 8, 1});
+    g.set(3, 3, 0, 1);
+    run(r, g, 1);
+    CHECK(g.get(3, 3) == 2);
+    run(r, g, 1);
+    CHECK(g.get(3, 3) == 3);
+    run(r, g, 1);
+    CHECK(g.get(3, 3) == 4);
+    run(r, g, 1);
+    CHECK(g.get(3, 3) == 0);
+    for (uint8_t c : g.current()) CHECK(c == 0);
+}
+
+TEST_CASE("a still life dies once the rule has an ageing tail", "[cpu][decay]") {
+    // A block is stable under Life and stays stable with a tail, because its
+    // cells keep meeting the survival condition. A blinker likewise. What a
+    // tail kills is anything the rule was already letting go of, and it does
+    // so visibly rather than instantly.
+    const LutRule life = compile("B3/S23");
+    const LutRule fading = compile("states 2; neighbourhood moore 1; decay 2; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    HostGrid a({2, 12, 12, 1}), b({2, 12, 12, 1});
+    for (auto* g : {&a, &b}) {
+        g->set(1, 1, 0, 1); g->set(2, 1, 0, 1); g->set(1, 2, 0, 1); g->set(2, 2, 0, 1);   // block
+        g->set(6, 6, 0, 1);                                                                // lone cell
+    }
+    run(life, a, 3);
+    run(fading, b, 3);
+    CHECK(a.get(1, 1) == 1);
+    CHECK(b.get(1, 1) == 1);     // the block is untouched by the tail
+    CHECK(a.get(6, 6) == 0);     // the lone cell is gone under Life
+    CHECK(b.get(6, 6) == 0);     // and has faded through the tail by generation 3
+    HostGrid c({2, 12, 12, 1});
+    c.set(6, 6, 0, 1);
+    run(fading, c, 2);
+    CHECK(c.get(6, 6) == 3);     // still visible while it fades
+}

@@ -24,7 +24,7 @@ struct EvRewind      { size_t entry; };
 struct EvPaint       { uint32_t x0, x1, y, z; uint8_t state; };
 struct EvFill        { std::vector<double> density; };
 struct EvClear       {};
-struct EvCellMutation{ double p; };
+struct EvCellMutation{ double p; uint8_t blockShift = 0; };
 struct EvRuleMutation{ RuleMutationParams params; };
 
 using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvClear, EvCellMutation, EvRuleMutation>;

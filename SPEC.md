@@ -221,6 +221,7 @@ rule_block := header statement*
 header     := "states" integer ";"
               "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
               [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
+              [ "decay" integer ";" ]
 statement  := integer ":" condition "->" integer ";"
 condition  := count_expr | signature_literal
 count_expr := "n" "(" integer ")" comparison integer
@@ -237,6 +238,24 @@ neighbourhood moore 1;
 1: n(1) > 3 -> 0;
 ```
 Statements are evaluated in order; the first match wins. Cells matching no statement retain their state. The compiler expands the statement list exhaustively into a `Table`, or into an `Expression` if the table would exceed the threshold.
+
+**Decay** *(added 2026-09-14, F-025, D-014)*. `decay N;` gives the rule an ageing tail: `N` states are appended to the rule's own states, and a cell the rule would send to `0` from a non-zero state instead enters the tail and advances through it one state per generation before reaching `0`. Tail states are counted as state `0` by the rule's own conditions, so a decaying cell neither feeds births nor supports survival. This is the Generations semantics of `/C` generalised to any table-block rule: `B2/S/C3` and
+
+```
+states 2;
+neighbourhood moore 1;
+decay 1;
+0: n(1) == 2 -> 1;
+```
+
+compile to the same table. `C` and `decay` are related by `C = states + N`.
+
+The desugaring is a front-end transform: it produces an ordinary `outer_totalistic` IR with `states + N` states, so every backend, both execution paths, both mutation controls, the lineage and the session format are unchanged (D-014). Two limits follow from that:
+
+- `states + N ≤ 256` (SPEC §1).
+- The resulting table must fit `LUT_MAX_ENTRIES` until the codegen backend exists. Since an outer-totalistic table is `S·C(N_nb+S−1, S−1)`, the largest tail for a binary rule is 6 states on 2D Moore r=1, 8 on hexagonal r=1, and 14 on 2D von Neumann r=1. The compiler rejects a longer tail and names the largest that fits.
+
+`metadata.decay_from` records the first tail state so that palettes and age shading can colour the tail as a ramp (§13). It is a presentation hint, excluded from `ir_hash` like the rest of `metadata`, and carries no semantics: a wrong value gives odd colours, never a different automaton.
 
 Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. `signature_literal` is named in the grammar but not yet defined or accepted — a table block for a non-totalistic rule is deferred until a literal syntax is specified; IMP-002 proposes one with Langton's loops as the design case. Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
 
@@ -287,12 +306,15 @@ Parameter: `p ∈ [0, 1]`, probability per cell per generation.
 Evaluated inside the compute step, after the rule has produced the next state:
 
 ```
-h = hash32(x, y, z, generation, seed_B)
-if (h < threshold(p)) next = uniform_state(mix32(h ^ 0xA5A5A5A5))
-else                  next = rule_output
+h_cell  = hash32(x, y, z, generation, seed_B)
+h_block = hash32(x >> k, y >> k, z >> k, generation, seed_B)
+if (h_block < threshold(p)) next = uniform_state(mix32(h_cell ^ 0xA5A5A5A5))
+else                        next = rule_output
 ```
 
 The hash is a function of coordinate and generation only, never of evaluation order or thread index, so the result is independent of how the GPU schedules work and reproduces exactly on the CPU path. `generation` is the index of the generation being read. At `p = 0` the threshold is 0, the comparison is false everywhere and the branch is uniform across the wavefront, so cost is negligible (measured: none, 2026-09-11).
+
+**Block size** *(added 2026-09-14, F-026, D-015)*. `k` is the block shift: cells are grouped into aligned blocks of `2^k` per axis, and every cell in a block shares the decision to mutate while drawing its own replacement state. `k = 0` is one cell per block, where `h_block` and `h_cell` are the same value and the behaviour is identical to the original per-cell form — so a session recorded before this existed replays unchanged. `p` keeps its meaning at any `k`: a block mutates with probability `p` and every cell in it changes, so the expected fraction of cells changed per generation is `p` regardless of grouping. What changes is that the changes arrive in clumps rather than as uniform speckle.
 
 `threshold(p)` is `⌊p · 2³²⌋` clamped to `0 … 2³²−1`, so `p = 1` selects every hash but `0xFFFFFFFF`. `uniform_state(v)` derives a state in `0 … S-1` as `(v · S) >> 32` — multiply-shift, not modulo, to avoid bias when `S` is not a power of two. The state is derived from a *second* mixing of `h`, not from `h` itself: a hash that passed the test is small by construction, so its upper bits would select state 0 almost always (BUG-005, corrected 2026-09-11).
 
@@ -358,7 +380,7 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
   "rng":       { "seed_a": 12345, "seed_b": 67890,
                  "stream_a_state": ["0x...", "0x..."] },       // convenience: stream A at `generation`
   "mutation":  { "rule": { "interval": 250, "magnitude": 1, "enabled": true },
-                 "cell": { "p": 0.0001, "enabled": true } },   // current parameters
+                 "cell": { "p": 0.0001, "block": 0, "enabled": true } },   // current parameters
   "journal":   [ { "generation": 0, "type": "fill", "density": [0.3] },
                  { "generation": 0, "type": "rule_mutation", "enabled": true, "interval": 250, "magnitude": 1 },
                  { "generation": 812, "type": "paint", "x0": 3, "x1": 20, "y": 7, "z": 0, "state": 1 },
@@ -384,6 +406,8 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
 **Lineage entries** carry `origin` (`initial` | `user` | `mutation` | `rewind`) and `journal_index`, the journal length when the entry was made. The initial and pinned entries store the full IR; other table-form entries store a `delta` of `[index, value]` pairs against the previous entry plus their `metadata`. Every entry stores its `ir_hash` and the loader verifies it after reconstruction.
 
 **Cell encoding.** `rle` is byte run-length pairs `(count ≤ 255, value)`, base64. `raw` names the sidecar.
+
+`mutation.cell.block` is the block shift of §9.2 and defaults to `0` when absent, so files written before it existed load and replay identically. It was added within `format_version` 1 rather than bumping the version because nothing has been released against version 1; a field whose default changes behaviour would need a bump (2026-09-14).
 
 `format_version` is checked on load. An unknown version is an error, not a best-effort parse.
 
@@ -417,5 +441,7 @@ These are acceptance thresholds, not aspirations. Baselines go in `BENCHMARKS.md
 **3D.** Front-to-back raymarch through the 3D state texture with per-state colour and opacity from the same palette, plus an alpha multiplier per state so that quiescent cells can be made fully transparent. Step count adapts to grid extent. Adjustable clipping planes and a single-slice mode for inspection. Instanced cube rendering is a candidate alternative for small grids and is not specified here.
 
 **1D.** The current generation is written into a scrolling history texture, one row per generation, displayed as a space-time diagram. History depth is the window height in rows; older generations are discarded, not stored.
+
+**Age colouring** *(2026-09-14)*. A rule with an ageing tail (§7 `decay`) carries `metadata.decay_from`, the first tail state. The default palette then ramps the tail from the colour of state 1 toward the background, with alpha falling to zero at the oldest state, so a cell visibly fades as it ages — in 2D through the colour ramp, in 3D through both colour and opacity. The age-shading toggle darkens only the tail when `decay_from` is known, rather than darkening by raw state index, which is meaningless for a rule whose states are not ages (Wireworld, cyclic).
 
 **Palette.** 256 RGBA entries, editable, saved with the rule rather than the session so that a rule carries its intended appearance into the library.

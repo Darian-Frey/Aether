@@ -67,7 +67,7 @@ json eventToJson(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvPaint>)    { j["type"] = "paint"; j["x0"] = b.x0; j["x1"] = b.x1; j["y"] = b.y; j["z"] = b.z; j["state"] = b.state; }
         else if constexpr (std::is_same_v<T, EvFill>)     { j["type"] = "fill"; j["density"] = b.density; }
         else if constexpr (std::is_same_v<T, EvClear>)    { j["type"] = "clear"; }
-        else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; }
+        else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
             j["type"] = "rule_mutation"; j["enabled"] = b.params.enabled;
             j["interval"] = b.params.interval; j["magnitude"] = b.params.magnitude;
@@ -94,7 +94,7 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
     } else if (type == "clear") {
         ev.body = EvClear{};
     } else if (type == "cell_mutation") {
-        ev.body = EvCellMutation{j.at("p").get<double>()};
+        ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
     } else if (type == "rule_mutation") {
         ev.body = EvRuleMutation{{j.at("enabled").get<bool>(), j.at("interval").get<uint32_t>(), j.at("magnitude").get<uint32_t>()}};
     } else {
@@ -153,6 +153,7 @@ json lineageToJson(const std::vector<LineageEntry>& entries) {
             if (e.ir.metadata.name) meta["name"] = *e.ir.metadata.name;
             if (e.ir.metadata.author) meta["author"] = *e.ir.metadata.author;
             if (e.ir.metadata.source_notation) meta["source_notation"] = *e.ir.metadata.source_notation;
+            if (e.ir.metadata.decay_from) meta["decay_from"] = *e.ir.metadata.decay_from;
             j["metadata"] = meta;
         } else {
             j["ir"] = rule::irToJson(e.ir);
@@ -198,6 +199,7 @@ std::variant<std::vector<LineageEntry>, SessionError> lineageFromJson(const json
                 if (m.contains("name")) e.ir.metadata.name = m["name"].get<std::string>();
                 if (m.contains("author")) e.ir.metadata.author = m["author"].get<std::string>();
                 if (m.contains("source_notation")) e.ir.metadata.source_notation = m["source_notation"].get<std::string>();
+                if (m.contains("decay_from")) e.ir.metadata.decay_from = m["decay_from"].get<uint16_t>();
             }
             if (const auto ds = rule::validate(e.ir); !ds.empty()) return SessionError{"lineage delta produced an invalid rule: " + ds.front().message};
         } else {
@@ -225,7 +227,7 @@ std::string sessionToJson(const Session& s) {
     j["rng"] = {{"seed_a", s.seedA}, {"seed_b", s.seedB}};
     if (s.streamA) j["rng"]["stream_a_state"] = {hex(s.streamA->state), hex(s.streamA->inc)};
     j["mutation"] = {{"rule", {{"interval", s.ruleMutation.interval}, {"magnitude", s.ruleMutation.magnitude}, {"enabled", s.ruleMutation.enabled}}},
-                     {"cell", {{"p", s.cellMutationP}, {"enabled", s.cellMutationP > 0.0}}}};
+                     {"cell", {{"p", s.cellMutationP}, {"block", s.cellMutationBlock}, {"enabled", s.cellMutationP > 0.0}}}};
     json journal = json::array();
     for (const Event& ev : s.journal) journal.push_back(eventToJson(ev));
     j["journal"] = journal;
@@ -290,6 +292,7 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
         s.ruleMutation = {m.at("rule").at("enabled").get<bool>(), m.at("rule").at("interval").get<uint32_t>(),
                           m.at("rule").at("magnitude").get<uint32_t>()};
         s.cellMutationP = m.at("cell").at("enabled").get<bool>() ? m.at("cell").at("p").get<double>() : 0.0;
+        s.cellMutationBlock = m.at("cell").value("block", uint8_t{0});
 
         for (const json& ej : j.value("journal", json::array())) {
             auto ev = eventFromJson(ej);

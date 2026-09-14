@@ -16,6 +16,7 @@ uniform float zoom;         // pixels per cell
 uniform vec2  gridSize;     // cells
 uniform int   states;
 uniform int   ageShade;
+uniform int   decayFrom;    // first state of the ageing tail, or -1
 uniform vec4  background;
 uniform int   lattice;      // 0 square, 1 hexagonal (axial storage, pointy-topped)
 
@@ -54,9 +55,16 @@ void main() {
     }
     uint s = texelFetch(stateTex, idx, 0).r;
     vec4 c = texelFetch(paletteTex, ivec2(int(s), 0), 0);
-    if (ageShade == 1 && s >= 1u && states > 2) {
-        float t = float(s - 1u) / float(states - 1);
-        c.rgb *= mix(1.0, 0.3, t);
+    if (ageShade == 1) {
+        // With an ageing tail, darken only the tail: a rule whose states are
+        // not ages (Wireworld, cyclic) must not be shaded by state index.
+        if (decayFrom >= 0 && int(s) >= decayFrom) {
+            float t = float(int(s) - decayFrom + 1) / float(states - decayFrom + 1);
+            c.rgb *= mix(1.0, 0.3, t);
+        } else if (decayFrom < 0 && s >= 1u && states > 2) {
+            float t = float(s - 1u) / float(states - 1);
+            c.rgb *= mix(1.0, 0.3, t);
+        }
     }
     finalColor = vec4(c.rgb, 1.0);   // palette alpha is the 3D opacity; 2D is opaque
 }

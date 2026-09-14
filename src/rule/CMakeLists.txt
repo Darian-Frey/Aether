@@ -1,4 +1,5 @@
 add_library(aether_rule STATIC
+    decay.cpp
     dsl.cpp
     ir.cpp
     ir_json.cpp

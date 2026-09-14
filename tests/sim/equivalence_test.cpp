@@ -88,6 +88,7 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Random totalistic, 4 states Moore r=2", randomTable(Kind::Totalistic, 2, 4, {NeighbourhoodType::Moore, 2}, 13)});
     out.push_back({"Random outer-totalistic, 5 states von Neumann r=2", randomTable(Kind::OuterTotalistic, 2, 5, {NeighbourhoodType::VonNeumann, 2}, 17)});
     out.push_back({"Hex Life-like B2/S34", dsl("states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 3 or n(1) > 4 -> 0;")});
+    out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});
     return out;
@@ -115,7 +116,8 @@ std::vector<Fixture> fixtures1d() {
 }
 
 // Runs one fixture under one boundary on both paths and compares.
-void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec, double p = 0.0) {
+void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec, double p = 0.0,
+                      uint8_t blockShift = 0) {
     rule::RuleIR ir = f.ir;
     ir.boundary = boundary;
     auto compiled = rule::compileLut(ir);
@@ -133,7 +135,7 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     sim::GpuStepper stepper;
     const auto err = stepper.setRule(lut, spec);
     if (err) FAIL(err->message);
-    const sim::CellMutation mutation{sim::mutationThreshold(p), 0xb0b0b0b0ull + static_cast<uint32_t>(boundary)};
+    const sim::CellMutation mutation{sim::mutationThreshold(p), 0xb0b0b0b0ull + static_cast<uint32_t>(boundary), blockShift};
     stepper.setCellMutation(mutation);
 
     for (int i = 0; i < kGenerations; ++i) {
@@ -207,6 +209,22 @@ TEST_CASE("CPU and GPU agree bitwise with cell mutation on, all dimensions", "[g
     for (const Fixture& f : fixtures1d()) {
         DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02") {
             checkEquivalence(f, boundary, core::GridSpec{1, 131, 1, 1}, 0.02);
+        }
+    }
+}
+
+TEST_CASE("CPU and GPU agree bitwise with block-correlated mutation", "[gpu][equivalence]") {
+    GlContext gl;
+    requireGl(gl);
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Mirror);
+    for (const Fixture& f : fixtures()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02 block=4") {
+            checkEquivalence(f, boundary, core::GridSpec{2, 61, 43, 1}, 0.02, 2);
+        }
+    }
+    for (const Fixture& f : fixtures3d()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.02 block=2") {
+            checkEquivalence(f, boundary, core::GridSpec{3, 19, 14, 11}, 0.02, 1);
         }
     }
 }

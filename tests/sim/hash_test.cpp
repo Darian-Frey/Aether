@@ -10,6 +10,7 @@
 #include <rlgl.h>
 
 #include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -163,4 +164,58 @@ void main() {
     }
     rlUnloadShaderBuffer(outSsbo);
     rlUnloadShaderProgram(program);
+}
+
+TEST_CASE("block shift 0 is exactly the original per-cell behaviour", "[hash]") {
+    const CellMutation m{mutationThreshold(0.1), 0xfeedfacedeadbeefull, 0};
+    for (uint32_t y = 0; y < 64; ++y) {
+        for (uint32_t x = 0; x < 64; ++x) {
+            CHECK(blockHash(x, y, 3, 99, m) == hash32(x, y, 3, 99, m.seedB));
+        }
+    }
+}
+
+TEST_CASE("a block shares one decision and keeps per-cell replacement states", "[hash]") {
+    CellMutation m{mutationThreshold(0.25), 4242, 2};   // blocks of 4
+    uint32_t blocksSeen = 0, mutatedCells = 0;
+    std::array<uint32_t, 4> states{};
+    for (uint32_t by = 0; by < 16; ++by) {
+        for (uint32_t bx = 0; bx < 16; ++bx) {
+            const bool first = mutates(blockHash(bx * 4, by * 4, 0, 7, m), m);
+            ++blocksSeen;
+            std::set<uint32_t> distinct;
+            for (uint32_t dy = 0; dy < 4; ++dy) {
+                for (uint32_t dx = 0; dx < 4; ++dx) {
+                    const uint32_t x = bx * 4 + dx, y = by * 4 + dy;
+                    // Every cell of the block agrees on whether to mutate.
+                    CHECK(mutates(blockHash(x, y, 0, 7, m), m) == first);
+                    if (first) {
+                        ++mutatedCells;
+                        const uint32_t st = mutatedState(hash32(x, y, 0, 7, m.seedB), 4);
+                        distinct.insert(st);
+                        ++states[st];
+                    }
+                }
+            }
+            // A mutating block is a burst of noise, not one flat colour.
+            if (first) CHECK(distinct.size() > 1);
+        }
+    }
+    CHECK(blocksSeen == 256);
+    // p keeps its meaning: about a quarter of all cells change.
+    const double fraction = static_cast<double>(mutatedCells) / (64.0 * 64.0);
+    CHECK(fraction > 0.18);
+    CHECK(fraction < 0.33);
+    for (uint32_t n : states) CHECK(n > 0);
+}
+
+TEST_CASE("blocks are aligned, so a neighbouring block decides separately", "[hash]") {
+    const CellMutation m{mutationThreshold(0.5), 11, 3};   // blocks of 8
+    uint32_t differing = 0;
+    for (uint32_t b = 0; b < 32; ++b) {
+        if (mutates(blockHash(b * 8, 0, 0, 1, m), m) != mutates(blockHash(b * 8 + 8, 0, 0, 1, m), m)) ++differing;
+    }
+    CHECK(differing > 8);   // adjacent blocks are independent
+    CHECK(blockHash(0, 0, 0, 1, m) == blockHash(7, 7, 7, 1, m));
+    CHECK(blockHash(0, 0, 0, 1, m) != blockHash(8, 0, 0, 1, m));
 }

@@ -46,7 +46,7 @@ void usage() {
               "  --seed-b N   stream B seed for cell mutation (default 2)\n"
               "  --rate G     target generations per second (default 60)\n"
               "  --rule-mutation N[:M]  mutate the rule every N generations with M edits\n"
-              "  --cell-mutation P      per-cell mutation probability\n"
+              "  --cell-mutation P[:K]  mutation probability, optionally in blocks of 2^K cells\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --load FILE  resume a saved session\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
@@ -108,7 +108,11 @@ int main(int argc, char** argv) {
             }
             opts.ruleMutationInterval = n; opts.ruleMutationMagnitude = std::max(1u, m);
         }
-        else if (a == "--cell-mutation") opts.cellMutationP = std::strtod(value("--cell-mutation"), nullptr);
+        else if (a == "--cell-mutation") {
+            const char* v = value("--cell-mutation");
+            opts.cellMutationP = std::strtod(v, nullptr);
+            if (const char* colon = std::strchr(v, ':')) opts.cellMutationBlock = static_cast<uint32_t>(std::atoi(colon + 1));
+        }
         else if (a == "--generations") generations = std::strtoull(value("--generations"), nullptr, 10);
         else if (a == "--save") savePath = value("--save");
         else if (a == "--load") loadPath = value("--load");

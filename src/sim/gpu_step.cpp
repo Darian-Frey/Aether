@@ -118,6 +118,7 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
     cfg_.locThreshold = rlGetLocationUniform(cfg_.program, "mutationThreshold");
     cfg_.locSeedLo    = rlGetLocationUniform(cfg_.program, "seedBLo");
     cfg_.locSeedHi    = rlGetLocationUniform(cfg_.program, "seedBHi");
+    cfg_.locBlockShift = rlGetLocationUniform(cfg_.program, "mutationBlockShift");
     cfg_.target = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     cfg_.width = spec.width; cfg_.height = spec.height; cfg_.depth = spec.depth;
     const uint32_t* local = spec.dimensions == 3 ? kLocal3D : kLocal2D;
@@ -140,6 +141,8 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     rlSetUniform(cfg_.locThreshold, &cfg_.mutation.threshold, RL_SHADER_UNIFORM_UINT, 1);
     rlSetUniform(cfg_.locSeedLo, &seedLo, RL_SHADER_UNIFORM_UINT, 1);
     rlSetUniform(cfg_.locSeedHi, &seedHi, RL_SHADER_UNIFORM_UINT, 1);
+    const uint32_t blockShift = cfg_.mutation.blockShift;
+    rlSetUniform(cfg_.locBlockShift, &blockShift, RL_SHADER_UNIFORM_UINT, 1);
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  GL_R8UI);
     glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
     rlBindShaderBuffer(owned_.paramsSsbo, 0);

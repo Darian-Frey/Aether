@@ -50,12 +50,22 @@ constexpr uint32_t mutationThreshold(double p) {
 // The step-time parameters of cell mutation (SPEC §9.2). Passed to both
 // steppers alongside the rule; not part of the rule.
 struct CellMutation {
-    uint32_t threshold = 0;   // from mutationThreshold(p)
-    uint64_t seedB     = 0;
+    uint32_t threshold  = 0;   // from mutationThreshold(p)
+    uint64_t seedB      = 0;
+    uint8_t  blockShift = 0;   // 0 = one cell per block; k groups 2^k per axis
 };
 
-// The decision for one cell. `h2` is a second mixing of the hash so that
-// the state does not correlate with the test (BUG-005).
+// The decision hash for a cell: the hash of its block. At blockShift 0 this
+// is the cell's own hash, so grouping off is bit-for-bit the original
+// per-cell behaviour and old sessions replay unchanged.
+constexpr uint32_t blockHash(uint32_t x, uint32_t y, uint32_t z, uint64_t generation, const CellMutation& m) {
+    return hash32(x >> m.blockShift, y >> m.blockShift, z >> m.blockShift, generation, m.seedB);
+}
+
+// The decision for one cell. The replacement state comes from a second
+// mixing of the *cell's* hash, both so that it does not correlate with the
+// test (BUG-005) and so that a mutating block is a burst of noise rather
+// than one flat colour.
 constexpr bool mutates(uint32_t h, const CellMutation& m) {
     return h < m.threshold;
 }

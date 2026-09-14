@@ -68,8 +68,9 @@ void cpuStep(const rule::LutRule& rule, const core::GridSpec& spec,
                 }
                 uint8_t out = rule.table[index];
                 if (mutation.threshold != 0) {
-                    const uint32_t h = hash32(x, y, z, generation, mutation.seedB);
-                    if (mutates(h, mutation)) out = static_cast<uint8_t>(mutatedState(h, S));
+                    if (mutates(blockHash(x, y, z, generation, mutation), mutation)) {
+                        out = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
+                    }
                 }
                 next[(size_t{z} * H + y) * W + x] = out;
             }

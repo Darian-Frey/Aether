@@ -51,7 +51,7 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
         density[0] = parsed.ir->states == 2 ? 0.3 : 0.2;
         sim.fillRandom(density);
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
-        if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP);
+        if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));
         for (uint64_t g = 0; g < generations; ++g) sim.step();
         if (auto e = sim::saveSession(savePath, sim.session())) code = fail(e->message);
         else std::printf("ran %llu generations, %zu lineage entries, saved %s\n",

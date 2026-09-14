@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 namespace aether::render {
 
@@ -18,7 +19,12 @@ struct Palette {
 
     // State 0 near-black, state 1 near-white, further states around the
     // hue circle so that generations rules read as a trail.
-    static Palette defaultFor(uint16_t states);
+    //
+    // `decayFrom` names the first state of an ageing tail (SPEC §7 decay).
+    // The tail is coloured as a ramp from state 1 toward the dark, with
+    // alpha falling as it ages, so a cell visibly fades: through colour in
+    // 2D, through colour and opacity in 3D.
+    static Palette defaultFor(uint16_t states, std::optional<uint16_t> decayFrom = std::nullopt);
 };
 
 }  // namespace aether::render

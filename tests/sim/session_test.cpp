@@ -39,7 +39,7 @@ Simulation busyRun(Path path, int generations) {
     for (int g = 0; g < generations; ++g) {
         if (g == 10) { s.paintSpan(3, 20, 7, 0, 1); s.paintSpan(3, 20, 8, 0, 0); }
         if (g == 40) (void)s.setRule(*rule::parseDsl("B36/S23").ir);
-        if (g == 60) s.setCellMutation(0.0);
+        if (g == 60) s.setCellMutation(0.002, 2);   // same rate, now in blocks of four
         if (g == 70) (void)s.rewind(0);
         if (g == 90) { const double d2[1] = {0.2}; s.fillRandom(d2); }
         if (g == 95) s.setRuleMutation({true, 7, 2});
@@ -93,7 +93,8 @@ TEST_CASE("a session round-trips through JSON text", "[gpu][session]") {
     CHECK(b.rule == snap.rule);
     CHECK(b.streamA->state == snap.streamA->state);
     CHECK(b.ruleMutation.interval == 7);
-    CHECK(b.cellMutationP == 0.0);
+    CHECK(b.cellMutationP == 0.002);
+    CHECK(b.cellMutationBlock == 2);
 }
 
 TEST_CASE("an unknown format version is an error, not a best-effort parse", "[session]") {

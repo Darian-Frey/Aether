@@ -34,6 +34,7 @@ struct Session {
     std::vector<LineageEntry> lineage;
     RuleMutationParams    ruleMutation;     // current parameters
     double                cellMutationP = 0.0;
+    uint8_t               cellMutationBlock = 0;
 
     // Conveniences: state at `generation`, derivable by replay.
     uint64_t              generation = 0;

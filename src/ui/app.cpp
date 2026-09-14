@@ -62,6 +62,7 @@ int App::run() {
             cellMutationOn_ = true;
             cellMutationLog_ = static_cast<float>(std::log10(opts_.cellMutationP));
         }
+        cellMutationBlock_ = static_cast<int>(opts_.cellMutationBlock);
 
         std::strncpy(sessionPath_.data(), "session.aether", sessionPath_.size() - 1);
         if (exitCode == 0 && !opts_.load.empty()) {
@@ -104,11 +105,7 @@ int App::run() {
                     const auto& e = sim_->lineage().back();
                     log_.info(std::format("gen {}: rule -> {:#018x}{}", e.generation, e.ir_hash,
                                           e.rewound_from ? " (rewind)" : ""));
-                    const auto& ir = sim_->rule();
-                    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {:#018x}",
-                                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
-                                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
-                                               sim_->lut().table.size(), sim_->lut().ir_hash);
+                    refreshRuleSummary();
                 }
             }
 
@@ -145,6 +142,20 @@ int App::run() {
     return exitCode;
 }
 
+// One description of the running rule, used wherever it is shown.
+void App::refreshRuleSummary() {
+    if (!sim_) return;
+    const auto& ir = sim_->rule();
+    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · table {} · {:#018x}",
+                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
+                               ir.metadata.decay_from
+                                   ? std::format(" ({} live, decay {})", *ir.metadata.decay_from,
+                                                 ir.states - *ir.metadata.decay_from)
+                                   : std::string{},
+                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
+                               sim_->lut().table.size(), sim_->lut().ir_hash);
+}
+
 bool App::is3D() const { return sim_ && sim_->spec().dimensions == 3; }
 
 render::VolumeSettings App::volumeSettings() const {
@@ -173,13 +184,11 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
     }
     sim_.emplace(std::get<sim::Simulation>(std::move(made)));
     sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
-    sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0);
+    sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0,
+                          static_cast<uint8_t>(cellMutationBlock_));
     sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
     lastLineageSize_ = sim_->lineage().size();
-    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {}",
-                               rule::toString(ir.kind), ir.states, sim_->lut().neighbourCount(),
-                               rule::toString(ir.boundary), sim_->lut().table.size(),
-                               std::format("{:#018x}", sim_->lut().ir_hash));
+    refreshRuleSummary();
     log_.info(std::format("grid {}x{}x{} on {} path; rule {}", width, height, depth,
                           path == sim::Path::Gpu ? "GPU" : "CPU", ir.metadata.source_notation.value_or("?")));
     sliceIndex_ = static_cast<int>(depth / 2);
@@ -204,15 +213,16 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     ruleInterval_ = static_cast<int>(sim_->ruleMutation().interval);
     ruleMagnitude_ = static_cast<int>(sim_->ruleMutation().magnitude);
     cellMutationOn_ = sim_->cellMutation() > 0.0;
+    cellMutationBlock_ = sim_->cellMutationBlock();
     if (cellMutationOn_) cellMutationLog_ = static_cast<float>(std::log10(sim_->cellMutation()));
     lastLineageSize_ = sim_->lineage().size();
-    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {:#018x}",
-                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
-                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
-                               sim_->lut().table.size(), sim_->lut().ir_hash);
+    refreshRuleSummary();
     ruleError_.clear();
-    if (renderer_) renderer_->setPalette(render::Palette::defaultFor(ir.states));
-    if (renderer3d_) renderer3d_->setPalette(render::Palette::defaultFor(ir.states));
+    if (renderer_) {
+        renderer_->setPalette(render::Palette::defaultFor(ir.states, ir.metadata.decay_from));
+        renderer_->setDecayFrom(ir.metadata.decay_from);
+    }
+    if (renderer3d_) renderer3d_->setPalette(render::Palette::defaultFor(ir.states, ir.metadata.decay_from));
     density_.assign(ir.states - 1u, 0.1f);
     density_[0] = ir.states == 2 ? 0.3f : 0.2f;
     fitView();
@@ -260,8 +270,11 @@ void App::verifyReplay() {
 void App::applyPaletteForStates() {
     if (!sim_ || !renderer_) return;
     const uint16_t states = sim_->rule().states;
-    renderer_->setPalette(render::Palette::defaultFor(states));
-    if (renderer3d_) renderer3d_->setPalette(render::Palette::defaultFor(states));
+    const auto decayFrom = sim_->rule().metadata.decay_from;
+    const render::Palette pal = render::Palette::defaultFor(states, decayFrom);
+    renderer_->setPalette(pal);
+    renderer_->setDecayFrom(decayFrom);
+    if (renderer3d_) renderer3d_->setPalette(pal);
     density_.assign(states - 1u, 0.0f);
     density_[0] = states == 2 ? 0.3f : 0.2f;
     for (size_t i = 1; i < density_.size(); ++i) density_[i] = 0.1f;
@@ -283,9 +296,7 @@ bool App::compileRuleText() {
     }
     ruleError_.clear();
     const auto& ir = sim_->rule();
-    ruleSummary_ = std::format("{} · {} states · N={} · {} · table {} · {:#018x}",
-                               rule::toString(ir.kind), ir.states, sim_->lut().neighbourCount(),
-                               rule::toString(ir.boundary), sim_->lut().table.size(), sim_->lut().ir_hash);
+    refreshRuleSummary();
     log_.info(std::format("compiled {} -> {} backend, {} entries",
                           ir.metadata.source_notation.value_or("rule").substr(0, 40),
                           rule::selectBackend(ir) == rule::Backend::Lut ? "table" : "codegen",

@@ -336,3 +336,55 @@ Status vocabulary: Proposed | Accepted | Superseded by D-NNN | Deprecated.
 - Headless mode (F-022) arrives early in reduced form because the cross-process test needs it.
 
 **Reversal conditions.** Revisit if journals grow large enough to dominate session files in practice — a long painting session could — at which point periodic snapshots plus journal-since-snapshot would be the next form.
+
+---
+
+### D-014 Cell ageing as a front-end desugaring, not a cell-model change
+**Decided:** 2026-09-14
+**Recorded:** 2026-09-14
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-14)
+**Related:** F-025, F-018, D-002, IMP-001, SPEC.md §7, SPEC.md §13
+
+**Context.** A run should be able to give its cells a life cycle: a cell the rule stops supporting should fade over several generations rather than vanish, and should be coloured as it ages, so that what survives is what keeps producing new cells. Generations rules (`B/S/C`) already do this for the `B/S` notation alone; nothing offers it to a table-block rule, a hexagonal rule or a multi-state rule.
+
+**Options.**
+- **A. A hard lifespan: every cell dies at age L whatever its neighbours do.** Considered and set aside by the author in favour of B. It is a sharper dynamic — still lifes and oscillators die, only patterns that keep producing new cells persist — but it is a different automaton, not an ageing tail, and it cannot be reached from the existing `/C` semantics.
+- **B. Soft decay: a cell the rule sends to `0` from a non-zero state instead enters an ageing tail and advances through it.** Chosen. It is the Generations semantics generalised to every rule the DSL can write.
+- **C. A per-cell age field beside the state.** Rejected. It doubles grid memory, and changes the cell model (SPEC §1), the grid (§2), the IR (§4), both steppers, the shader, the session format and the palette — to express what the state index already expresses. Its one advantage is that age would be invisible to neighbours; with age-as-state a rule can see how old its neighbours are, which is a capability rather than a cost.
+- **D. Age-as-state, desugared in the front end.** Chosen as the implementation of B: `decay N;` appends N states and rewrites the table, producing an ordinary `outer_totalistic` IR.
+
+**Decision.** Options B and D. `decay N;` is a front-end transform in `rule/decay`, IR in and IR out. Tail states count as quiescent for the rule's own conditions, matching `/C`. `metadata.decay_from` records where the tail starts, as a presentation hint for palettes and age shading; it is excluded from `ir_hash` and carries no semantics.
+
+**Consequences.**
+- Nothing downstream changes: both backends, both execution paths, both mutation controls, the lineage, the session format and the equivalence tests are untouched. This is invariant 1 (the IR is the only compile target) paying for itself.
+- The state count grows with the tail, so the table grows combinatorially. Until the codegen backend exists, the longest tail is 6 states on 2D Moore r=1, 8 on hexagonal r=1 and 14 on 2D von Neumann r=1; the compiler names the limit when it refuses. This makes IMP-001 the enabling work for long tails rather than an optimisation.
+- `/C` and `decay` now express the same idea by two routes. A test asserts they produce the same table; IMP-003 proposes unifying them.
+- A hard lifespan (option A) remains available later as a second modifier; it needs no engine change either.
+
+**Reversal conditions.** Revisit option C only if a rule family emerges that needs age to be invisible to neighbours, which none of the target automata do.
+
+---
+
+### D-015 Cell mutation groups by aligned blocks
+**Decided:** 2026-09-14
+**Recorded:** 2026-09-14
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-14)
+**Related:** F-016, F-026, D-005, D-006, SPEC.md §9.2, SPEC.md §11
+
+**Context.** Cell mutation is per-cell independent, so it reads as uniform speckle. A run is more interesting if noise sometimes arrives as a patch — a group of cells disturbed at once — while staying reproducible.
+
+**Options.**
+- **A. Aligned blocks: every cell in a `2^k` block shares the decision to mutate.** Chosen. One parameter, and the block hash at `k = 0` is the cell hash, so the original behaviour is the `k = 0` case exactly and existing sessions replay unchanged.
+- **B. Discs at a hashed centre.** Also stateless and deterministic, and more organic to look at, but it needs a centre, a radius and a count per generation — three parameters where blocks need one. Kept as a possible second form.
+- **C. Structural groups: a connected cluster of live cells mutates as a unit.** Rejected for this engine. It needs connected-component labelling every generation, which is not a function of a cell's neighbourhood and cannot be done in one invocation per cell; it would need multi-pass label propagation and would break the step model. Recorded as a candidate feature with that cost stated.
+
+**Decision.** Option A. `CellMutation` gains a block shift `k`. The *decision* comes from the block's hash and the *replacement state* from the cell's own hash, so a mutating block is a burst of noise rather than one flat colour. `p` keeps its meaning at every `k`: the expected fraction of cells changed per generation is `p`, clumped rather than scattered.
+
+**Consequences.**
+- Stream B stays stateless and order-independent, so both execution paths agree and replay is unaffected (SPEC §10). The equivalence suite runs with `k > 0`.
+- `mutation.cell.block` joins the session record, defaulting to 0 so earlier files load and replay identically. It was added inside `format_version` 1 because nothing has been released against that version.
+- The GLSL and C++ hashes gain a twin function each; they are tested against each other like the rest.
+
+**Reversal conditions.** Revisit if blocks prove too obviously grid-aligned in use, at which point option B's discs are the natural second form.

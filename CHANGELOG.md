@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Cell life cycle (F-025, D-014): `decay N;` gives any table-block rule an ageing tail through a front-end desugaring in `rule/decay`; tail states count as quiescent; `metadata.decay_from` drives a fading palette ramp and tail-only age shading (2026-09-14).
+- Correlated cell mutation (F-026, D-015): a block shift groups mutation into aligned blocks of `2^k` cells, decided per block and coloured per cell; slider in the Mutation panel and `--cell-mutation P:K` (2026-09-14).
 - 3D presentation (F-019): `render/renderer3d` with `shaders/volume.frag` (Amanatides–Woo traversal, palette alpha as opacity, face shading), `render/orbit` camera with slab picking; View panel with opacity, clip ranges, slice mode; slice painting; `--size WxHxD`, Depth in the Grid panel, headless 3D runs (2026-09-12).
 - Hexagonal lattices (F-023, D-012): `NeighbourhoodType::Hexagonal` with axial offsets, `neighbourhood hex r` in the DSL, `View2D` hex mode (cube rounding, rhombus fit), hex path in `palette2d.frag`, hex-shaped brush, hex equivalence fixtures (2026-09-12).
 - Sessions (F-020): `sim/session` — `.aether` JSON per SPEC §11 with a journal of every user action, delta-encoded lineage, a raw sidecar for grids over 4M cells; `Simulation::session/resume/replay/rewindGrid`; `rule/ir_json` with base64 (2026-09-12).
@@ -43,7 +45,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 162 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 176 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -59,6 +61,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- The default palette ramps a rule's ageing tail from state 1 toward the dark with falling alpha, and age shading darkens only the tail when one is known — shading by raw state index is meaningless for Wireworld or a cyclic CA (2026-09-14).
+- `mutation.cell.block` joins the session record, defaulting to 0 inside `format_version` 1 so earlier files replay identically (2026-09-14).
 - Palette alpha now means opacity in the 3D view and the default palette makes state 0 transparent; the 2D pass is opaque regardless (2026-09-12).
 - F-010's acceptance now names the bundled rule set, with xscreensaver/xlockmore provenance; F-024 Screensaver mode promoted from candidate to Should (Phase 6); stochastic and two-phase rule forms recorded as candidates with the xscreensaver hacks that need them; IMP-002 proposes the `signature_literal` syntax (2026-09-12).
 - Per-step compute parameters (generation, mutation threshold, seed B) are uniforms rather than an SSBO update, avoiding a buffer-in-flight write each step (2026-09-11).
