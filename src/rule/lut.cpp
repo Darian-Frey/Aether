@@ -41,21 +41,29 @@ std::variant<LutRule, CompileError> compileLut(const RuleIR& ir) {
         .states        = ir.states,
         .kind          = ir.kind,
         .neighbourhood = ir.neighbourhood,
+        .counted       = ir.counted,
         .boundary      = ir.boundary,
         .offsets       = neighbourOffsets(ir.dimensions, ir.neighbourhood),
         .layout        = TableLayout(ir.kind, ir.states, N),
         .table         = table->entries,
-        .w             = {},
+        .aux           = {},
     };
 
     if (ir.kind == Kind::OuterTotalistic) {
         // Every W value is bounded by the per-state row count, which is
         // <= size / S <= LUT_MAX_ENTRIES, so u32 is safe.
         const uint32_t cols = ir.states;
-        out.w.resize((N + 1u) * cols);
+        out.aux.resize((N + 1u) * cols);
         for (uint32_t n = 0; n <= N; ++n) {
             for (uint32_t m = 0; m < cols; ++m) {
-                out.w[n * cols + m] = static_cast<uint32_t>(out.layout.compositions(n, m));
+                out.aux[n * cols + m] = static_cast<uint32_t>(out.layout.compositions(n, m));
+            }
+        }
+    } else if (ir.kind == Kind::CountedTotalistic) {
+        out.aux.resize(size_t{ir.states} * 8u);
+        for (uint16_t own = 0; own < ir.states; ++own) {
+            for (uint32_t word = 0; word < 8; ++word) {
+                out.aux[size_t{own} * 8u + word] = ir.counted[own].bits[word];
             }
         }
     }

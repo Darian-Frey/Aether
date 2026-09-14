@@ -4,7 +4,8 @@
 //   AETHER_3D        present for 3D grids
 //   AETHER_N         neighbour count
 //   AETHER_S         state count
-//   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic
+//   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic,
+//                    5 counted-totalistic
 //   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
 //
 // shaders/hash.glsl is prepended before this file.
@@ -37,7 +38,7 @@ uniform uint seedBLo;
 uniform uint seedBHi;
 uniform uint mutationBlockShift;  // 0 = per cell (SPEC §9.2)
 layout(std430, binding = 1) readonly buffer Offsets { int  off[]; };    // 4 ints per neighbour: dx dy dz pad
-layout(std430, binding = 2) readonly buffer Comps   { uint w[]; };      // (N+1) x S, row-major by n
+layout(std430, binding = 2) readonly buffer Aux     { uint aux[]; };    // kind-dependent: see below
 layout(std430, binding = 3) readonly buffer Table   { uint table[]; };  // one entry per uint
 
 // Mirrors sim::resolve(). Returns -1 for "reads as state 0". Written without
@@ -90,7 +91,16 @@ void main() {
     }
 
     uint index;
-#if AETHER_KIND == 0
+#if AETHER_KIND == 5
+    // Counted-totalistic (D-016): how many neighbours fall in the set this
+    // own state counts. aux holds eight words of mask per own state.
+    uint k = 0u;
+    for (uint i = 0u; i < uint(AETHER_N); ++i) {
+        uint s = nbr[i];
+        if ((aux[own * 8u + (s >> 5u)] & (1u << (s & 31u))) != 0u) k += 1u;
+    }
+    index = own * (uint(AETHER_N) + 1u) + k;
+#elif AETHER_KIND == 0
     // Outer-totalistic: rank the count vector over states 1..S-1.
     const uint DIGITS = uint(AETHER_S) - 1u;
     uint counts[DIGITS];
@@ -103,11 +113,11 @@ void main() {
     for (uint d = 0u; d < DIGITS; ++d) {
         uint after = DIGITS - d - 1u;
         for (uint v = 0u; v < counts[d]; ++v) {
-            rank += w[(remaining - v) * uint(AETHER_S) + after];
+            rank += aux[(remaining - v) * uint(AETHER_S) + after];
         }
         remaining -= counts[d];
     }
-    index = own * w[uint(AETHER_N) * uint(AETHER_S) + DIGITS] + rank;
+    index = own * aux[uint(AETHER_N) * uint(AETHER_S) + DIGITS] + rank;
 #elif AETHER_KIND == 1
     uint sum = own;
     for (uint i = 0u; i < uint(AETHER_N); ++i) sum += nbr[i];

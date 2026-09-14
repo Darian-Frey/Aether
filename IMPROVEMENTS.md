@@ -11,7 +11,7 @@ Entry format:
 
 ```markdown
 ### IMP-001: {short title}
-**Status:** suggested
+**Status:** applied
 **Found:** YYYY-MM-DD ({session/commit context})
 **Location:** {path/to/file.ext:line, or "cross-cutting"}
 **Effort:** {trivial | small | medium | large}
@@ -22,6 +22,8 @@ Entry format:
 ```
 
 ## Suggested
+
+**As built (2026-09-14, D-016).** A new kind `counted_totalistic` rather than a flag, so a rule's kind still determines its indexing scheme. The set is chosen per own state, which the proposal did not anticipate and which is what lets cyclic rules — where each state counts its successor — use the form. The DSL detects it from the statements, Lua declares it, `decay` propagates it. Used only where it is strictly smaller, so binary rules keep the IR and hash they had.
 
 ### IMP-001: Outer-totalistic tables are oversized for rules that count a single state
 **Status:** suggested
@@ -49,7 +51,7 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 **As built (2026-09-14).** The syntax is as proposed: elements in the canonical order of SPEC §3, `_` as a wildcard, an optional `rot`. Rotation is a quarter turn on square lattices and a sixth of a turn on hexagonal ones, derived from the offset list rather than hard-coded, so it works at any radius; it is refused in 1D and 3D. Literals and count conditions may be mixed with `and` and `or`, which the proposal did not anticipate and which cost nothing. A rule whose table exceeds the threshold is refused rather than lowered to an expression, since no backend can run one yet; the diagnostic names the size. Langton's loops is not bundled: its 219 transitions are a data item for F-010, and inventing them would be worse than leaving the slot empty.
 
 ### IMP-003: `/C` and `decay` are two implementations of one idea
-**Status:** suggested
+**Status:** applied
 **Found:** 2026-09-14 (implementing F-025)
 **Location:** `src/rule/dsl.cpp` (`buildLifeLikeTable`), `src/rule/decay.cpp`
 **Effort:** small
@@ -57,6 +59,8 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 **Proposal.** Build the two-state base rule for `B/S`, then route `/C k` through `applyDecay(k − 2)`. The existing Generations tests then cover both paths.
 **Trade-offs.** `B/S/C` with a large `C` currently lowers to an `Expression` when the table is too big, while `applyDecay` refuses; routing `/C` through the transform would need the refusal to fall back to the existing lowering, or would change the behaviour of oversized Generations rules. That interaction is why it was not done as part of F-025.
 **Notes.** Worth doing when the codegen backend lands and the lowering path stops being a dead end.
+
+**As built (2026-09-14).** Done as part of D-016, which made it worth doing: routing `/C` through `applyDecay` means a Generations rule of any length compiles to a counted table, where before `B2/S/C25` lowered to an expression no backend could run. The oversized-lowering interaction that deferred this no longer arises.
 
 ## Applied
 

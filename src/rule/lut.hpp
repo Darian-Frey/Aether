@@ -33,12 +33,15 @@ struct LutRule {
     uint16_t            states;
     Kind                kind;
     Neighbourhood       neighbourhood;
+    std::vector<StateSet> counted;   // CountedTotalistic only, one per state
     Boundary            boundary;
     std::vector<Offset> offsets;     // canonical order, SPEC §3
     TableLayout         layout;
     std::vector<uint8_t>  table;     // exactly layout.size() entries
-    std::vector<uint32_t> w;         // (N+1) x S compositions, row-major by n;
-                                     // empty unless kind == OuterTotalistic
+    // Whatever else the kind's index arithmetic needs, uploaded as one
+    // buffer: the (N+1) x S compositions for OuterTotalistic, eight words of
+    // state mask per own state for CountedTotalistic, empty otherwise.
+    std::vector<uint32_t> aux;
 
     uint32_t neighbourCount() const { return static_cast<uint32_t>(offsets.size()); }
 };

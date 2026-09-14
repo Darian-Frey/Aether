@@ -52,6 +52,14 @@ void cpuStep(const rule::LutRule& rule, const core::GridSpec& spec,
                         index = rule.layout.indexOuterTotalistic(own, counts);
                         break;
                     }
+                    case Kind::CountedTotalistic: {
+                        uint32_t k = 0;
+                        for (uint32_t i = 0; i < N; ++i) {
+                            if (rule.counted[own].test(nbr[i])) ++k;
+                        }
+                        index = rule.layout.indexCounted(own, k);
+                        break;
+                    }
                     case Kind::Totalistic: {
                         uint32_t sum = own;
                         for (uint32_t i = 0; i < N; ++i) sum += nbr[i];

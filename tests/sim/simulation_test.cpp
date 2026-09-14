@@ -92,7 +92,7 @@ TEST_CASE("a failed rule change leaves the running rule and grid untouched", "[g
     CHECK(snapshot(s) == before);
 
     // A rule that needs codegen is refused for now, likewise harmlessly.
-    const auto err2 = s.setRule(*rule::parseDsl("B2/S/C25").ir);
+    const auto err2 = s.setRule(*rule::parseDsl("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1; 1: n(1) < 2 -> 2;").ir);
     REQUIRE(err2.has_value());
     CHECK(err2->message.find("codegen") != std::string::npos);
     CHECK(rule::irHash(s.rule()) == hash);

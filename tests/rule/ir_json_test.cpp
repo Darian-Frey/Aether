@@ -38,11 +38,26 @@ TEST_CASE("IR JSON round-trips a table rule, hash and all", "[json]") {
 }
 
 TEST_CASE("IR JSON round-trips an expression rule", "[json]") {
-    const auto ir = *parseDsl("B2/S/C25").ir;
+    const auto ir = *parseDsl("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1; 1: n(1) < 2 -> 2;").ir;
     REQUIRE(std::holds_alternative<Expression>(ir.transition));
     const auto back = irFromJson(irToJson(ir));
     REQUIRE(std::holds_alternative<RuleIR>(back));
     CHECK(std::get<RuleIR>(back) == ir);
+}
+
+TEST_CASE("IR JSON round-trips a counted rule with its sets", "[json]") {
+    const auto ir = *parseDsl("B2/S/C5").ir;
+    REQUIRE(ir.kind == Kind::CountedTotalistic);
+    REQUIRE(ir.counted.size() == 5);
+    const auto back = irFromJson(irToJson(ir));
+    REQUIRE(std::holds_alternative<RuleIR>(back));
+    CHECK(std::get<RuleIR>(back) == ir);
+    CHECK(irHash(std::get<RuleIR>(back)) == irHash(ir));
+
+    // The sets are part of the rule, so changing one changes the hash.
+    RuleIR altered = ir;
+    altered.counted[1].set(2);
+    CHECK(irHash(altered) != irHash(ir));
 }
 
 TEST_CASE("IR JSON round-trips a kernel rule", "[json]") {

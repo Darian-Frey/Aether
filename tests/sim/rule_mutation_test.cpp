@@ -72,10 +72,22 @@ TEST_CASE("mutation renames the rule and drops the notation it no longer matches
 }
 
 TEST_CASE("expression edits keep the shape and produce valid trees, redrawing when needed", "[mutation]") {
-    // A large Generations rule lowers to an expression with many literals in
-    // result position, so +1 on one of them is frequently invalid.
-    const auto ir = *rule::parseDsl("B2/S/C25").ir;
-    REQUIRE(std::holds_alternative<rule::Expression>(ir.transition));
+    // An expression whose result literals sit at the top of the state range,
+    // so a +1 perturbation is frequently out of range and has to be redrawn.
+    rule::RuleIR ir;
+    ir.states = 2;
+    ir.kind = rule::Kind::Expression;
+    rule::Expression tree;
+    tree.nodes = {
+        {rule::ExprOp::Count, 1},                       // 0: n(1)
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 3},         // 1
+        {rule::ExprOp::Eq, 0, 1},                       // 2: n(1) == 3
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},         // 3: result, +1 is invalid
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},         // 4: result, +1 is invalid
+        {rule::ExprOp::Select, 2, 3, 4},                // 5
+    };
+    ir.transition = tree;
+    REQUIRE(rule::isValid(ir));
     const auto& orig = std::get<rule::Expression>(ir.transition);
     Pcg32 rng(3);
     int redraws = 0, produced = 0;

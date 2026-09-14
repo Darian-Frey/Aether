@@ -240,6 +240,21 @@ bool buildTable(lua_State* L, int transitionIndex, const RuleIR& shape, const Ta
             }
             return true;
         }
+        case Kind::CountedTotalistic: {
+            // f(own, k): how many neighbours fall in this state's set.
+            for (uint16_t own = 0; own < S; ++own) {
+                for (uint32_t k = 0; k <= N; ++k) {
+                    lua_pushvalue(L, transitionIndex);
+                    lua_pushinteger(L, own);
+                    lua_pushinteger(L, k);
+                    const auto v = callTransition(L, transitionIndex, 2, S,
+                                                  std::format("own {} with {} counted neighbours", own, k), err);
+                    if (!v) return false;
+                    out.entries[layout.indexCounted(static_cast<uint8_t>(own), k)] = *v;
+                }
+            }
+            return true;
+        }
         case Kind::Totalistic: {
             for (uint32_t sum = 0; sum < out.entries.size(); ++sum) {
                 lua_pushvalue(L, transitionIndex);
@@ -345,6 +360,54 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
     }
     if (ir.kind == Kind::Expression || ir.kind == Kind::Continuous) {
         return LuaError{std::format("kind {} cannot be returned yet: no backend can execute one", toString(ir.kind))};
+    }
+
+    // A counted rule must say what each state counts: the transition is a
+    // function, so nothing can be inferred from it (D-016).
+    if (ir.kind == Kind::CountedTotalistic) {
+        lua_getfield(L, rule, "counted");
+        const int counted = lua_gettop(L);
+        if (lua_isnil(L, counted)) {
+            return LuaError{"counted_totalistic needs a 'counted' field: a list of states, or a "
+                            "function taking an own state and returning one"};
+        }
+        for (uint16_t own = 0; own < ir.states; ++own) {
+            if (lua_isfunction(L, counted)) {
+                lua_pushvalue(L, counted);
+                lua_pushinteger(L, own);
+                if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+                    return LuaError{std::format("counted function failed for state {}: {}", own, lua_tostring(L, -1))};
+                }
+            } else if (lua_istable(L, counted)) {
+                lua_pushvalue(L, counted);
+            } else {
+                return LuaError{std::format("field 'counted' must be a list or a function, not a {}",
+                                            typeName(L, counted))};
+            }
+            if (!lua_istable(L, -1)) {
+                return LuaError{std::format("counted for state {} is a {}; it must be a list of states",
+                                            own, typeName(L, -1))};
+            }
+            StateSet set;
+            const lua_Unsigned len = lua_rawlen(L, -1);
+            for (lua_Unsigned i = 1; i <= len; ++i) {
+                lua_rawgeti(L, -1, static_cast<lua_Integer>(i));
+                if (!lua_isinteger(L, -1)) {
+                    return LuaError{std::format("counted for state {} holds a {}; it must be a list of states",
+                                                own, typeName(L, -1))};
+                }
+                const lua_Integer v = lua_tointeger(L, -1);
+                lua_pop(L, 1);
+                if (v < 0 || v >= ir.states) {
+                    return LuaError{std::format("counted for state {} names state {}; states run 0 to {}",
+                                                own, v, ir.states - 1)};
+                }
+                set.set(static_cast<uint16_t>(v));
+            }
+            lua_pop(L, 1);
+            ir.counted.push_back(set);
+        }
+        lua_pop(L, 1);
     }
 
     const uint32_t N = neighbourCount(ir.dimensions, ir.neighbourhood);

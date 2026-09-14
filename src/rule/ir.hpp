@@ -13,6 +13,7 @@
 #include "core/cell.hpp"
 #include "rule/neighbourhood.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -26,7 +27,25 @@ constexpr uint16_t kIrVersion = 1;
 
 using core::CellType;   // storage type is core's; the IR names it
 enum class Boundary : uint8_t { Wrap, Zero, Mirror };
-enum class Kind : uint8_t { OuterTotalistic, Totalistic, NonTotalistic, Expression, Continuous };
+enum class Kind : uint8_t { OuterTotalistic, Totalistic, NonTotalistic, Expression, Continuous,
+                           CountedTotalistic };
+
+// A set of states, as a 256-bit mask. Used by CountedTotalistic, where the
+// transition depends on how many neighbours fall in a set chosen by the
+// cell's own state (D-016): counting one set rather than every state
+// separately is the difference between S·(N+1) table entries and
+// S·C(N+S−1, S−1).
+struct StateSet {
+    std::array<uint32_t, 8> bits{};
+
+    constexpr bool test(uint16_t s) const { return ((bits[s >> 5] >> (s & 31u)) & 1u) != 0u; }
+    constexpr void set(uint16_t s) { bits[s >> 5] |= 1u << (s & 31u); }
+    constexpr bool empty() const {
+        for (uint32_t w : bits) if (w != 0) return false;
+        return true;
+    }
+    bool operator==(const StateSet&) const = default;
+};
 
 // --- Transition forms --------------------------------------------------------
 
@@ -108,6 +127,9 @@ struct RuleIR {
     Neighbourhood neighbourhood = {};
     Boundary      boundary      = Boundary::Wrap;
     Kind          kind          = Kind::OuterTotalistic;
+    // For CountedTotalistic: which states each own state counts. One entry
+    // per state; empty for every other kind.
+    std::vector<StateSet> counted;
     Transition    transition    = Table{};
     Metadata      metadata      = {};
 

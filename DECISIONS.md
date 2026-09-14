@@ -388,3 +388,36 @@ Status vocabulary: Proposed | Accepted | Superseded by D-NNN | Deprecated.
 - The GLSL and C++ hashes gain a twin function each; they are tested against each other like the rest.
 
 **Reversal conditions.** Revisit if blocks prove too obviously grid-aligned in use, at which point option B's discs are the natural second form.
+
+---
+
+### D-016 A counted-set kind, so that a rule pays for what it asks
+**Decided:** 2026-09-14
+**Recorded:** 2026-09-14
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-14)
+**Related:** IMP-001, IMP-003, F-025, F-010, D-004, SPEC.md §4, SPEC.md §5
+
+**Context.** `outer_totalistic` indexes on the whole vector of neighbour-state counts, so its table is `S·C(N+S−1, S−1)` — combinatorial in the state count. Almost no rule needs that. Generations rules, cyclic rules, Wireworld and any rule with an ageing tail ask a single question: how many neighbours are in *one* set of states. Paying the combinatorial price for a question never asked had become the binding constraint on three separate features: an ageing tail was capped at six states, a many-state generations rule fell to a backend that does not exist, and the fourteen-state cyclic rule could not be bundled at all.
+
+**Options.**
+- **A. Leave it; the codegen backend will run these rules.** Rejected: codegen exists for rules with no finite table, not as an escape from a bad table layout, and it costs a shader compile per rule where a table costs an upload — which matters under rule mutation (D-004).
+- **B. A counted *state*: index on `(own, count of one designated state)`.** The form IMP-001 first proposed. Rejected as too narrow: an ageing tail counts *live* neighbours, which is a set, and `n(0)` is the complement of one.
+- **C. A counted *set*, chosen per own state.** Chosen. `index = own·(N+1) + |neighbours ∈ counted[own]|`, so the table is `S·(N+1)`. Making the set depend on the own state costs eight words per state and is what lets a cyclic rule — where each state counts its own successor — use the form at all.
+
+**Decision.** Option C, as a new kind `counted_totalistic` rather than a flag on `outer_totalistic`, so that a rule's kind continues to determine its indexing scheme exactly as SPEC §5 says. The counted sets are part of the rule: they are validated, hashed, serialised and mutated with it.
+
+The front ends choose the form, since nothing downstream can infer it:
+- The DSL detects it. For each own state it collects the states its conditions ask about; if that is at most one — with `n(0)` read as "everything that is not 0" — the rule is counted. It is used only when it is strictly smaller, so every binary rule keeps the IR and the hash it had.
+- A Lua script declares `counted` as a list or a function of the own state, because its transition is opaque.
+- `decay` propagates the base rule's sets and gives the tail an empty one, which is exactly the semantics wanted: a fading cell is counted by nobody.
+
+**Consequences.**
+- An ageing tail is no longer capped by the table: `decay` runs to the 256-state limit of SPEC §1 on every lattice. Sixty states cost 558 entries.
+- `B/S/C` is now the two-state rule plus a tail through the one decay transform (IMP-003), so Generations rules of any length compile to a table. `B2/S/C25` was an expression no backend could run and is 225 entries.
+- The fourteen-state cyclic rule joins the library at 126 entries, from 2.8 million.
+- Rules that genuinely need several counts keep the full vector, unchanged.
+- The hash of a rule with no counted sets is untouched, so sessions written before this change still load and replay; `ir_version` stays at 1 because nothing about an older IR has changed meaning.
+- Both execution paths gain an index scheme, which is two more chances to disagree — the equivalence fixtures now include counted rules with a set that varies per own state, which is the case a mistake would show up in.
+
+**Reversal conditions.** Revisit if a third indexing scheme is ever wanted, at which point the kinds are doing enough work to deserve a table of index functions rather than a switch.

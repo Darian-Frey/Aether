@@ -47,6 +47,12 @@ public:
     // summing to at most n. For S = 2 this collapses to own*(N+1) + k.
     uint64_t indexOuterTotalistic(uint8_t own, std::span<const uint32_t> counts) const;
 
+    // Counted-totalistic (D-016). `k` is the number of neighbours in the set
+    // this own state counts.
+    uint64_t indexCounted(uint8_t own, uint32_t k) const {
+        return static_cast<uint64_t>(own) * (neighbours_ + 1u) + k;
+    }
+
     // Totalistic. `sum` is own state plus every neighbour state.
     uint64_t indexTotalistic(uint32_t sum) const;
 

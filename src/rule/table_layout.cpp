@@ -55,6 +55,9 @@ std::optional<uint64_t> tableSize(Kind kind, uint16_t states, uint32_t neighbour
             const auto w = buildCompositions(neighbours, states - 1);
             return finite(satMul(S, w[neighbours * S + (states - 1)]));
         }
+        case Kind::CountedTotalistic:
+            // One count, not a vector of them: this is the whole point (D-016).
+            return finite(satMul(S, N + 1));
         case Kind::Totalistic:
             return finite(satAdd(satMul(N + 1, S - 1), 1));
         case Kind::NonTotalistic:

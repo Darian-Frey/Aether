@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- `counted_totalistic` (IMP-001, D-016): a kind indexed on `(own state, count of neighbours in a set chosen by that state)`, so a rule pays `S·(N+1)` entries for the one question it asks instead of a combinatorial table. The DSL detects it, Lua declares it, `decay` propagates it (2026-09-14).
+- `rules/cyclic-14.lua`: Griffeath's fourteen-state cyclic rule, 126 entries where the full count vector needed 2.8 million (2026-09-14).
 - Rule library (F-010): `rule/library` reads rule files whose header is a comment block in their own language, so a file is compiled whole; thirteen bundled rules in `rules/` covering Life-like, Generations, cyclic, Wireworld, hexagonal, 3D, ageing and Lua; Library panel, `--rule @id`, and saving a rule back to `rules/` (2026-09-14).
 - Lua rule front end (F-008, D-003): `rule/lua` runs a script once per compile in a fresh interpreter with its own environment, an instruction budget and a memory budget; the transition may be an array or a function called per table entry. Language selector in the Rule panel, `--lua FILE` on the command line (2026-09-14).
 - Lua 5.4 as a system dependency via pkg-config (2026-09-14).
@@ -50,7 +52,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 209 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 211 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -66,6 +68,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- Generations notation is now the two-state rule plus an ageing tail through the one decay transform (IMP-003), so `B2/S/C25` is a 225-entry table rather than an expression no backend could run (2026-09-14).
+- An ageing tail is bounded by SPEC §1's 256 states rather than by the table: 60 states cost 558 entries (2026-09-14).
 - B/S notation may now sit under a comment header and carry a trailing comment, which is what lets a rule file be handed to the front end whole (2026-09-14).
 - The default palette ramps a rule's ageing tail from state 1 toward the dark with falling alpha, and age shading darkens only the tail when one is known — shading by raw state index is meaningless for Wireworld or a cyclic CA (2026-09-14).
 - `mutation.cell.block` joins the session record, defaulting to 0 inside `format_version` 1 so earlier files replay identically (2026-09-14).

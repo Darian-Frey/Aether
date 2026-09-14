@@ -109,7 +109,7 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
     releaseBuffers();
     owned_.paramsSsbo  = makeSsbo(params, sizeof(params));
     owned_.offsetsSsbo = makeSsbo(offsets.data(), offsets.size() * sizeof(int32_t));
-    owned_.compsSsbo   = makeSsbo(rule.w.data(), rule.w.size() * sizeof(uint32_t));
+    owned_.compsSsbo   = makeSsbo(rule.aux.data(), rule.aux.size() * sizeof(uint32_t));
     owned_.tableSsbo   = makeSsbo(table.data(), table.size() * sizeof(uint32_t));
 
     cfg_.program = owned_.programs[key];

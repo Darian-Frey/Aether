@@ -84,6 +84,7 @@ RuleIR {
   neighbourhood : { type, radius }
   boundary      : "wrap" | "zero" | "mirror"
   kind          : Kind
+  counted       : [StateSet]?      // counted_totalistic only: one set per state
   transition    : Table | Expression | Kernel
   metadata      : { name?, author?, source_notation? }
 }
@@ -94,12 +95,15 @@ RuleIR {
 | `kind` | Transition depends on | Form |
 |---|---|---|
 | `outer_totalistic` | own state + count of each neighbour state | `Table` |
+| `counted_totalistic` | own state + count of neighbours in one set, chosen by the own state | `Table` |
 | `totalistic` | sum over cell and neighbours | `Table` |
 | `non_totalistic` | own state + ordered neighbour signature | `Table` or `Expression` |
 | `expression` | arbitrary function of own state and neighbours | `Expression` |
 | `continuous` *(Phase 5)* | convolution result and growth function | `Kernel` |
 
 **Table** is a flat array of state indices, sized and indexed per §5.
+
+**counted** *(added 2026-09-14, D-016)* is present only for `counted_totalistic` and holds one set of states per state of the rule: `counted[own]` is what a cell in state `own` counts among its neighbours. It is part of the rule's meaning, so it is validated, hashed and serialised with everything else.
 
 **Expression** is a small tree over: the own-state value, indexed neighbour values, neighbour-state counts, integer and float literals, arithmetic (`+ - * / %`), comparison, boolean connectives, and a conditional. Deliberately restricted: no loops with data-dependent bounds, no function calls, no recursion. Every expression must be translatable to branch-free or statically-bounded GLSL (D-001).
 
@@ -113,6 +117,7 @@ An IR is valid only if all of the following hold. Validation runs on every IR re
 2. Every state index appearing in a `Table` or as an `Expression` literal result is in `0 … states-1`.
 3. `Table` length matches exactly the size computed in §5 for the rule's kind, dimensionality and neighbourhood.
 4. `radius ≥ 1`, and the resulting `N` does not exceed 64 for `non_totalistic` kinds (the signature must fit a `u64`).
+4a. `counted` holds exactly `states` sets when `kind == counted_totalistic`, naming no state outside `0 … states-1`, and is empty for every other kind.
 5. `cell_type == f32` implies `kind == continuous`, and conversely.
 6. The expression tree contains no unbound references and has a type-consistent root.
 
@@ -142,6 +147,15 @@ size  = states · W(N, S−1)              where W(n, m) = C(n+m, m)
 
 `W(n, m)` counts vectors of `m` non-negative integers summing to at most `n`. The rank of a vector is the sum, over each digit `cᵢ`, of `W(R − v, S−1−i−1)` for every `v < cᵢ`, where `R` is the budget remaining after the preceding digits. For `S = 2` this collapses to the binary form above. Both execution paths implement this ranking; the `W` table is precomputed on the host and uploaded alongside the transition table. (Clarified 2026-09-11, BUG-002.)
 
+**Counted-totalistic** *(added 2026-09-14, D-016)*. The signature is a single count: how many neighbours are in the set this own state counts.
+
+```
+index = own_state · (N + 1) + |{ i : neighbour[i] ∈ counted[own_state] }|
+size  = states · (N + 1)
+```
+
+This is the form for every rule that asks one question of its neighbourhood — Life-like, generations, cyclic, Wireworld, anything with an ageing tail — which is almost all of them. A front end uses it when the rule qualifies and it is smaller than the full vector; a rule that genuinely needs several counts keeps `outer_totalistic`. The sets are uploaded alongside the table as eight words of mask per own state.
+
 **Totalistic.** As above but with `own_state` folded into the sum:
 
 ```
@@ -169,6 +183,9 @@ A rule compiles to the table backend if its computed table size is `≤ LUT_MAX_
 |---|---|---|
 | Binary 2D Moore r=1 outer-totalistic (`B3/S23`) | 2·9 = 18 | table |
 | 4-state 2D Moore r=1 outer-totalistic | 4·W(8,3) = 4·165 = 660 | table |
+| 4-state 2D Moore r=1 counted-totalistic | 4·9 = 36 | table |
+| 62-state 2D Moore r=1 counted-totalistic (Life with a 60-state ageing tail) | 62·9 = 558 | table |
+| 14-state cyclic, counted | 14·9 = 126 | table (2.8×10⁶ as a full count vector) |
 | Binary 2D Moore r=1 non-totalistic | 2·2⁸ = 512 | table |
 | Binary 3D Moore r=1 outer-totalistic | 2·27 = 54 | table |
 | Binary 3D Moore r=1 non-totalistic | 2·2²⁶ ≈ 1.3×10⁸ | codegen |
@@ -270,11 +287,11 @@ compile to the same table. `C` and `decay` are related by `C = states + N`.
 The desugaring is a front-end transform: it produces an ordinary `outer_totalistic` IR with `states + N` states, so every backend, both execution paths, both mutation controls, the lineage and the session format are unchanged (D-014). Two limits follow from that:
 
 - `states + N ≤ 256` (SPEC §1).
-- The resulting table must fit `LUT_MAX_ENTRIES` until the codegen backend exists. Since an outer-totalistic table is `S·C(N_nb+S−1, S−1)`, the largest tail for a binary rule is 6 states on 2D Moore r=1, 8 on hexagonal r=1, and 14 on 2D von Neumann r=1. The compiler rejects a longer tail and names the largest that fits.
+- The resulting table must fit `LUT_MAX_ENTRIES`. A rule that counts one set takes its tail in `S·(N+1)` entries, so this binds at 256 states rather than sooner (D-016); a rule needing the full count vector is still capped at a 6-state tail on 2D Moore r=1. The compiler rejects a longer tail and names the largest that fits.
 
 `metadata.decay_from` records the first tail state so that palettes and age shading can colour the tail as a ramp (§13). It is a presentation hint, excluded from `ir_hash` like the rest of `metadata`, and carries no semantics: a wrong value gives odd colours, never a different automaton.
 
-Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. (`signature_literal` was named in the grammar but undefined until 2026-09-14; it is specified above.) Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
+Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. (`signature_literal` was named in the grammar but undefined until 2026-09-14; it is specified above.) Generations notation is the two-state rule with an ageing tail attached through the same transform as `decay`, so `C` is bounded by SPEC §1's 256 states rather than by the table (2026-09-14, D-016, IMP-003).
 
 ---
 

@@ -23,6 +23,7 @@ std::string_view toString(Boundary v) {
 std::string_view toString(Kind v) {
     switch (v) {
         case Kind::OuterTotalistic: return "outer_totalistic";
+        case Kind::CountedTotalistic: return "counted_totalistic";
         case Kind::Totalistic:      return "totalistic";
         case Kind::NonTotalistic:   return "non_totalistic";
         case Kind::Expression:      return "expression";
@@ -75,6 +76,7 @@ std::optional<Boundary> parseBoundary(std::string_view s) {
 
 std::optional<Kind> parseKind(std::string_view s) {
     if (s == "outer_totalistic") return Kind::OuterTotalistic;
+    if (s == "counted_totalistic") return Kind::CountedTotalistic;
     if (s == "totalistic")       return Kind::Totalistic;
     if (s == "non_totalistic")   return Kind::NonTotalistic;
     if (s == "expression")       return Kind::Expression;
@@ -277,6 +279,7 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
     const bool formOk = [&] {
         switch (ir.kind) {
             case Kind::OuterTotalistic:
+            case Kind::CountedTotalistic:
             case Kind::Totalistic:
                 return std::holds_alternative<Table>(ir.transition);
             case Kind::NonTotalistic:
@@ -291,6 +294,26 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
     }();
     if (!formOk) {
         err(std::format("kind {} does not permit this transition form", toString(ir.kind)));
+    }
+    // The counted sets are part of the rule's meaning, so they are checked
+    // as strictly as the table (D-016).
+    if (ir.kind == Kind::CountedTotalistic) {
+        if (ir.counted.size() != ir.states) {
+            err(std::format("counted_totalistic needs one counted set per state: {} sets for {} states",
+                            ir.counted.size(), ir.states));
+        } else {
+            for (size_t own = 0; own < ir.counted.size(); ++own) {
+                for (uint32_t s = ir.states; s < 256; ++s) {
+                    if (ir.counted[own].test(static_cast<uint16_t>(s))) {
+                        err(std::format("counted set for state {} includes state {}, outside 0..{}",
+                                        own, s, ir.states - 1));
+                        break;
+                    }
+                }
+            }
+        }
+    } else if (!ir.counted.empty()) {
+        err(std::format("kind {} must not carry counted sets", toString(ir.kind)));
     }
     if (!out.empty()) return out;
 
@@ -408,6 +431,14 @@ uint64_t irHash(const RuleIR& ir) {
     h.integer(ir.neighbourhood.radius);
     h.integer(ir.boundary);
     h.integer(ir.kind);
+    // Only rules that have counted sets hash them, so adding the field left
+    // every rule that existed before it hashing exactly as it did (D-016).
+    if (!ir.counted.empty()) {
+        h.integer(static_cast<uint32_t>(ir.counted.size()));
+        for (const StateSet& set : ir.counted) {
+            for (uint32_t word : set.bits) h.integer(word);
+        }
+    }
     h.integer(static_cast<uint8_t>(ir.transition.index()));
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         h.integer(static_cast<uint64_t>(t->entries.size()));

@@ -22,7 +22,14 @@ Entry format:
 
 ## Open
 
-*None.*
+### BUG-008: default random-fill densities sum to more than one above nine states
+**Status:** open
+**Found:** 2026-09-14 (D-016, rendering the fourteen-state cyclic rule)
+**Location:** `src/ui/app.cpp` (`applyPaletteForStates`)
+**Severity:** low
+**Description.** The default fill gives state 1 a density of 0.2 and every other state 0.1, so for `S > 9` the weights sum past 1. `fillRandom` walks the cumulative distribution and stops at the first threshold above its draw, so the last states are never seeded: a fourteen-state rule starts with nothing in states 10 to 13. The engine is doing what it was asked; the defaults are wrong.
+**Reproduction.** `aether --rule @cyclic-14` and look at the initial grid, or press R.
+**Notes.** A one-line fix — give each non-quiescent state `0.8 / (S - 1)` — but it is the author's call whether the default should be uniform or weighted toward the quiescent state. Does not affect reproducibility: the densities are journaled and replay exactly.
 
 ## Fixed
 

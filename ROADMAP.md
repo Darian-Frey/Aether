@@ -71,7 +71,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Cell life cycle: `decay N;` as a front-end desugaring, tail palettes and tail-only age shading (F-025, D-014, 2026-09-14). Landed ahead of the rest of the phase because it needs neither Lua nor codegen; its tail length is capped until one of them arrives.
 - [x] Correlated cell mutation in aligned blocks (F-026, D-015, 2026-09-14). Extends Phase 2's mutation work; landed here because it shares the step shader with the rest of this phase.
 - [x] `signature_literal` syntax defined in SPEC §7 and parsed — elements in canonical order, `_` wildcards, `rot` for rotation-symmetric tables, mixable with count conditions (IMP-002, 2026-09-14)
-- [x] Bundled rule library per the F-010 list, each rule with palette and description — thirteen rules in `rules/`, `--rule @id`, Library panel, user rules saved back (2026-09-14). Langton's loops, the 1D rules and the 14-state cyclic CA remain, each for a stated reason.
+- [x] Counted-set indexing (IMP-001, D-016): `counted_totalistic`, which lifted the table-size ceiling on ageing tails, Generations rules and the cyclic CA (2026-09-14)
+- [x] Bundled rule library per the F-010 list, each rule with palette and description — fourteen rules in `rules/`, `--rule @id`, Library panel, user rules saved back (2026-09-14). Langton's loops and the 1D rules remain, each for a stated reason.
 - [x] Sandboxed Lua front end emitting IR (F-008, 2026-09-14)
 - [x] Instruction budget and abort path, plus a memory budget for scripts that fill memory rather than loop (2026-09-14)
 - [ ] GLSL codegen backend with template and shader cache

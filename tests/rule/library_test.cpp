@@ -92,7 +92,7 @@ TEST_CASE("malformed palette entries are ignored rather than guessed at", "[libr
 
 TEST_CASE("every bundled rule loads, compiles and validates", "[library]") {
     const auto rules = loadLibrary({AETHER_RULES_DIR});
-    REQUIRE(rules.size() >= 12);
+    REQUIRE(rules.size() >= 14);
 
     std::set<std::string> ids;
     for (const LibraryRule& rule : rules) {
@@ -113,6 +113,7 @@ TEST_CASE("every bundled rule loads, compiles and validates", "[library]") {
     CHECK(ids.count("brians-brain"));
     CHECK(ids.count("wireworld"));
     CHECK(ids.count("cyclic-8"));
+    CHECK(ids.count("cyclic-14"));
     CHECK(ids.count("hex-life"));
     CHECK(ids.count("life-3d-4555"));
     CHECK(ids.count("fading-life"));
@@ -137,7 +138,15 @@ TEST_CASE("named rules are the rules they claim to be", "[library]") {
 
     const RuleIR cyclic = std::get<RuleIR>(compile(find("cyclic-8")));
     CHECK(cyclic.states == 8);
-    CHECK(cyclic.kind == Kind::OuterTotalistic);
+    CHECK(cyclic.kind == Kind::CountedTotalistic);
+    CHECK(std::get<Table>(cyclic.transition).entries.size() == 8 * 9);
+    for (uint16_t own = 0; own < 8; ++own) CHECK(cyclic.counted[own].test((own + 1) % 8));
+
+    // The fourteen-state cyclic rule needed 2.8M entries as a full count
+    // vector and was left out of the library for it (D-016).
+    const RuleIR big = std::get<RuleIR>(compile(find("cyclic-14")));
+    CHECK(big.states == 14);
+    CHECK(std::get<Table>(big.transition).entries.size() == 14 * 9);
 
     const RuleIR three = std::get<RuleIR>(compile(find("life-3d-4555")));
     CHECK(three.dimensions == 3);
@@ -180,5 +189,5 @@ TEST_CASE("missing directories are skipped, and the first with rules wins", "[li
     CHECK(loadLibrary({"/nonexistent/aether/rules"}).empty());
     CHECK(loadLibrary({}).empty());
     const auto rules = loadLibrary({"/nonexistent/aether/rules", AETHER_RULES_DIR});
-    CHECK(rules.size() >= 12);
+    CHECK(rules.size() >= 14);
 }

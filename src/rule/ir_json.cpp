@@ -112,6 +112,17 @@ json irToJson(const RuleIR& ir) {
     j["neighbourhood"] = {{"type", std::string(toString(ir.neighbourhood.type))}, {"radius", ir.neighbourhood.radius}};
     j["boundary"] = std::string(toString(ir.boundary));
     j["kind"] = std::string(toString(ir.kind));
+    if (!ir.counted.empty()) {
+        json sets = json::array();
+        for (const StateSet& set : ir.counted) {
+            json states = json::array();
+            for (uint32_t s = 0; s < 256; ++s) {
+                if (set.test(static_cast<uint16_t>(s))) states.push_back(s);
+            }
+            sets.push_back(states);
+        }
+        j["counted"] = sets;
+    }
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         j["transition"] = {{"form", "table"}, {"entries", base64Encode(t->entries)}, {"size", t->entries.size()}};
     } else if (const auto* e = std::get_if<Expression>(&ir.transition)) {
@@ -152,6 +163,18 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
         const auto kd = parseKind(j.at("kind").get<std::string>());
         if (!kd) return std::string("unknown kind");
         ir.kind = *kd;
+
+        if (j.contains("counted")) {
+            for (const json& set : j.at("counted")) {
+                StateSet states;
+                for (const json& state : set) {
+                    const auto v = state.get<uint32_t>();
+                    if (v > 255) return std::format("counted set names state {}, outside 0..255", v);
+                    states.set(static_cast<uint16_t>(v));
+                }
+                ir.counted.push_back(states);
+            }
+        }
 
         const json& t = j.at("transition");
         const std::string form = t.at("form").get<std::string>();

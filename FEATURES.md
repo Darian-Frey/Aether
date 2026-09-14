@@ -131,8 +131,8 @@ People who want to explore cellular automata rather than run one specific automa
   - Hexagonal: a hex Life-like such as `B2/S34` (F-023)
 - Each bundled rule carries its palette and a one-line description
 **Status:** In progress
-**Progress:** 2026-09-14. Thirteen rules bundled in `rules/`, loadable by name from the Library panel or `--rule @id`, each with a description and, where the default is wrong, a palette. A rule file is its own source with a comment header, so the header is inert in both the DSL and Lua and the file is compiled whole. User rules save to `rules/`. A test compiles every bundled rule and checks it validates.
-**Remaining:** Langton's loops (219 transitions to transcribe), the 1D rules (they need F-005's space-time view to be worth looking at, and the app has no 1D grid yet), and the 14-state cyclic CA (2.8M table entries — needs IMP-001 or codegen).
+**Progress:** 2026-09-14. Fourteen rules bundled in `rules/`, loadable by name from the Library panel or `--rule @id`, each with a description and, where the default is wrong, a palette. A rule file is its own source with a comment header, so the header is inert in both the DSL and Lua and the file is compiled whole. User rules save to `rules/`. A test compiles every bundled rule and checks it validates.
+**Remaining:** Langton's loops (219 transitions to transcribe) and the 1D rules (they need F-005's space-time view to be worth looking at, and the app has no 1D grid yet). The 14-state cyclic CA joined the library on 2026-09-14 once D-016 brought it down to 126 entries.
 **Notes:** `voters` and `dilemma` from xscreensaver are *not* on the list: the first needs a stochastic transition form and the second a two-phase or radius-2 rule; see Candidate features.
 
 ## Initial state
@@ -230,7 +230,7 @@ People who want to explore cellular automata rather than run one specific automa
 - The tail is coloured as a ramp by default, fading in colour and in 3D opacity as a cell ages; age shading darkens only the tail
 - Works on every lattice and both execution paths, with a decayed rule in the equivalence fixture set
 **Status:** Complete
-**Progress:** 2026-09-14 (D-014). A front-end desugaring in `rule/decay`: nothing downstream changes. Limited to a 6-state tail on 2D Moore r=1, 8 on hexagonal, 14 on von Neumann until the codegen backend or IMP-001 lifts the table-size ceiling; the compiler names the limit when it refuses.
+**Progress:** 2026-09-14 (D-014). A front-end desugaring in `rule/decay`: nothing downstream changes. The table-size cap that limited a tail to six states was lifted the same day by D-016; a tail now runs to the 256-state limit of SPEC §1 on every lattice.
 
 ### F-026 Correlated cell mutation
 **Priority:** Should

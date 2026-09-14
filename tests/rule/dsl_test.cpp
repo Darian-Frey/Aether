@@ -1,5 +1,6 @@
 #include "rule/dsl.hpp"
 #include "rule/table_layout.hpp"
+#include "support/table.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -7,17 +8,12 @@ using namespace aether::rule;
 
 namespace {
 
-// Reads an outer-totalistic table entry for a binary rule.
 uint8_t binaryEntry(const RuleIR& ir, uint8_t own, uint32_t k) {
-    const TableLayout L(ir.kind, ir.states, neighbourCount(ir.dimensions, ir.neighbourhood));
-    const uint32_t counts[1] = {k};
-    return std::get<Table>(ir.transition).entries[L.indexOuterTotalistic(own, counts)];
+    return aether::test::tableEntry(ir, own, {k});
 }
 
-// Reads an entry for a multi-state rule given the full count vector.
 uint8_t entry(const RuleIR& ir, uint8_t own, std::vector<uint32_t> counts) {
-    const TableLayout L(ir.kind, ir.states, neighbourCount(ir.dimensions, ir.neighbourhood));
-    return std::get<Table>(ir.transition).entries[L.indexOuterTotalistic(own, counts)];
+    return aether::test::tableEntry(ir, own, std::move(counts));
 }
 
 }  // namespace
@@ -101,8 +97,8 @@ TEST_CASE("B2/S/C3 is Brian's Brain", "[dsl]") {
     REQUIRE(r);
     const RuleIR& ir = *r.ir;
     CHECK(ir.states == 3);
-    CHECK(ir.kind == Kind::OuterTotalistic);
-    REQUIRE(std::get<Table>(ir.transition).entries.size() == 3 * 45);
+    CHECK(ir.kind == Kind::CountedTotalistic);   // it counts firing neighbours only (D-016)
+    REQUIRE(std::get<Table>(ir.transition).entries.size() == 3 * 9);
 
     // Dead cell with exactly two firing neighbours is born, regardless of
     // how many refractory neighbours there are.
@@ -136,13 +132,18 @@ TEST_CASE("B/S/C2 is identical to plain B/S", "[dsl]") {
     CHECK(irHash(*a.ir) == irHash(*b.ir));
 }
 
-TEST_CASE("a large Generations rule lowers to an expression", "[dsl]") {
-    // 25 states: table would be 25 * C(32,24) entries, far over the threshold.
+TEST_CASE("a large Generations rule fits the counted table", "[dsl]") {
+    // The full count vector would be 25 * C(32,24) entries. Counting the one
+    // state the rule asks about makes it 25 * 9 (D-016).
     const auto r = parseDsl("B2/S/C25");
     REQUIRE(r);
-    CHECK(r.ir->kind == Kind::Expression);
-    CHECK(std::holds_alternative<Expression>(r.ir->transition));
+    CHECK(r.ir->kind == Kind::CountedTotalistic);
+    CHECK(r.ir->states == 25);
+    CHECK(std::get<Table>(r.ir->transition).entries.size() == 25 * 9);
+    CHECK(r.ir->metadata.decay_from == 2);
     CHECK(isValid(*r.ir));
+    CHECK(entry(*r.ir, 1, {2}) == 2);    // fails to survive, so it starts decaying
+    CHECK(entry(*r.ir, 24, {0}) == 0);   // the last refractory state dies
 }
 
 TEST_CASE("table block: Life written longhand equals B3/S23", "[dsl]") {
@@ -260,11 +261,12 @@ TEST_CASE("table block: errors report line and column", "[dsl]") {
 }
 
 TEST_CASE("table block: too large for a table lowers to an expression", "[dsl]") {
-    // 16 states, Moore r=1: 16 * C(23,15) = 7.8M entries.
+    // 16 states, and own state 0 needs two separate counts, so the counted
+    // form does not apply and the full vector is 16 * C(23,15) = 7.8M.
     const char* src = R"(
         states 16;
         neighbourhood moore 1;
-        0: n(1) == 3 -> 1;
+        0: n(1) == 3 and n(2) == 0 -> 1;
         1: n(1) < 2 or n(1) > 3 -> 2;
     )";
     const auto r = parseDsl(src);

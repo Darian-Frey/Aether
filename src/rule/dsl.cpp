@@ -4,6 +4,7 @@
 #include "rule/table_layout.hpp"
 
 #include <cctype>
+#include <set>
 #include <format>
 #include <span>
 #include <string>
@@ -225,6 +226,9 @@ private:
 
 // A parsed count condition, kept as a tree so it can be both evaluated (to
 // fill a table) and lowered to an Expression (when the table is too large).
+// Stands for "the neighbours themselves", which no single count can supply.
+constexpr uint32_t kAnyState = 0xffffffffu;
+
 struct Cond {
     enum class Op { Cmp, Signature, And, Or } op = Op::Cmp;
     uint32_t    state = 0;      // Cmp: n(state)
@@ -494,6 +498,74 @@ bool evalCond(const Cond& c, std::span<const uint32_t> counts, std::span<const u
     return false;
 }
 
+// The states a condition asks about. A rule whose every own state asks about
+// at most one of them can be counted rather than tabulated (D-016).
+void referencedStates(const Cond& c, std::set<uint32_t>& out) {
+    switch (c.op) {
+        case Cond::Op::And:
+        case Cond::Op::Or:
+            referencedStates(c.kids[0], out);
+            referencedStates(c.kids[1], out);
+            return;
+        case Cond::Op::Cmp:
+            out.insert(c.state);
+            return;
+        case Cond::Op::Signature:
+            out.insert(kAnyState);   // a literal needs the neighbours themselves
+            return;
+    }
+}
+
+// The counted sets for a block, or nothing if some own state needs more than
+// one count. `n(0)` alone becomes "count everything that is not 0", since the
+// quiescent count is then N minus that.
+std::optional<std::vector<StateSet>> countedSets(const Block& b) {
+    std::vector<StateSet> sets(b.states);
+    for (uint32_t own = 0; own < b.states; ++own) {
+        std::set<uint32_t> refs;
+        for (const Statement& st : b.statements) {
+            if (st.own == own) referencedStates(st.cond, refs);
+        }
+        if (refs.empty()) continue;                      // nothing counted: any set will do
+        if (refs.size() > 1 || refs.count(kAnyState)) return std::nullopt;
+        const uint32_t state = *refs.begin();
+        if (state == 0) {
+            for (uint16_t s = 1; s < b.states; ++s) sets[own].set(s);
+        } else {
+            sets[own].set(static_cast<uint16_t>(state));
+        }
+    }
+    return sets;
+}
+
+// One row per (own, count), evaluated with a count vector that carries the
+// counted state's tally and nothing else — which is all the conditions of a
+// counted rule can ask about.
+Table buildCountedTable(const Block& b, const TableLayout& layout, uint32_t N,
+                        const std::vector<StateSet>& sets) {
+    Table t;
+    t.entries.assign(*layout.size(), 0);
+    std::vector<uint32_t> counts(b.states > 1 ? b.states - 1u : 0u);
+    for (uint32_t own = 0; own < b.states; ++own) {
+        // Where the set is everything non-zero, any one of them stands in:
+        // only n(0) = N - k can be asked about.
+        uint16_t carrier = 1;
+        for (uint16_t s = 1; s < b.states; ++s) {
+            if (sets[own].test(s)) { carrier = s; break; }
+        }
+        for (uint32_t k = 0; k <= N; ++k) {
+            for (uint32_t& c : counts) c = 0;
+            if (!counts.empty()) counts[carrier - 1u] = k;
+            uint32_t next = own;
+            for (const Statement& st : b.statements) {
+                if (st.own == own && evalCond(st.cond, counts, {}, N)) { next = st.next; break; }
+            }
+            t.entries[layout.indexCounted(static_cast<uint8_t>(own), k)] = static_cast<uint8_t>(next);
+        }
+    }
+    return t;
+}
+
 Table buildBlockTable(const Block& b, const TableLayout& layout, uint32_t N) {
     Table t;
     t.entries.assign(*layout.size(), 0);
@@ -638,27 +710,21 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
         // The notation is the rule, not the file it arrived in.
         ir.metadata.source_notation = std::string(trim(firstLine));
 
-        const TableLayout layout(ir.kind, ir.states, mooreN);
-        if (!layout.size() || *layout.size() > kLutMaxEntries) {
-            // Generations with many states (IMP-001). Lower to an expression
-            // via a synthetic block so the two paths share one lowering.
-            Block b;
-            b.states = rule.states;
-            b.nb = moore1;
-            for (uint32_t k = 0; k <= mooreN; ++k) {
-                if (rule.birth[k])   b.statements.push_back({0, Cond{Cond::Op::Cmp, 1, "==", k, {}, {}}, 1, 1, 1});
-            }
-            for (uint32_t k = 0; k <= mooreN; ++k) {
-                if (rule.survive[k]) b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, "==", k, {}, {}}, 1, 1, 1});
-            }
-            b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, ">=", 0, {}, {}}, rule.states == 2 ? 0u : 2u, 1, 1});
-            for (uint32_t s = 2; s < rule.states; ++s) {
-                b.statements.push_back({s, Cond{Cond::Op::Cmp, 1, ">=", 0, {}, {}}, s + 1 < rule.states ? s + 1 : 0, 1, 1});
-            }
-            ir.kind = Kind::Expression;
-            ir.transition = ExprBuilder().build(b);
-        } else {
-            ir.transition = buildLifeLikeTable(rule, layout);
+        // Build the two-state rule, then attach the ageing tail that `C`
+        // asks for. One implementation of decay rather than two (IMP-003),
+        // and since the tail is counted the state count is bounded by SPEC
+        // §1 rather than by the table (D-016).
+        LifeLike binary = rule;
+        binary.states = 2;
+        ir.states = 2;
+        const TableLayout baseLayout(Kind::OuterTotalistic, 2, mooreN);
+        ir.transition = buildLifeLikeTable(binary, baseLayout);
+
+        if (rule.states > 2) {
+            auto decayed = applyDecay(ir, static_cast<uint16_t>(rule.states - 2));
+            if (const auto* e = std::get_if<std::string>(&decayed)) return fail(1, 1, *e);
+            ir = std::get<RuleIR>(std::move(decayed));
+            ir.metadata.source_notation = std::string(trim(firstLine));
         }
         return finish(std::move(ir));
     }
@@ -683,6 +749,32 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     if (b.hasSignature && N > 64) {
         return fail(1, 1, std::format("a signature rule needs at most 64 neighbours; this one has {}", N));
     }
+    // Prefer the counted form when it is smaller: it is the same rule in
+    // fewer entries, and it is what lets a long ageing tail or a many-state
+    // generations rule fit the table backend at all (D-016).
+    if (!b.hasSignature) {
+        if (const auto sets = countedSets(b)) {
+            const auto counted = tableSize(Kind::CountedTotalistic, ir.states, N);
+            const auto outer = tableSize(Kind::OuterTotalistic, ir.states, N);
+            if (counted && (!outer || *counted < *outer)) {
+                ir.kind = Kind::CountedTotalistic;
+                ir.counted = *sets;
+                const TableLayout countedLayout(ir.kind, ir.states, N);
+                ir.transition = buildCountedTable(b, countedLayout, N, *sets);
+                if (b.decay > 0) {
+                    auto decayed = applyDecay(ir, b.decay);
+                    if (const auto* e = std::get_if<std::string>(&decayed)) {
+                        const Token& t = parser.token(parser.decayToken());
+                        return fail(t.line, t.column, *e);
+                    }
+                    ir = std::get<RuleIR>(std::move(decayed));
+                    ir.metadata.source_notation = std::string(trim(source));
+                }
+                return finish(std::move(ir));
+            }
+        }
+    }
+
     const TableLayout layout(ir.kind, ir.states, N);
     if (layout.size() && *layout.size() <= kLutMaxEntries) {
         ir.transition = b.hasSignature ? buildSignatureTable(b, layout, N) : buildBlockTable(b, layout, N);
