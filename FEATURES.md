@@ -94,7 +94,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Explicit transition-table blocks parse for rules the shorthand cannot express
 - Syntax errors report line and column, and never leave the engine in a half-updated state
 **Status:** Complete
-**Progress:** 2026-09-11. Errors carry line and column and leave the engine untouched. Note: `signature_literal` awaits a definition in SPEC §7; non-totalistic rules are expressible by hand-built IR only until then.
+**Progress:** 2026-09-14. Errors carry line and column and leave the engine untouched. All three notations parse, including signature literals with wildcards and `rot` for non-totalistic rules (IMP-002), and `decay N;` for an ageing tail (F-025).
 
 ### F-008 Lua rule scripting
 **Priority:** Should
@@ -124,7 +124,7 @@ People who want to explore cellular automata rather than run one specific automa
   - Generations: Brian's Brain `B2/S/C3`, Star Wars `B2/S345/C4`
   - Cyclic: Griffeath's cyclic CA, 8 and 14 states (xscreensaver `demon`)
   - Wireworld
-  - Langton's self-reproducing loops (xscreensaver `loop`; 8 states, von Neumann, non-totalistic — needs the `signature_literal` syntax or the Lua front end, see IMP-002)
+  - Langton's self-reproducing loops (xscreensaver `loop`; 8 states, von Neumann, non-totalistic — writable since 2026-09-14 now that signature literals exist, and small enough for the table backend at 32,768 entries; the 219 transitions themselves still have to be transcribed or computed in Lua)
   - 1D: Rules 30, 90, 110 (xscreensaver `life1d`; with F-005)
   - 3D: Bays' 5766 and 4555 (xlock `life3d`; with F-004)
   - Hexagonal: a hex Life-like such as `B2/S34` (F-023)

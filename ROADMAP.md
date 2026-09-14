@@ -70,7 +70,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Deliverables:**
 - [x] Cell life cycle: `decay N;` as a front-end desugaring, tail palettes and tail-only age shading (F-025, D-014, 2026-09-14). Landed ahead of the rest of the phase because it needs neither Lua nor codegen; its tail length is capped until one of them arrives.
 - [x] Correlated cell mutation in aligned blocks (F-026, D-015, 2026-09-14). Extends Phase 2's mutation work; landed here because it shares the step shader with the rest of this phase.
-- [ ] `signature_literal` syntax defined in SPEC §7 and parsed, with Langton's loops as the design case (IMP-002)
+- [x] `signature_literal` syntax defined in SPEC §7 and parsed — elements in canonical order, `_` wildcards, `rot` for rotation-symmetric tables, mixable with count conditions (IMP-002, 2026-09-14)
 - [ ] Bundled rule library per the F-010 list, each rule with palette and description
 - [ ] Sandboxed Lua front end emitting IR
 - [ ] Instruction budget and abort path

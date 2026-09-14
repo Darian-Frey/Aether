@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace aether::rule {
@@ -39,5 +40,11 @@ uint32_t neighbourCount(uint8_t dimensions, Neighbourhood nb);
 // Offsets in canonical order: lexicographic by (dz, dy, dx) ascending, with
 // the origin skipped. Unused axes are always 0.
 std::vector<Offset> neighbourOffsets(uint8_t dimensions, Neighbourhood nb);
+
+// Permutation taking each neighbour index to where one rotation sends it: a
+// quarter turn on a square lattice, a sixth on a hexagonal one. Rotating a
+// pattern `v` gives `v'[perm[i]] = v[i]`. Defined for 2D only — a rotation
+// in 3D would have to pick an axis, and in 1D there is none (SPEC §7 `rot`).
+std::optional<std::vector<uint32_t>> rotationPermutation(uint8_t dimensions, Neighbourhood nb);
 
 }  // namespace aether::rule

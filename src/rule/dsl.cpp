@@ -146,7 +146,7 @@ Table buildLifeLikeTable(const LifeLike& rule, const TableLayout& layout) {
 // `and` binds tighter than `or`. Signature literals (SPEC §7 mentions them
 // without defining them) are not accepted yet.
 
-enum class Tok { Ident, Int, Semi, Colon, Arrow, LParen, RParen, Cmp, End };
+enum class Tok { Ident, Int, Semi, Colon, Arrow, LParen, RParen, LBracket, RBracket, Comma, Underscore, Cmp, End };
 
 struct Token {
     Tok         kind;
@@ -182,6 +182,9 @@ public:
             else if (c == ':')   { advance(); out.push_back({Tok::Colon, ":", line, col}); }
             else if (c == '(')   { advance(); out.push_back({Tok::LParen, "(", line, col}); }
             else if (c == ')')   { advance(); out.push_back({Tok::RParen, ")", line, col}); }
+            else if (c == '[')   { advance(); out.push_back({Tok::LBracket, "[", line, col}); }
+            else if (c == ']')   { advance(); out.push_back({Tok::RBracket, "]", line, col}); }
+            else if (c == ',')   { advance(); out.push_back({Tok::Comma, ",", line, col}); }
             else if (c == '-' && peek(1) == '>') { advance(); advance(); out.push_back({Tok::Arrow, "->", line, col}); }
             else if ((c == '=' || c == '!') && peek(1) == '=') {
                 advance(); advance(); out.push_back({Tok::Cmp, std::string(1, c) + "=", line, col});
@@ -223,10 +226,13 @@ private:
 // A parsed count condition, kept as a tree so it can be both evaluated (to
 // fill a table) and lowered to an Expression (when the table is too large).
 struct Cond {
-    enum class Op { Cmp, And, Or } op = Op::Cmp;
+    enum class Op { Cmp, Signature, And, Or } op = Op::Cmp;
     uint32_t    state = 0;      // Cmp: n(state)
     std::string cmp;            // Cmp: operator
     uint32_t    value = 0;      // Cmp: right-hand side
+    // Signature: the pattern and, when `rot` was given, its rotations.
+    // -1 is a wildcard. A cell matches if any pattern does.
+    std::vector<std::vector<int>> patterns;
     std::vector<Cond> kids;     // And/Or: exactly two
 };
 
@@ -242,12 +248,14 @@ struct Block {
     Neighbourhood nb;
     std::optional<Boundary> boundary;
     uint16_t      decay = 0;
+    bool          hasSignature = false;   // any literal makes the rule non-totalistic
     std::vector<Statement> statements;
 };
 
 class BlockParser {
 public:
-    explicit BlockParser(std::vector<Token> toks) : toks_(std::move(toks)) {}
+    BlockParser(std::vector<Token> toks, uint8_t dimensions)
+        : toks_(std::move(toks)), dimensions_(dimensions) {}
 
     std::variant<Block, ParseError> run() {
         Block b;
@@ -291,7 +299,7 @@ public:
             s.column = cur().column;
             if (auto v = integer(0, b.states - 1u, "state"); v) s.own = *v; else return err_;
             if (auto e = expect(Tok::Colon, "':'")) return *e;
-            if (auto c = orExpr(b.states); c) s.cond = std::move(*c); else return err_;
+            if (auto c = orExpr(b.states, b); c) s.cond = std::move(*c); else return err_;
             if (auto e = expect(Tok::Arrow, "'->'")) return *e;
             if (auto v = integer(0, b.states - 1u, "state"); v) s.next = *v; else return err_;
             if (auto e = expect(Tok::Semi, "';'")) return *e;
@@ -338,12 +346,12 @@ private:
         return static_cast<uint32_t>(v);
     }
 
-    std::optional<Cond> orExpr(uint16_t states) {
-        auto lhs = andExpr(states);
+    std::optional<Cond> orExpr(uint16_t states, Block& b) {
+        auto lhs = andExpr(states, b);
         if (!lhs) return std::nullopt;
         while (cur().kind == Tok::Ident && cur().text == "or") {
             ++i_;
-            auto rhs = andExpr(states);
+            auto rhs = andExpr(states, b);
             if (!rhs) return std::nullopt;
             Cond c;
             c.op = Cond::Op::Or;
@@ -353,12 +361,12 @@ private:
         return lhs;
     }
 
-    std::optional<Cond> andExpr(uint16_t states) {
-        auto lhs = countExpr(states);
+    std::optional<Cond> andExpr(uint16_t states, Block& b) {
+        auto lhs = term(states, b);
         if (!lhs) return std::nullopt;
         while (cur().kind == Tok::Ident && cur().text == "and") {
             ++i_;
-            auto rhs = countExpr(states);
+            auto rhs = term(states, b);
             if (!rhs) return std::nullopt;
             Cond c;
             c.op = Cond::Op::And;
@@ -368,9 +376,58 @@ private:
         return lhs;
     }
 
+    // A literal, or a count condition.
+    std::optional<Cond> term(uint16_t states, Block& b) {
+        if (cur().kind == Tok::LBracket) return signatureLiteral(states, b);
+        return countExpr(states);
+    }
+
+    std::optional<Cond> signatureLiteral(uint16_t states, Block& b) {
+        const Token& open = cur();
+        ++i_;
+        const uint32_t n = neighbourCount(dimensions_, b.nb);
+        std::vector<int> pattern;
+        for (;;) {
+            if (cur().kind == Tok::Ident && cur().text == "_") { pattern.push_back(-1); ++i_; }
+            else if (auto v = integer(0, states - 1u, "state"); v) pattern.push_back(static_cast<int>(*v));
+            else return std::nullopt;
+            if (cur().kind == Tok::Comma) { ++i_; continue; }
+            break;
+        }
+        if (expect(Tok::RBracket, "']'")) return std::nullopt;
+        if (pattern.size() != n) {
+            err(open, std::format("signature has {} elements; this neighbourhood has {} neighbours",
+                                  pattern.size(), n));
+            return std::nullopt;
+        }
+
+        Cond c;
+        c.op = Cond::Op::Signature;
+        c.patterns.push_back(pattern);
+        if (cur().kind == Tok::Ident && cur().text == "rot") {
+            const Token& rotTok = cur();
+            ++i_;
+            const auto perm = rotationPermutation(dimensions_, b.nb);
+            if (!perm) {
+                err(rotTok, "rot is defined for 2D lattices only; a rotation elsewhere would have to pick an axis");
+                return std::nullopt;
+            }
+            std::vector<int> v = pattern;
+            for (int turn = 1; turn < 8; ++turn) {
+                std::vector<int> next(n);
+                for (uint32_t i = 0; i < n; ++i) next[(*perm)[i]] = v[i];
+                if (next == pattern) break;
+                c.patterns.push_back(next);
+                v = std::move(next);
+            }
+        }
+        b.hasSignature = true;
+        return c;
+    }
+
     std::optional<Cond> countExpr(uint16_t states) {
         Cond c;
-        if (cur().kind != Tok::Ident || cur().text != "n") { err(cur(), "expected 'n('"); return std::nullopt; }
+        if (cur().kind != Tok::Ident || cur().text != "n") { err(cur(), "expected 'n(' or a signature literal"); return std::nullopt; }
         ++i_;
         if (expect(Tok::LParen, "'('")) return std::nullopt;
         if (auto v = integer(0, states - 1u, "state"); v) c.state = *v; else return std::nullopt;
@@ -390,6 +447,7 @@ public:
 
 private:
     std::vector<Token> toks_;
+    uint8_t    dimensions_ = 2;
     size_t     i_ = 0;
     size_t     decayToken_ = 0;
     ParseError err_;
@@ -405,11 +463,22 @@ bool compare(std::string_view cmp, uint32_t a, uint32_t b) {
 }
 
 // counts is indexed by state 1..S-1 at positions 0..S-2; state 0's count is
-// derived from N.
-bool evalCond(const Cond& c, std::span<const uint32_t> counts, uint32_t N) {
+// derived from N. `nbr` is the neighbour vector in canonical order, and is
+// empty on the outer-totalistic path, where no literal can appear.
+bool evalCond(const Cond& c, std::span<const uint32_t> counts, std::span<const uint8_t> nbr, uint32_t N) {
     switch (c.op) {
-        case Cond::Op::And: return evalCond(c.kids[0], counts, N) && evalCond(c.kids[1], counts, N);
-        case Cond::Op::Or:  return evalCond(c.kids[0], counts, N) || evalCond(c.kids[1], counts, N);
+        case Cond::Op::And: return evalCond(c.kids[0], counts, nbr, N) && evalCond(c.kids[1], counts, nbr, N);
+        case Cond::Op::Or:  return evalCond(c.kids[0], counts, nbr, N) || evalCond(c.kids[1], counts, nbr, N);
+        case Cond::Op::Signature: {
+            for (const std::vector<int>& pat : c.patterns) {
+                bool ok = true;
+                for (size_t i = 0; i < pat.size() && ok; ++i) {
+                    if (pat[i] >= 0 && static_cast<uint8_t>(pat[i]) != nbr[i]) ok = false;
+                }
+                if (ok) return true;
+            }
+            return false;
+        }
         case Cond::Op::Cmp: {
             uint32_t n;
             if (c.state == 0) {
@@ -432,11 +501,41 @@ Table buildBlockTable(const Block& b, const TableLayout& layout, uint32_t N) {
         layout.forEachCountVector([&](std::span<const uint32_t> counts) {
             uint32_t next = own;   // no match: retain
             for (const Statement& s : b.statements) {
-                if (s.own == own && evalCond(s.cond, counts, N)) { next = s.next; break; }
+                if (s.own == own && evalCond(s.cond, counts, {}, N)) { next = s.next; break; }
             }
             t.entries[layout.indexOuterTotalistic(static_cast<uint8_t>(own), counts)] =
                 static_cast<uint8_t>(next);
         });
+    }
+    return t;
+}
+
+// Every (own, neighbour vector) pair, decoded from the signature the way
+// TableLayout indexes it: base S, little-endian, canonical neighbour order.
+Table buildSignatureTable(const Block& b, const TableLayout& layout, uint32_t N) {
+    Table t;
+    t.entries.assign(*layout.size(), 0);
+    const uint32_t S = b.states;
+    uint64_t signatures = 1;
+    for (uint32_t i = 0; i < N; ++i) signatures *= S;
+
+    std::vector<uint8_t>  nbr(N);
+    std::vector<uint32_t> counts(S > 1 ? S - 1u : 0u);
+    for (uint64_t sig = 0; sig < signatures; ++sig) {
+        uint64_t rest = sig;
+        for (uint32_t& c : counts) c = 0;
+        for (uint32_t i = 0; i < N; ++i) {
+            nbr[i] = static_cast<uint8_t>(rest % S);
+            rest /= S;
+            if (nbr[i] != 0) ++counts[nbr[i] - 1u];
+        }
+        for (uint32_t own = 0; own < S; ++own) {
+            uint32_t next = own;   // no match: retain
+            for (const Statement& s : b.statements) {
+                if (s.own == own && evalCond(s.cond, counts, nbr, N)) { next = s.next; break; }
+            }
+            t.entries[layout.indexNonTotalistic(static_cast<uint8_t>(own), nbr)] = static_cast<uint8_t>(next);
+        }
     }
     return t;
 }
@@ -452,6 +551,10 @@ public:
         switch (c.op) {
             case Cond::Op::And: { const auto a = cond(c.kids[0]); const auto b = cond(c.kids[1]); return add({ExprOp::And, a, b}); }
             case Cond::Op::Or:  { const auto a = cond(c.kids[0]); const auto b = cond(c.kids[1]); return add({ExprOp::Or,  a, b}); }
+            case Cond::Op::Signature:
+                // Unreachable: a rule with a literal is refused above rather
+                // than lowered, until the codegen backend exists.
+                return literal(0);
             case Cond::Op::Cmp: {
                 const auto n = add({ExprOp::Count, c.state});
                 const auto v = literal(c.value);
@@ -523,14 +626,14 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
             b.states = rule.states;
             b.nb = moore1;
             for (uint32_t k = 0; k <= mooreN; ++k) {
-                if (rule.birth[k])   b.statements.push_back({0, Cond{Cond::Op::Cmp, 1, "==", k, {}}, 1, 1, 1});
+                if (rule.birth[k])   b.statements.push_back({0, Cond{Cond::Op::Cmp, 1, "==", k, {}, {}}, 1, 1, 1});
             }
             for (uint32_t k = 0; k <= mooreN; ++k) {
-                if (rule.survive[k]) b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, "==", k, {}}, 1, 1, 1});
+                if (rule.survive[k]) b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, "==", k, {}, {}}, 1, 1, 1});
             }
-            b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, ">=", 0, {}}, rule.states == 2 ? 0u : 2u, 1, 1});
+            b.statements.push_back({1, Cond{Cond::Op::Cmp, 1, ">=", 0, {}, {}}, rule.states == 2 ? 0u : 2u, 1, 1});
             for (uint32_t s = 2; s < rule.states; ++s) {
-                b.statements.push_back({s, Cond{Cond::Op::Cmp, 1, ">=", 0, {}}, s + 1 < rule.states ? s + 1 : 0, 1, 1});
+                b.statements.push_back({s, Cond{Cond::Op::Cmp, 1, ">=", 0, {}, {}}, s + 1 < rule.states ? s + 1 : 0, 1, 1});
             }
             ir.kind = Kind::Expression;
             ir.transition = ExprBuilder().build(b);
@@ -543,7 +646,7 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     // 3: table block.
     auto lexed = Lexer(source).run();
     if (const auto* e = std::get_if<ParseError>(&lexed)) { DslResult r; r.error = *e; return r; }
-    BlockParser parser(std::move(std::get<std::vector<Token>>(lexed)));
+    BlockParser parser(std::move(std::get<std::vector<Token>>(lexed)), ctx.dimensions);
     auto parsed = parser.run();
     if (const auto* e = std::get_if<ParseError>(&parsed)) { DslResult r; r.error = *e; return r; }
     const Block& b = std::get<Block>(parsed);
@@ -553,13 +656,23 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     ir.states        = b.states;
     ir.neighbourhood = b.nb;
     ir.boundary      = b.boundary.value_or(ctx.boundary);
-    ir.kind          = Kind::OuterTotalistic;
+    ir.kind          = b.hasSignature ? Kind::NonTotalistic : Kind::OuterTotalistic;
     ir.metadata.source_notation = std::string(trim(source));
 
     const uint32_t N = neighbourCount(ir.dimensions, ir.neighbourhood);
+    if (b.hasSignature && N > 64) {
+        return fail(1, 1, std::format("a signature rule needs at most 64 neighbours; this one has {}", N));
+    }
     const TableLayout layout(ir.kind, ir.states, N);
     if (layout.size() && *layout.size() <= kLutMaxEntries) {
-        ir.transition = buildBlockTable(b, layout, N);
+        ir.transition = b.hasSignature ? buildSignatureTable(b, layout, N) : buildBlockTable(b, layout, N);
+    } else if (b.hasSignature) {
+        return fail(1, 1, std::format("a signature rule over {} states and {} neighbours needs {} table entries, "
+                                      "against a limit of {}; expression lowering for these arrives with the "
+                                      "codegen backend",
+                                      ir.states, N,
+                                      layout.size() ? std::to_string(*layout.size()) : "more than 2^64",
+                                      kLutMaxEntries));
     } else if (b.decay > 0) {
         return fail(1, 1, "this rule is already too large for a table, so it cannot take a decay tail");
     } else {

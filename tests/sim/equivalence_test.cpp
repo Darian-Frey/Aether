@@ -88,6 +88,9 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Random totalistic, 4 states Moore r=2", randomTable(Kind::Totalistic, 2, 4, {NeighbourhoodType::Moore, 2}, 13)});
     out.push_back({"Random outer-totalistic, 5 states von Neumann r=2", randomTable(Kind::OuterTotalistic, 2, 5, {NeighbourhoodType::VonNeumann, 2}, 17)});
     out.push_back({"Hex Life-like B2/S34", dsl("states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 3 or n(1) > 4 -> 0;")});
+    out.push_back({"Signature rule written with rot", dsl(
+        "states 3; neighbourhood von_neumann 1;"
+        "0: [1, _, _, _] rot -> 1; 1: [_, _, _, _] -> 2; 2: [_, _, _, _] -> 0;")});
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});

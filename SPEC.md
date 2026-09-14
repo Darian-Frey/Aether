@@ -223,11 +223,28 @@ header     := "states" integer ";"
               [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
               [ "decay" integer ";" ]
 statement  := integer ":" condition "->" integer ";"
-condition  := count_expr | signature_literal
+condition  := term { ("and"|"or") term }
+term       := count_expr | signature_literal
 count_expr := "n" "(" integer ")" comparison integer
-              { ("and"|"or") count_expr }
+signature_literal := "[" element { "," element } "]" [ "rot" ]
+element    := integer | "_"
 comparison := "==" | "!=" | "<" | "<=" | ">" | ">="
 ```
+
+**Signature literals** *(defined 2026-09-14, IMP-002)*. A literal lists the neighbour states in the canonical order of §3, one element per neighbour, and matches when every element agrees with the cell's neighbourhood. `_` matches any state. A rule using one is `non_totalistic`, so its table is `states · states^N` and the §5 threshold binds much sooner than it does for count conditions; a block whose table would exceed it is refused rather than lowered, since an expression backend does not exist yet.
+
+`rot` expands a literal to the rotations of its pattern, which is how transition tables for rotation-symmetric automata are published. One rotation is a quarter turn on a square lattice and a sixth of a turn on a hexagonal one; both map the neighbourhood onto itself at every radius. Rotation is defined for 2D lattices only and is refused elsewhere rather than guessed at.
+
+A condition may mix literals and count conditions with `and` and `or`, since both are predicates on the same neighbourhood.
+
+```
+# A cell with a live neighbour directly above it and nothing to its left.
+states 2;
+neighbourhood von_neumann 1;
+0: [1, 0, _, _] -> 1;
+```
+
+For 2D von Neumann r=1 the canonical order is `[above, left, right, below]`; for 2D Moore r=1 it is the three cells above in left-to-right order, then left and right, then the three below.
 
 Example — Conway's Life written longhand:
 ```
@@ -257,7 +274,7 @@ The desugaring is a front-end transform: it produces an ordinary `outer_totalist
 
 `metadata.decay_from` records the first tail state so that palettes and age shading can colour the tail as a ramp (§13). It is a presentation hint, excluded from `ir_hash` like the rest of `metadata`, and carries no semantics: a wrong value gives odd colours, never a different automaton.
 
-Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. `signature_literal` is named in the grammar but not yet defined or accepted — a table block for a non-totalistic rule is deferred until a literal syntax is specified; IMP-002 proposes one with Langton's loops as the design case. Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
+Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. (`signature_literal` was named in the grammar but undefined until 2026-09-14; it is specified above.) Generations rules whose table would exceed the threshold (see IMP-001) are lowered to an `Expression` by the same route as an oversized table block.
 
 ---
 

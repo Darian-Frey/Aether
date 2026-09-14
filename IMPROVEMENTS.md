@@ -34,8 +34,9 @@ Entry format:
 **Notes.** The DSL parser emits an `Expression` instead of a `Table` when the table would exceed the threshold (SPEC §7), so the rule is still representable; it just cannot execute until the expression backend exists. Raised in priority by F-025 on 2026-09-14: this is what caps an ageing tail at 6 states on 2D Moore r=1. With a counted set the same rule is `S·(N+1)` = 90 entries against 243,100, and tails of any length up to 256 states become free.
 
 ### IMP-002: Define `signature_literal` so non-totalistic rules can be written in the DSL
-**Status:** suggested
+**Status:** applied
 **Found:** 2026-09-12 (planning the rule library)
+**Applied:** 2026-09-14
 **Location:** SPEC.md §7; `src/rule/dsl.cpp`
 **Effort:** medium
 **Description.** SPEC §7's grammar names `signature_literal` as a condition form and never defines it, so a non-totalistic rule can only be built as a hand-made IR. Langton's self-reproducing loops (xscreensaver `loop`) is the concrete case: 8 states, von Neumann, 219 rotation-symmetric transitions written as `CTRBL -> N` in the literature, plus an implicit "no match retains" default.
@@ -44,6 +45,8 @@ Entry format:
 **Notes.** Until this lands, the loop rule can enter through the Lua front end (F-008) computing the table, which may be the better home for a 219-line rule anyway. Either way the rule library (F-010) needs one of them.
 
 Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate features, and choices between design alternatives live in [DECISIONS.md](DECISIONS.md). This file is for internal changes that are neither: "is this worth doing at all?" rather than "which alternative?" or "is this user-visible?"
+
+**As built (2026-09-14).** The syntax is as proposed: elements in the canonical order of SPEC §3, `_` as a wildcard, an optional `rot`. Rotation is a quarter turn on square lattices and a sixth of a turn on hexagonal ones, derived from the offset list rather than hard-coded, so it works at any radius; it is refused in 1D and 3D. Literals and count conditions may be mixed with `and` and `or`, which the proposal did not anticipate and which cost nothing. A rule whose table exceeds the threshold is refused rather than lowered to an expression, since no backend can run one yet; the diagnostic names the size. Langton's loops is not bundled: its 219 transitions are a data item for F-010, and inventing them would be worse than leaving the slot empty.
 
 ### IMP-003: `/C` and `decay` are two implementations of one idea
 **Status:** suggested
