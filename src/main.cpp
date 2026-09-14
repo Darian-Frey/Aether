@@ -41,7 +41,7 @@ int glCheck() {
 
 void usage() {
     std::puts("usage: aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--gl-check]\n"
-              "  --rule R     B/S, B/S/C or a table block (default B3/S23)\n"
+              "  --rule R     B/S, B/S/C or a table block (default B3/S23); @name loads from the library\n"
               "  --lua FILE   a Lua script returning a rule table, instead of --rule\n"
               "  --size WxH[xD]  grid extents (default 512x512); a depth makes it 3D\n"
               "  --cpu        start on the CPU reference path\n"

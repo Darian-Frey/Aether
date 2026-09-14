@@ -12,6 +12,7 @@
 #include "render/renderer3d.hpp"
 #include "render/view2d.hpp"
 #include "rule/dsl.hpp"
+#include "rule/library.hpp"
 #include "rule/lua.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
@@ -59,6 +60,9 @@ private:
     void paintAt3D(const std::array<int, 3>& cell);
     bool adoptSimulation(sim::Simulation&& s, const char* what);   // after load/rewind
     void drawSessionPanel();
+    void drawLibraryPanel();
+    void loadLibraryRule(const rule::LibraryRule& entry);
+    void applyPaletteOverrides(const rule::RuleIR& ir);
     void saveSessionTo(const std::string& path);
     void loadSessionFrom(const std::string& path);
     void verifyReplay();
@@ -118,6 +122,9 @@ private:
     int   ruleMagnitude_ = 1;
     std::array<char, 64> pinName_{};
     std::array<char, 512> sessionPath_{};
+    std::array<char, 64>  saveRuleId_{};
+    std::vector<rule::LibraryRule> library_;
+    std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p
 

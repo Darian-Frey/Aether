@@ -602,12 +602,31 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
     }
     if (trim(source).empty()) return fail(1, 1, "empty rule");
 
-    // 1 & 2: Life-like and Generations share a shape.
+    // 1 & 2: Life-like and Generations share a shape. They are one line, so
+    // look at the first line that is neither blank nor a comment — a rule
+    // file carries its name and description above the rule itself.
     const Neighbourhood moore1{NeighbourhoodType::Moore, 1};
     const uint32_t mooreN = neighbourCount(ctx.dimensions, moore1);
-    if (auto ll = tryLifeLike(source, mooreN)) {
+    std::string_view firstLine;
+    uint32_t firstLineNumber = 1;
+    {
+        std::string_view rest = source;
+        uint32_t number = 1;
+        while (!rest.empty()) {
+            const size_t nl = rest.find('\n');
+            std::string_view line = rest.substr(0, nl);
+            rest = nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
+            if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
+            if (!trim(line).empty()) { firstLine = line; firstLineNumber = number; break; }
+            ++number;
+        }
+    }
+    if (auto ll = tryLifeLike(firstLine, mooreN)) {
         if (const auto* e = std::get_if<ParseError>(&*ll)) {
-            DslResult r; r.error = *e; return r;
+            DslResult r;
+            r.error = *e;
+            r.error->line = firstLineNumber;
+            return r;
         }
         const LifeLike& rule = std::get<LifeLike>(*ll);
         RuleIR ir;
@@ -616,7 +635,8 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
         ir.neighbourhood = moore1;
         ir.boundary      = ctx.boundary;
         ir.kind          = Kind::OuterTotalistic;
-        ir.metadata.source_notation = std::string(trim(source));
+        // The notation is the rule, not the file it arrived in.
+        ir.metadata.source_notation = std::string(trim(firstLine));
 
         const TableLayout layout(ir.kind, ir.states, mooreN);
         if (!layout.size() || *layout.size() > kLutMaxEntries) {

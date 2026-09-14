@@ -130,7 +130,9 @@ People who want to explore cellular automata rather than run one specific automa
   - 3D: Bays' 5766 and 4555 (xlock `life3d`; with F-004)
   - Hexagonal: a hex Life-like such as `B2/S34` (F-023)
 - Each bundled rule carries its palette and a one-line description
-**Status:** Not started
+**Status:** In progress
+**Progress:** 2026-09-14. Thirteen rules bundled in `rules/`, loadable by name from the Library panel or `--rule @id`, each with a description and, where the default is wrong, a palette. A rule file is its own source with a comment header, so the header is inert in both the DSL and Lua and the file is compiled whole. User rules save to `rules/`. A test compiles every bundled rule and checks it validates.
+**Remaining:** Langton's loops (219 transitions to transcribe), the 1D rules (they need F-005's space-time view to be worth looking at, and the app has no 1D grid yet), and the 14-state cyclic CA (2.8M table entries — needs IMP-001 or codegen).
 **Notes:** `voters` and `dilemma` from xscreensaver are *not* on the list: the first needs a stochastic transition form and the second a two-phase or radius-2 rule; see Candidate features.
 
 ## Initial state

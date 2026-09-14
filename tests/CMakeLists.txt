@@ -11,6 +11,7 @@ add_executable(aether_tests
     rule/decay_test.cpp
     rule/signature_test.cpp
     rule/lua_test.cpp
+    rule/library_test.cpp
     rule/lut_test.cpp
     rule/ir_json_test.cpp
     sim/boundary_test.cpp
@@ -32,6 +33,7 @@ add_executable(aether_tests
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})
 target_include_directories(aether_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(aether_tests PRIVATE AETHER_RULES_DIR="${CMAKE_SOURCE_DIR}/rules")
 target_link_libraries(aether_tests PRIVATE aether_core aether_rule aether_sim aether_render aether_ui Catch2::Catch2WithMain)
 
 catch_discover_tests(aether_tests)

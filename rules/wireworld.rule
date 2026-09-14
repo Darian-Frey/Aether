@@ -1,0 +1,8 @@
+# name: Wireworld
+# description: Electron heads run along conductors: 0 empty, 1 head, 2 tail, 3 wire.
+# palette: 1 = #7FD4FF  2 = #C25A4A  3 = #C8A24A
+states 4;
+neighbourhood moore 1;
+1: n(0) >= 0 -> 2;          # a head becomes a tail
+2: n(0) >= 0 -> 3;          # a tail becomes wire again
+3: n(1) == 1 or n(1) == 2 -> 1;   # wire ignites beside one or two heads

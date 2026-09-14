@@ -9,7 +9,9 @@
 #include <rlgl.h>
 #include <rlImGui.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 
@@ -65,12 +67,33 @@ int App::run() {
         cellMutationBlock_ = static_cast<int>(opts_.cellMutationBlock);
 
         std::strncpy(sessionPath_.data(), "session.aether", sessionPath_.size() - 1);
+        // Where a rule library might be: an override, the working directory,
+        // then beside and above the binary, so a build tree and an install
+        // both work without configuration.
+        const std::string exeDir = GetApplicationDirectory();
+        const char* env = std::getenv("AETHER_RULES");
+        library_ = rule::loadLibrary({env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"});
+        if (!library_.empty()) log_.info(std::format("{} rules in the library", library_.size()));
         if (exitCode == 0 && !opts_.load.empty()) {
             loadSessionFrom(opts_.load);
             if (!sim_) exitCode = 1;
         } else if (exitCode == 0) {
             ctx_.dimensions = opts_.depth > 1 ? 3 : 2;
             ruleLanguage_ = opts_.ruleIsLua ? 1 : 0;
+            if (!opts_.ruleIsLua && opts_.rule.starts_with("@")) {
+                const std::string wanted = opts_.rule.substr(1);
+                const auto it = std::find_if(library_.begin(), library_.end(),
+                                             [&](const rule::LibraryRule& r) { return r.id == wanted; });
+                if (it == library_.end()) {
+                    log_.error(std::format("no rule '{}' in the library", wanted));
+                } else {
+                    std::strncpy(ruleText_.data(), it->source.c_str(), ruleText_.size() - 1);
+                    ruleLanguage_ = it->isLua ? 1 : 0;
+                    ctx_.dimensions = it->dimensions;
+                    paletteOverrides_ = it->palette;
+                    if (it->dimensions == 3 && opts_.depth == 1) opts_.depth = opts_.width = opts_.height = 64;
+                }
+            }
             auto initial = compileRuleSource();
             if (!initial) {
                 log_.error("initial rule: " + ruleError_);
@@ -221,11 +244,7 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     lastLineageSize_ = sim_->lineage().size();
     refreshRuleSummary();
     ruleError_.clear();
-    if (renderer_) {
-        renderer_->setPalette(render::Palette::defaultFor(ir.states, ir.metadata.decay_from));
-        renderer_->setDecayFrom(ir.metadata.decay_from);
-    }
-    if (renderer3d_) renderer3d_->setPalette(render::Palette::defaultFor(ir.states, ir.metadata.decay_from));
+    applyPaletteOverrides(ir);
     density_.assign(ir.states - 1u, 0.1f);
     density_[0] = ir.states == 2 ? 0.3f : 0.2f;
     fitView();
@@ -273,14 +292,46 @@ void App::verifyReplay() {
 void App::applyPaletteForStates() {
     if (!sim_ || !renderer_) return;
     const uint16_t states = sim_->rule().states;
-    const auto decayFrom = sim_->rule().metadata.decay_from;
-    const render::Palette pal = render::Palette::defaultFor(states, decayFrom);
-    renderer_->setPalette(pal);
-    renderer_->setDecayFrom(decayFrom);
-    if (renderer3d_) renderer3d_->setPalette(pal);
+    applyPaletteOverrides(sim_->rule());
     density_.assign(states - 1u, 0.0f);
     density_[0] = states == 2 ? 0.3f : 0.2f;
     for (size_t i = 1; i < density_.size(); ++i) density_[i] = 0.1f;
+}
+
+// A rule's own palette, laid over the default for its state count (SPEC §13).
+void App::applyPaletteOverrides(const rule::RuleIR& ir) {
+    if (!renderer_) return;
+    render::Palette pal = render::Palette::defaultFor(ir.states, ir.metadata.decay_from);
+    for (const rule::PaletteOverride& o : paletteOverrides_) {
+        if (o.state < 256) pal.entries[o.state] = {o.rgba[0], o.rgba[1], o.rgba[2], o.rgba[3]};
+    }
+    renderer_->setPalette(pal);
+    renderer_->setDecayFrom(ir.metadata.decay_from);
+    if (renderer3d_) renderer3d_->setPalette(pal);
+}
+
+// Puts a library rule in the editor and compiles it, rebuilding the grid
+// when the rule wants a different number of dimensions.
+void App::loadLibraryRule(const rule::LibraryRule& entry) {
+    std::strncpy(ruleText_.data(), entry.source.c_str(), ruleText_.size() - 1);
+    ruleText_[ruleText_.size() - 1] = '\0';
+    ruleLanguage_ = entry.isLua ? 1 : 0;
+    ctx_.dimensions = entry.dimensions;
+    paletteOverrides_ = entry.palette;
+
+    if (sim_ && sim_->spec().dimensions != entry.dimensions) {
+        auto compiled = compileRuleSource();
+        if (!compiled) { log_.error("rule: " + ruleError_); return; }
+        const uint32_t side = entry.dimensions == 3 ? 64u : 512u;
+        const sim::Path path = sim_->path();
+        sim_.reset();
+        if (!createSimulation(side, side, entry.dimensions == 3 ? side : 1u, *compiled, path)) return;
+        sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+        log_.info(std::format("loaded {} and rebuilt the grid at {}D", entry.name, entry.dimensions));
+    } else if (compileRuleText()) {
+        log_.info(std::format("loaded {}", entry.name));
+    }
+    if (sim_) applyPaletteOverrides(sim_->rule());
 }
 
 // The DSL or Lua, whichever the panel names. Both end at a validated IR.

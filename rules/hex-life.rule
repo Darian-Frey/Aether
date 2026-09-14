@@ -1,0 +1,6 @@
+# name: Hex Life
+# description: B2/S34 on a hexagonal lattice, where every cell has six neighbours.
+states 2;
+neighbourhood hex 1;
+0: n(1) == 2 -> 1;
+1: n(1) < 3 or n(1) > 4 -> 0;

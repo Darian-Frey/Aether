@@ -21,7 +21,41 @@ cmake --build build -j
 ./build/aether --rule B5/S45 --size 128x128x128   # a depth makes it 3D
 ```
 
-In the window: left-drag paints, right-drag pans, wheel zooms; Space pauses, N steps, R refills, C clears, F fits, `[`/`]` change the brush radius, 0–9 pick the brush state. In 3D, right-drag orbits, the View section clips the volume or shows a single slice (S), and painting happens on that slice; each state's palette alpha is its opacity. Rules go in the text box — `B3/S23`, `B2/S/C3`, or a table block such as `states 2; neighbourhood hex 1; 0: n(1) == 2 -> 1; 1: n(1) < 3 or n(1) > 4 -> 0;` — and compile with Ctrl+Enter. Rules can also be written in Lua — pick Lua in the Rule panel, or pass `--lua rule.lua`. A script runs once, at compile time, and returns a table describing the rule; it may compute the transition rather than tabulate it. A table block can also match the neighbourhood exactly — `0: [1, _, 2, _] rot -> 3;` — which is how rotation-symmetric automata are usually published. Add `decay N;` to a table-block rule to give its cells a life cycle: a cell the rule stops supporting fades through N states instead of vanishing, and is coloured as it ages. The Mutation section turns on cell mutation (a probability per cell, optionally grouped into blocks so noise arrives in clumps) and rule mutation (point edits to the rule every N generations); every rule the run passes through is in the Lineage list, where it can be pinned by name or rewound to. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on. The Session section saves and loads `.aether` files; a saved run replays bit-for-bit from its initial state — Verify replay checks it on the other execution path, and `aether replay in.aether out.aether` does it headlessly. See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
+### In the window
+
+| | |
+|---|---|
+| Left drag | Paint with the brush (in 3D, on the current slice) |
+| Right drag | Pan in 2D, orbit in 3D |
+| Wheel | Zoom |
+| Space · N | Pause · single step |
+| R · C · F | Random fill · clear · fit the view |
+| `[` `]` · 0–9 | Brush radius · brush state |
+| S · `,` `.` | 3D: slice mode · move the slice |
+
+### Rules
+
+Type a rule into the Rule panel and compile it with Ctrl+Enter. Four notations:
+
+```
+B3/S23                              Life-like
+B2/S/C3                             Generations
+states 2; neighbourhood hex 1;      a table block: count conditions,
+  0: n(1) == 2 -> 1;                signature literals like [1, _, 2, _] rot,
+  1: n(1) < 3 or n(1) > 4 -> 0;     and decay N for an ageing tail
+```
+
+Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at compile time, and returns a table describing the rule, computing the transition rather than tabulating it.
+
+The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules and a fading Life. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
+
+### Drift and reproducibility
+
+The Mutation section has both controls: cell mutation as a probability per cell, optionally grouped into blocks so noise arrives in clumps, and rule mutation as point edits to the rule every N generations. Every rule a run passes through is in the Lineage list, where it can be pinned by name or rewound to — either the rule alone, or the grid with it. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on.
+
+The Session section saves and loads `.aether` files. A saved run replays bit-for-bit from its initial state: **Verify replay** checks it on the other execution path, and `aether replay in.aether out.aether` does the same headlessly.
+
+See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements
 

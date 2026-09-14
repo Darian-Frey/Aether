@@ -9,6 +9,7 @@
 #include <raylib.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 
@@ -42,6 +43,7 @@ void App::drawPanels() {
     ImGui::Separator();
 
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
+    if (!library_.empty() && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) drawLibraryPanel();
     if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
@@ -339,6 +341,42 @@ void App::drawPalettePanel() {
         if (renderer3d_) renderer3d_->setPalette(pal);
     }
     (void)0;
+    ImGui::PopID();
+}
+
+void App::drawLibraryPanel() {
+    ImGui::PushID("library");
+    ImGui::BeginChild("rules", ImVec2(-1, 150), ImGuiChildFlags_Borders);
+    for (const rule::LibraryRule& entry : library_) {
+        ImGui::PushID(entry.id.c_str());
+        if (ImGui::Selectable(entry.name.c_str())) loadLibraryRule(entry);
+        if (ImGui::IsItemHovered() && !entry.description.empty()) {
+            ImGui::SetTooltip("%s\n\n%s%s", entry.description.c_str(),
+                              entry.isLua ? "Lua" : "DSL", entry.dimensions == 3 ? " · 3D" : "");
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SetNextItemWidth(140);
+    ImGui::InputTextWithHint("##saveid", "name to save as", saveRuleId_.data(), saveRuleId_.size());
+    ImGui::SameLine();
+    if (ImGui::Button("Save rule") && saveRuleId_[0] != '\0' && sim_) {
+        rule::LibraryRule entry;
+        entry.id = saveRuleId_.data();
+        entry.name = entry.id;
+        entry.source = ruleText_.data();
+        entry.isLua = ruleLanguage_ == 1;
+        entry.dimensions = sim_->spec().dimensions;
+        if (auto e = rule::saveRule("rules", entry)) {
+            log_.error(*e);
+        } else {
+            log_.info(std::format("saved rules/{}{}", entry.id, entry.isLua ? ".lua" : ".rule"));
+            const std::string exeDir = GetApplicationDirectory();
+            const char* env = std::getenv("AETHER_RULES");
+            library_ = rule::loadLibrary({env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"});
+            saveRuleId_[0] = '\0';
+        }
+    }
     ImGui::PopID();
 }
 
