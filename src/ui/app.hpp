@@ -55,11 +55,16 @@ private:
     // Lifecycle
     bool createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path);
     bool is3D() const;
+    void layOut();
     render::VolumeSettings volumeSettings() const;
     void drawViewPanel();
     void paintAt3D(const std::array<int, 3>& cell);
     bool adoptSimulation(sim::Simulation&& s, const char* what);   // after load/rewind
     void drawSessionPanel();
+    void drawTransportBar();
+    void drawViewportOverlay();
+    void drawHelpPanel();
+    void refreshWindowTitle();
     void drawLibraryPanel();
     void loadLibraryRule(const rule::LibraryRule& entry);
     void applyPaletteOverrides(const rule::RuleIR& ir);
@@ -67,7 +72,8 @@ private:
     void loadSessionFrom(const std::string& path);
     void verifyReplay();
     bool compileRuleText();            // ruleText_ -> IR -> sim; reports to log and ruleError_
-    std::optional<rule::RuleIR> compileRuleSource();   // the front end the language selector names
+    std::optional<rule::RuleIR> compileRuleSource();
+    rule::RuleIR named(rule::RuleIR ir) const;   // takes the name from the text's header   // the front end the language selector names
     void applyPaletteForStates();
     void refreshRuleSummary();
 
@@ -100,12 +106,16 @@ private:
     int   sliceAxis_ = 2;
     int   sliceIndex_ = 0;
     render::Rect   viewport_;
+    render::Rect   panelRect_;
+    bool           showHelp_ = false;
 
     rule::DslContext ctx_;
     std::array<char, 65536> ruleText_{};   // Lua scripts are longer than B/S notation
     int ruleLanguage_ = 0;                 // 0 = DSL, 1 = Lua
     std::string ruleError_;
     std::string ruleSummary_;
+    std::string ruleHash_;
+    std::string ruleName_;
 
     struct { uint8_t state = 1; int radius = 1; } brush_;
     std::optional<std::pair<int, int>> lastPaintCell_;

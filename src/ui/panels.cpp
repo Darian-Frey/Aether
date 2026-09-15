@@ -3,6 +3,7 @@
 #include "ui/app.hpp"
 
 #include "rule/compile.hpp"
+#include "sim/fill.hpp"
 #include "sim/session.hpp"
 
 #include <imgui.h>
@@ -17,44 +18,178 @@ namespace aether::ui {
 
 namespace {
 
-constexpr float kPanelWidth = 360.0f;
+constexpr float kPanelWidth = 380.0f;
+constexpr float kTransportHeight = 46.0f;
+// Widgets stop this far short of the right edge so their labels have room.
+// Everything clipped before this existed.
+constexpr float kLabelColumn = 118.0f;
 
 }  // namespace
 
-void App::drawPanels() {
+namespace {
+
+constexpr ImGuiWindowFlags kFixedPanel = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                                         ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+// A label the mouse can rest on for more than the label says.
+void hint(const char* text) {
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text);
+}
+
+}  // namespace
+
+// Pause, step, burst and rate, spanning the window so they are always to
+// hand: they are most of what anyone touches.
+void App::drawTransportBar() {
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kPanelWidth, static_cast<float>(GetScreenHeight())), ImGuiCond_Always);
-    ImGui::Begin("Aether", nullptr,
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoTitleBar);
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(GetScreenWidth()), kTransportHeight), ImGuiCond_Always);
+    ImGui::Begin("##transport", nullptr, kFixedPanel | ImGuiWindowFlags_NoScrollbar);
+    if (!sim_) { ImGui::End(); return; }
 
-    if (sim_) {
-        const auto& st = sim_->scheduler().stats();
-        ImGui::Text("gen %llu", static_cast<unsigned long long>(sim_->generation()));
-        ImGui::SameLine(0, 16);
-        ImGui::Text("%.0f gen/s", st.achieved_gps);
-        ImGui::SameLine(0, 16);
-        ImGui::Text("%d fps", GetFPS());
-        if (st.below_target) {
-            ImGui::SameLine(0, 16);
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "below target");
-        }
+    auto& sch = sim_->scheduler();
+    ImGui::AlignTextToFramePadding();
+
+    const bool paused = sch.paused();
+    if (ImGui::Button(paused ? "Play" : "Pause", ImVec2(64, 0))) sch.setPaused(!paused);
+    hint("Space");
+    ImGui::SameLine();
+    if (ImGui::Button("Step", ImVec2(48, 0))) sch.requestSingleStep();
+    hint("N — advance one generation, paused or not");
+    ImGui::SameLine();
+    if (ImGui::Button("Burst", ImVec2(52, 0))) sch.requestBurst(static_cast<uint64_t>(std::max(1, burstCount_)));
+    hint("Run this many generations as fast as the machine allows, then stop");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(72);
+    ImGui::InputInt("##burst", &burstCount_, 0);
+    if (sch.burstRemaining() > 0) {
+        ImGui::SameLine();
+        ImGui::Text("%llu left", static_cast<unsigned long long>(sch.burstRemaining()));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("cancel")) sch.cancelBurst();
     }
-    ImGui::Separator();
 
+    ImGui::SameLine(0, 24);
+    ImGui::TextUnformatted("Rate");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(180);
+    if (ImGui::SliderFloat("##rate", &targetGpsLog_, -1.0f, 4.0f,
+                           std::format("{:.3g} gen/s", std::pow(10.0, targetGpsLog_)).c_str())) {
+        sch.setTargetRate(std::pow(10.0, targetGpsLog_));
+    }
+    hint("Generations per second, independent of frame rate");
+
+    ImGui::SameLine(0, 24);
+    const auto& st = sch.stats();
+    ImGui::Text("gen %llu", static_cast<unsigned long long>(sim_->generation()));
+    ImGui::SameLine(0, 16);
+    ImGui::TextDisabled("%.0f gen/s · %d fps", st.achieved_gps, GetFPS());
+    if (st.below_target) {
+        ImGui::SameLine(0, 12);
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "below target");
+        hint("The machine cannot keep up; the step cap has been reduced to keep the window responsive");
+    }
+
+    // The rule's name, right-aligned, so what is running is never in doubt.
+    const std::string label = std::format("{}  ·  {}", ruleName_.substr(0, 36),
+                                          sim_->backend() == rule::Backend::Lut ? "table" : "codegen");
+    const float width = ImGui::CalcTextSize(label.c_str()).x;
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), static_cast<float>(GetScreenWidth()) - width - 16.0f));
+    ImGui::TextDisabled("%s", label.c_str());
+    ImGui::End();
+}
+
+void App::drawPanels() {
+    drawTransportBar();
+    drawViewportOverlay();
+
+    ImGui::SetNextWindowPos(ImVec2(panelRect_.x, panelRect_.y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(panelRect_.w, panelRect_.h), ImGuiCond_Always);
+    ImGui::Begin("Aether", nullptr, kFixedPanel);
+    // Leave room for every label, which is what used to be clipped.
+    ImGui::PushItemWidth(-kLabelColumn);
+
+    // Ordered by when a session needs them, and closed by default past the
+    // first two so that the column fits on one screen.
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (!library_.empty() && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) drawLibraryPanel();
-    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
-    if (ImGui::CollapsingHeader("Mutation", ImGuiTreeNodeFlags_DefaultOpen)) drawMutationPanel();
-    if (ImGui::CollapsingHeader("Lineage", ImGuiTreeNodeFlags_DefaultOpen)) drawLineagePanel();
-    if (ImGui::CollapsingHeader("Session")) drawSessionPanel();
-    if (ImGui::CollapsingHeader("Brush", ImGuiTreeNodeFlags_DefaultOpen)) drawBrushPanel();
+    if (ImGui::CollapsingHeader("Brush")) drawBrushPanel();
+    if (ImGui::CollapsingHeader("Mutation")) drawMutationPanel();
+    if (ImGui::CollapsingHeader("Lineage")) drawLineagePanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
+    if (ImGui::CollapsingHeader("Session")) drawSessionPanel();
+    if (ImGui::CollapsingHeader("Engine")) drawSimulationPanel();
+    if (ImGui::CollapsingHeader("Keys", showHelp_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawHelpPanel();
     if (ImGui::CollapsingHeader("Log")) drawLogPanel();
 
+    ImGui::PopItemWidth();
     ImGui::End();
+}
+
+// What the cursor is over, and whether time is passing. Drawn over the
+// viewport's corner, taking no input.
+void App::drawViewportOverlay() {
+    if (!sim_) return;
+    ImGui::SetNextWindowPos(ImVec2(viewport_.x + 12.0f, viewport_.y + viewport_.h - 12.0f),
+                            ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::Begin("##overlay", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoSavedSettings);
+
+    const auto& spec = sim_->spec();
+    if (sim_->scheduler().paused()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "PAUSED");
+        ImGui::SameLine(0, 12);
+    }
+    const Vector2 m = GetMousePosition();
+    const bool over = m.x >= viewport_.x && m.y >= viewport_.y &&
+                      m.x < viewport_.x + viewport_.w && m.y < viewport_.y + viewport_.h;
+    if (over && !is3D()) {
+        if (const auto cell = view_.cellAt(m.x, m.y, viewport_, spec.width, spec.height)) {
+            ImGui::Text("(%d, %d) = %u", cell->first, cell->second,
+                        sim_->host().get(static_cast<uint32_t>(cell->first), static_cast<uint32_t>(cell->second)));
+        } else {
+            ImGui::TextDisabled("outside the grid");
+        }
+        ImGui::SameLine(0, 12);
+        ImGui::TextDisabled("%.0f×", view_.zoom);
+    } else if (over && is3D()) {
+        ImGui::Text("%s", sliceMode_ ? "slice mode — left drag paints" : "right drag to orbit");
+    }
+    ImGui::SameLine(0, 12);
+    ImGui::TextDisabled("brush %u, r%d", brush_.state, brush_.radius);
+    ImGui::End();
+}
+
+void App::drawHelpPanel() {
+    static const std::pair<const char*, const char*> keys[] = {
+        {"Space", "pause or resume"},
+        {"N", "one generation"},
+        {"R / C", "random fill / clear"},
+        {"F", "fit the grid to the view"},
+        {"0–9", "choose the brush state"},
+        {"[ / ]", "brush radius"},
+        {"Ctrl+Enter", "compile the rule"},
+        {"Left drag", "paint"},
+        {"Right drag", "pan (2D) or orbit (3D)"},
+        {"Wheel", "zoom"},
+        {"S", "3D: slice mode"},
+        {", / .", "3D: move the slice"},
+    };
+    if (ImGui::BeginTable("keys", 2, ImGuiTableFlags_SizingFixedFit)) {
+        for (const auto& [key, what] : keys) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(key);
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", what);
+        }
+        ImGui::EndTable();
+    }
 }
 
 void App::drawRulePanel() {
@@ -84,7 +219,11 @@ void App::drawRulePanel() {
         ImGui::TextWrapped("%s", ruleError_.c_str());
         ImGui::PopStyleColor();
     } else {
+        ImGui::TextUnformatted(ruleName_.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("%s", ruleSummary_.c_str());
+        ImGui::PopStyleColor();
+        hint(("ir_hash " + ruleHash_ + "\nThis is what the lineage and the shader cache identify a rule by").c_str());
     }
     ImGui::PopID();
 }
@@ -94,30 +233,13 @@ void App::drawSimulationPanel() {
     ImGui::PushID("sim");
     auto& sch = sim_->scheduler();
 
-    if (ImGui::SliderFloat("Target gen/s", &targetGpsLog_, -1.0f, 4.0f,
-                           std::format("{:.3g}", std::pow(10.0, targetGpsLog_)).c_str())) {
-        sch.setTargetRate(std::pow(10.0, targetGpsLog_));
-    }
-
-    if (ImGui::Button(sch.paused() ? "Resume" : "Pause")) sch.setPaused(!sch.paused());
-    ImGui::SameLine();
-    if (ImGui::Button("Step")) sch.requestSingleStep();
-    ImGui::SameLine();
-    if (ImGui::Button("Burst")) sch.requestBurst(static_cast<uint64_t>(std::max(1, burstCount_)));
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(90);
-    ImGui::InputInt("##burst", &burstCount_, 0);
-    if (sch.burstRemaining() > 0) {
-        ImGui::SameLine();
-        ImGui::Text("%llu left", static_cast<unsigned long long>(sch.burstRemaining()));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("cancel")) sch.cancelBurst();
-    }
-
     int path = sim_->path() == sim::Path::Gpu ? 0 : 1;
+    ImGui::TextUnformatted("Execution path");
     if (ImGui::RadioButton("GPU", path == 0)) { path = 0; }
+    hint("The compute shader: what a run normally uses");
     ImGui::SameLine();
     if (ImGui::RadioButton("CPU reference", path == 1)) { path = 1; }
+    hint("The serial oracle. Identical results, far slower — for checking, not for running");
     const sim::Path want = path == 0 ? sim::Path::Gpu : sim::Path::Cpu;
     if (want != sim_->path()) {
         if (auto e = sim_->setPath(want)) log_.error(e->message);
@@ -125,12 +247,13 @@ void App::drawSimulationPanel() {
     }
 
     int cap = static_cast<int>(sch.maxStepsPerFrame());
-    if (ImGui::SliderInt("Max steps/frame", &cap, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic)) {
+    if (ImGui::SliderInt("Max steps", &cap, 1, 1024, "%d", ImGuiSliderFlags_Logarithmic)) {
         sch.setMaxStepsPerFrame(static_cast<uint32_t>(cap));
     }
+    hint("Most generations one frame may run. A long frame lowers this by itself\n"
+         "so the window stays responsive under an unreachable rate");
     if (sch.stats().effective_cap < sch.maxStepsPerFrame()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(now %u)", sch.stats().effective_cap);
+        ImGui::TextDisabled("currently held at %u", sch.stats().effective_cap);
     }
     ImGui::PopID();
 }
@@ -173,14 +296,37 @@ void App::drawGridPanel() {
     }
     ImGui::Separator();
     ImGui::TextUnformatted("Random fill density");
+    float total = 0.0f;
+    for (float d : density_) total += d;
+    if (density_.size() > 16) ImGui::TextDisabled("(showing the first 16 of %zu states)", density_.size());
     for (size_t i = 0; i < density_.size() && i < 16; ++i) {
         ImGui::SliderFloat(std::format("state {}", i + 1).c_str(), &density_[i], 0.0f, 1.0f);
     }
-    if (ImGui::Button("Fill (R)")) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+    if (total > 1.0f) {
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                           "densities total %.2f; the last states will not be seeded", total);
+    } else {
+        ImGui::TextDisabled("state 0 takes the remaining %.2f", 1.0f - total);
+    }
+    if (ImGui::SmallButton("even spread")) {
+        const auto defaults = sim::defaultDensity(sim_->rule());
+        density_.assign(defaults.begin(), defaults.end());
+    }
+    if (ImGui::Button("Seed")) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+    hint("R — fill the grid at the densities above");
     ImGui::SameLine();
-    if (ImGui::Button("Clear (C)")) sim_->clear();
+    if (ImGui::Button("Clear")) sim_->clear();
+    hint("C");
     ImGui::SameLine();
-    if (ImGui::Button("Fit view (F)")) fitView();
+    if (ImGui::Button("Fit")) fitView();
+    hint("F — whole grid in view, at a zoom where each cell is a whole number of pixels");
+    if (!is3D()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Fill view")) {
+            view_.fit(sim_->spec().width, sim_->spec().height, viewport_, false);
+        }
+        hint("Use the whole viewport, at a fractional zoom. Cells stop being pixel-exact");
+    }
     ImGui::PopID();
 }
 
@@ -191,7 +337,7 @@ void App::drawMutationPanel() {
     ImGui::SameLine();
     ImGui::TextDisabled("seed B %llu", static_cast<unsigned long long>(sim_->seedB()));
     ImGui::BeginDisabled(!cellMutationOn_);
-    changed |= ImGui::SliderFloat("p per cell", &cellMutationLog_, -7.0f, 0.0f,
+    changed |= ImGui::SliderFloat("chance", &cellMutationLog_, -7.0f, 0.0f,
                                   std::format("{:.2e}", std::pow(10.0, cellMutationLog_)).c_str());
     changed |= ImGui::SliderInt("block", &cellMutationBlock_, 0, 8,
                                 cellMutationBlock_ == 0 ? "one cell" : std::format("{} cells", 1 << cellMutationBlock_).c_str());
@@ -210,8 +356,8 @@ void App::drawMutationPanel() {
                         static_cast<unsigned long long>(sim_->counters().rule_mutations),
                         static_cast<unsigned long long>(sim_->counters().rule_mutations_skipped));
     ImGui::BeginDisabled(!ruleMutationOn_);
-    rchanged |= ImGui::SliderInt("every N gens", &ruleInterval_, 1, 5000, "%d", ImGuiSliderFlags_Logarithmic);
-    rchanged |= ImGui::SliderInt("edits per event", &ruleMagnitude_, 1, 32);
+    rchanged |= ImGui::SliderInt("every", &ruleInterval_, 1, 5000, "%d gens", ImGuiSliderFlags_Logarithmic);
+    rchanged |= ImGui::SliderInt("edits", &ruleMagnitude_, 1, 32, "%d per event");
     ImGui::EndDisabled();
     if (rchanged) {
         sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
@@ -289,13 +435,13 @@ void App::drawViewPanel() {
     }
     if (ImGui::SmallButton("reset clip")) { clipLo_ = {0, 0, 0}; clipHi_ = {1, 1, 1}; }
     ImGui::Separator();
-    ImGui::Checkbox("Slice mode (S)", &sliceMode_);
+    ImGui::Checkbox("Slice mode", &sliceMode_);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show one plane; left-drag paints on it");
     ImGui::BeginDisabled(!sliceMode_);
     ImGui::Combo("Axis", &sliceAxis_, "x\0y\0z\0");
     const int ext = static_cast<int>(sliceAxis_ == 0 ? sp.width : sliceAxis_ == 1 ? sp.height : sp.depth);
     sliceIndex_ = std::clamp(sliceIndex_, 0, ext - 1);
-    ImGui::SliderInt("Index (, .)", &sliceIndex_, 0, ext - 1);
+    ImGui::SliderInt("index", &sliceIndex_, 0, ext - 1);
     ImGui::EndDisabled();
     ImGui::TextDisabled("Right drag orbits, wheel zooms, F fits.");
     if (ImGui::SmallButton("Fit (F)")) fitView();
@@ -306,10 +452,9 @@ void App::drawBrushPanel() {
     if (!sim_) return;
     ImGui::PushID("brush");
     int state = brush_.state;
-    if (ImGui::SliderInt("State (0-9)", &state, 0, sim_->rule().states - 1)) brush_.state = static_cast<uint8_t>(state);
-    ImGui::SliderInt("Radius ([ ])", &brush_.radius, 0, 64);
-    ImGui::TextDisabled("Left drag paints, right drag pans, wheel zooms.");
-    ImGui::TextDisabled("Space pause, N step.");
+    if (ImGui::SliderInt("state", &state, 0, sim_->rule().states - 1)) brush_.state = static_cast<uint8_t>(state);
+    ImGui::SliderInt("radius", &brush_.radius, 0, 64);
+    ImGui::TextDisabled("Left drag paints. See Keys for the rest.");
     ImGui::PopID();
 }
 

@@ -1,8 +1,10 @@
 #include "core/grid.hpp"
 #include "sim/fill.hpp"
+#include "rule/dsl.hpp"
 #include "sim/rng.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <array>
 
@@ -59,4 +61,51 @@ TEST_CASE("random fill is reproducible and honours densities", "[rng]") {
 
     // One draw per cell: the streams are in the same place afterwards.
     CHECK(rng.next() == rng2.next());
+}
+
+TEST_CASE("the default densities never starve the last states (BUG-008)", "[rng]") {
+    using aether::rule::parseDsl;
+    for (const char* src : {"B3/S23", "B2/S/C3", "B2/S/C25",
+                            "states 4; neighbourhood moore 1; 1: n(0) >= 0 -> 2;",
+                            "states 2; neighbourhood moore 1; decay 60; 0: n(1) == 3 -> 1; 1: n(1) < 2 -> 0;"}) {
+        const auto ir = *parseDsl(src).ir;
+        const auto density = aether::sim::defaultDensity(ir);
+        INFO(src);
+        REQUIRE(density.size() == ir.states - 1u);
+        double total = 0.0;
+        for (double d : density) { CHECK(d >= 0.0); total += d; }
+        CHECK(total <= 1.0);
+        // Every state the rule lives in is reachable from a fill.
+        const uint16_t live = ir.metadata.decay_from.value_or(ir.states);
+        for (uint16_t s = 1; s < live; ++s) CHECK(density[s - 1u] > 0.0);
+        // The ageing tail is not seeded: a half-faded cell is no way to start.
+        for (uint16_t s = live; s < ir.states; ++s) CHECK(density[s - 1u] == 0.0);
+    }
+}
+
+TEST_CASE("a many-state rule is seeded evenly across all its states", "[rng]") {
+    // The fourteen-state cyclic rule is what found BUG-008: with weights that
+    // summed past one, states ten and up never appeared.
+    aether::rule::RuleIR ir;
+    ir.states = 14;
+    const auto density = aether::sim::defaultDensity(ir);
+    for (double d : density) CHECK_THAT(d, Catch::Matchers::WithinAbs(1.0 / 14.0, 1e-12));
+
+    aether::core::HostGrid g({2, 200, 200, 1});
+    Pcg32 rng(5);
+    aether::sim::fillRandom(g, density, rng);
+    std::array<int, 14> seen{};
+    for (uint8_t c : g.current()) { REQUIRE(c < 14); ++seen[c]; }
+    for (int n : seen) {
+        CHECK(n > 2400);   // 40000 / 14 = 2857
+        CHECK(n < 3400);
+    }
+}
+
+TEST_CASE("a two-state rule keeps the conventional Life soup", "[rng]") {
+    aether::rule::RuleIR ir;
+    ir.states = 2;
+    const auto density = aether::sim::defaultDensity(ir);
+    REQUIRE(density.size() == 1);
+    CHECK(density[0] == 0.3);
 }

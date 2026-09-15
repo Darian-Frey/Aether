@@ -56,6 +56,7 @@ void App::updateCanvas(double /*dt*/) {
             if (IsKeyPressed(KEY_SPACE)) sch.setPaused(!sch.paused());
             if (IsKeyPressed(KEY_N)) sch.requestSingleStep();
             if (IsKeyPressed(KEY_F)) fitView();
+            if (IsKeyPressed(KEY_F1) || IsKeyPressed(KEY_SLASH)) showHelp_ = !showHelp_;
             if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
             if (IsKeyPressed(KEY_C)) sim_->clear();
             if (IsKeyPressed(KEY_S)) sliceMode_ = !sliceMode_;

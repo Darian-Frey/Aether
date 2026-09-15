@@ -10,8 +10,8 @@ Effort vocabulary: trivial | small | medium | large.
 Entry format:
 
 ```markdown
-### IMP-001: {short title}
-**Status:** applied
+### IMP-NNN: {short title}
+**Status:** suggested
 **Found:** YYYY-MM-DD ({session/commit context})
 **Location:** {path/to/file.ext:line, or "cross-cutting"}
 **Effort:** {trivial | small | medium | large}
@@ -23,17 +23,22 @@ Entry format:
 
 ## Suggested
 
-**As built (2026-09-14, D-016).** A new kind `counted_totalistic` rather than a flag, so a rule's kind still determines its indexing scheme. The set is chosen per own state, which the proposal did not anticipate and which is what lets cyclic rules — where each state counts its successor — use the form. The DSL detects it from the statements, Lua declares it, `decay` propagates it. Used only where it is strictly smaller, so binary rules keep the IR and hash they had.
+*None.*
+
+## Applied
 
 ### IMP-001: Outer-totalistic tables are oversized for rules that count a single state
-**Status:** suggested
+**Status:** applied
 **Found:** 2026-09-11 (Phase 1, sizing generations rules for the DSL parser)
+**Applied:** 2026-09-14
 **Location:** SPEC.md §4 (`Kind`), §5; `src/rule/table_layout.cpp`
 **Effort:** medium
 **Description.** `outer_totalistic` encodes the full count vector over states `1 … S−1`, so the table has `S·C(N+S−1, S−1)` entries. Generations rules (`B/S/C`) and cyclic CAs depend on the count of exactly one state, yet pay for the full vector: Brian's Brain (C=3, N=8) is 135 entries, fine; a C=25 generations rule is 2.6×10⁸ and a 14-state cyclic CA is 2.8×10⁶, both pushed onto the codegen backend by a representation cost rather than a rule cost. Under Phase 1 (table backend only) those rules cannot run at all.
 **Proposal.** A kind or a flag — say `outer_totalistic` with an optional *counted set* of states — whose signature is `(own_state, count of neighbours in the set)`, giving `S·(N+1)` entries for every generations, cyclic, Life-like and ageing-tail rule. Both backends would gain a third index scheme, simpler than either existing one. Widened from "one counted state" to "a counted set" on 2026-09-14: an ageing tail (F-025) counts *live* neighbours, which is a set of states rather than one, and the same generalisation covers everything the narrower form did.
 **Trade-offs.** Changes the IR schema (SPEC §4), which is out of scope without a DECISIONS entry, and adds a kind that both execution paths must implement identically (AV-007). Doing nothing means the Phase 1 acceptance set (Brian's Brain, a cyclic CA of ≤ 8 states) still works, and larger rules wait for Phase 4 codegen.
 **Notes.** The DSL parser emits an `Expression` instead of a `Table` when the table would exceed the threshold (SPEC §7), so the rule is still representable; it just cannot execute until the expression backend exists. Raised in priority by F-025 on 2026-09-14: this is what caps an ageing tail at 6 states on 2D Moore r=1. With a counted set the same rule is `S·(N+1)` = 90 entries against 243,100, and tails of any length up to 256 states become free.
+
+**As built (2026-09-14, D-016).** A new kind `counted_totalistic` rather than a flag, so a rule's kind still determines its indexing scheme. The set is chosen per own state, which the proposal did not anticipate and which is what lets cyclic rules — where each state counts its successor — use the form. The DSL detects it from the statements, Lua declares it, `decay` propagates it. Used only where it is strictly smaller, so binary rules keep the IR and hash they had.
 
 ### IMP-002: Define `signature_literal` so non-totalistic rules can be written in the DSL
 **Status:** applied
@@ -62,9 +67,6 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 
 **As built (2026-09-14).** Done as part of D-016, which made it worth doing: routing `/C` through `applyDecay` means a Generations rule of any length compiles to a counted table, where before `B2/S/C25` lowered to an expression no backend could run. The oversized-lowering interaction that deferred this no longer arises.
 
-## Applied
-
-*None.*
 
 ## Declined
 

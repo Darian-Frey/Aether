@@ -22,16 +22,21 @@ Entry format:
 
 ## Open
 
+*None.*
+
+## Fixed
+
 ### BUG-008: default random-fill densities sum to more than one above nine states
-**Status:** open
+**Status:** fixed
 **Found:** 2026-09-14 (D-016, rendering the fourteen-state cyclic rule)
+**Fixed:** 2026-09-15
 **Location:** `src/ui/app.cpp` (`applyPaletteForStates`)
 **Severity:** low
 **Description.** The default fill gives state 1 a density of 0.2 and every other state 0.1, so for `S > 9` the weights sum past 1. `fillRandom` walks the cumulative distribution and stops at the first threshold above its draw, so the last states are never seeded: a fourteen-state rule starts with nothing in states 10 to 13. The engine is doing what it was asked; the defaults are wrong.
 **Reproduction.** `aether --rule @cyclic-14` and look at the initial grid, or press R.
 **Notes.** A one-line fix — give each non-quiescent state `0.8 / (S - 1)` — but it is the author's call whether the default should be uniform or weighted toward the quiescent state. Does not affect reproducibility: the densities are journaled and replay exactly.
+**Resolution (2026-09-15).** `sim::defaultDensity` replaces three copies of the same defaulting arithmetic in `app.cpp` (twice) and `headless.cpp`. The default is now an even spread over the states the rule lives in — `1/live` each, so state 0 takes the same share — with a two-state rule keeping the conventional 30% Life soup, and the ageing tail of SPEC §7 left empty, since a half-faded cell is not a sensible thing to start a run with. The weights therefore sum to at most one for any state count. The Grid panel shows what state 0 is left with, warns when hand-set sliders total more than one, and has an "even spread" button to put them back.
 
-## Fixed
 
 ### BUG-001: SPEC §3 closed form for 3D von Neumann neighbour count is wrong
 **Status:** fixed

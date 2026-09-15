@@ -1,6 +1,7 @@
 #include "ui/headless.hpp"
 
 #include "rule/dsl.hpp"
+#include "sim/fill.hpp"
 #include "sim/session.hpp"
 #include "sim/simulation.hpp"
 
@@ -57,9 +58,7 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);
         auto sim = std::get<sim::Simulation>(std::move(made));
-        std::vector<double> density(ir.states - 1u, 0.1);
-        density[0] = ir.states == 2 ? 0.3 : 0.2;
-        sim.fillRandom(density);
+        sim.fillRandom(sim::defaultDensity(ir));
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
         if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));
         for (uint64_t g = 0; g < generations; ++g) sim.step();

@@ -2,6 +2,7 @@
 
 #include "core/gl.hpp"
 #include "rule/compile.hpp"
+#include "sim/fill.hpp"
 #include "sim/session.hpp"
 
 #include <imgui.h>
@@ -19,7 +20,10 @@ namespace aether::ui {
 
 namespace {
 
-constexpr float kPanelWidth = 360.0f;
+constexpr float kPanelWidth = 380.0f;
+// The transport strip spans the window above everything else, so pause,
+// step and rate never scroll away behind the panel's other sections.
+constexpr float kTransportHeight = 46.0f;
 
 }  // namespace
 
@@ -47,9 +51,7 @@ int App::run() {
             renderer3d_.emplace(std::get<render::Renderer3D>(std::move(made3)));
         }
 
-        viewport_ = render::Rect{kPanelWidth, 0.0f,
-                                 static_cast<float>(GetScreenWidth()) - kPanelWidth,
-                                 static_cast<float>(GetScreenHeight())};
+        layOut();
         std::strncpy(ruleText_.data(), opts_.rule.c_str(), ruleText_.size() - 1);
         newWidth_ = static_cast<int>(opts_.width);
         newHeight_ = static_cast<int>(opts_.height);
@@ -113,9 +115,7 @@ int App::run() {
         int frames = 0;
         while (exitCode == 0 && !WindowShouldClose()) {
             const double dt = GetFrameTime();
-            viewport_ = render::Rect{kPanelWidth, 0.0f,
-                                     static_cast<float>(GetScreenWidth()) - kPanelWidth,
-                                     static_cast<float>(GetScreenHeight())};
+            layOut();
             if (IsWindowResized()) fitView();
 
             updateCanvas(dt);
@@ -173,8 +173,12 @@ void App::refreshRuleSummary() {
     if (!sim_) return;
     const auto& ir = sim_->rule();
     const auto& compiled = sim_->compiled();
-    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · {} · {:#018x}",
-                               ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
+    // The hash belongs on a rule's card, not in the middle of a line that
+    // then wraps. It is a tooltip.
+    ruleHash_ = std::format("{:#018x}", compiled.ir_hash);
+    ruleName_ = ir.metadata.name.value_or(ir.metadata.source_notation.value_or(std::string(rule::toString(ir.kind))));
+    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · {}",
+                               rule::toString(ir.kind), ir.states,
                                ir.metadata.decay_from
                                    ? std::format(" ({} live, decay {})", *ir.metadata.decay_from,
                                                  ir.states - *ir.metadata.decay_from)
@@ -182,8 +186,27 @@ void App::refreshRuleSummary() {
                                compiled.neighbourCount(), rule::toString(ir.boundary),
                                compiled.backend == rule::Backend::Codegen
                                    ? std::string("codegen")
-                                   : std::format("table {}", compiled.table.size()),
-                               compiled.ir_hash);
+                                   : std::format("table {}", compiled.table.size()));
+}
+
+// Where the three regions sit. Called every frame so a resize is free.
+void App::layOut() {
+    const float w = static_cast<float>(GetScreenWidth());
+    const float h = static_cast<float>(GetScreenHeight());
+    panelRect_ = render::Rect{0.0f, kTransportHeight, kPanelWidth, h - kTransportHeight};
+    viewport_  = render::Rect{kPanelWidth, kTransportHeight, w - kPanelWidth, h - kTransportHeight};
+}
+
+// The window says what is loaded, so a second instance is tellable from a
+// first without reading the panel.
+void App::refreshWindowTitle() {
+    if (!sim_) return;
+    const auto& ir = sim_->rule();
+    const auto& spec = sim_->spec();
+    const std::string name = ir.metadata.name.value_or(ir.metadata.source_notation.value_or("rule"));
+    SetWindowTitle(std::format("Aether — {} — {}×{}{}", name.substr(0, 40), spec.width, spec.height,
+                               spec.dimensions == 3 ? std::format("×{}", spec.depth) : "")
+                       .c_str());
 }
 
 bool App::is3D() const { return sim_ && sim_->spec().dimensions == 3; }
@@ -224,6 +247,7 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
     sliceIndex_ = static_cast<int>(depth / 2);
     applyPaletteForStates();
     fitView();
+    refreshWindowTitle();
     return true;
 }
 
@@ -249,9 +273,10 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     refreshRuleSummary();
     ruleError_.clear();
     applyPaletteOverrides(ir);
-    density_.assign(ir.states - 1u, 0.1f);
-    density_[0] = ir.states == 2 ? 0.3f : 0.2f;
+    const auto defaults = sim::defaultDensity(ir);
+    density_.assign(defaults.begin(), defaults.end());
     fitView();
+    refreshWindowTitle();
     log_.info(std::format("{}: generation {}, {} lineage entries, {} journal events (paused)", what,
                           sim_->generation(), sim_->lineage().size(), sim_->journal().size()));
     return true;
@@ -297,9 +322,9 @@ void App::applyPaletteForStates() {
     if (!sim_ || !renderer_) return;
     const uint16_t states = sim_->rule().states;
     applyPaletteOverrides(sim_->rule());
-    density_.assign(states - 1u, 0.0f);
-    density_[0] = states == 2 ? 0.3f : 0.2f;
-    for (size_t i = 1; i < density_.size(); ++i) density_[i] = 0.1f;
+    const auto defaults = sim::defaultDensity(sim_->rule());
+    density_.assign(defaults.begin(), defaults.end());
+    (void)states;
 }
 
 // A rule's own palette, laid over the default for its state count (SPEC §13).
@@ -349,14 +374,22 @@ std::optional<rule::RuleIR> App::compileRuleSource() {
             ruleError_ = e->message;
             return std::nullopt;
         }
-        return std::get<rule::RuleIR>(std::move(r));
+        return named(std::get<rule::RuleIR>(std::move(r)));
     }
     auto parsed = rule::parseDsl(ruleText_.data(), ctx_);
     if (!parsed) {
         ruleError_ = std::format("{}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message);
         return std::nullopt;
     }
-    return *parsed.ir;
+    return named(*parsed.ir);
+}
+
+// A rule file's header names it, and that header is part of the text in the
+// editor, so the name follows the text rather than the way it was loaded.
+rule::RuleIR App::named(rule::RuleIR ir) const {
+    const rule::LibraryRule header = rule::parseRuleFile("", ruleText_.data(), ruleLanguage_ == 1);
+    if (!header.name.empty() && header.name != "") ir.metadata.name = header.name;
+    return ir;
 }
 
 bool App::compileRuleText() {

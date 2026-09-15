@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- A transport bar spanning the window: play/pause, step, burst, the rate slider and the generation, rate and frame-rate readouts, with the running rule's name at the right. None of it scrolls away (2026-09-15).
+- A viewport overlay showing the cell under the cursor and its state, the zoom, the brush, and a paused badge (2026-09-15).
+- A Keys section listing every shortcut, also reachable with F1 or `?` (2026-09-15).
+- A "Fill view" button, which uses the whole viewport at a fractional zoom where Fit keeps cells pixel-exact (2026-09-15).
+- The window title names the rule and the grid (2026-09-15).
 - GLSL codegen backend (F-009, D-004): `rule/glsl` turns an expression IR into the `aether_rule` function of SPEC §6, the step shader calls it, and the program cache is keyed on `ir_hash` so a repeated rule compiles once (2026-09-15).
 - An `Expression` interpreter on the CPU path, so the oracle covers every rule the GPU can run; it mirrors the generator's rules for division by zero, 32-bit wrapping and clamping (2026-09-15).
 - Backend equivalence test (AV-007): Life as a table and as an expression, through both backends and both paths, identical under every boundary; expression fixtures including a 3D Moore rule with no finite table (2026-09-15).
@@ -55,13 +60,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 219 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 222 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-008: the default random-fill densities summed past one above nine states, so a rule's last states were never seeded — the fourteen-state cyclic rule started with four of its states missing. `sim::defaultDensity` now spreads evenly over a rule's live states and leaves its ageing tail empty, replacing three copies of the arithmetic (2026-09-15).
 - BUG-007: `GpuStepper`'s move constructor dropped later-added fields, so the GPU path of any `Simulation` ran without cell mutation; state is now split into exchanged handles and copied config (2026-09-12).
 - BUG-006: append-only lineage versus grid rewind; grid rewind now truncates (2026-09-12).
 - BUG-005: SPEC §9.2 took the mutated state from the hash that had just passed the threshold, which would have made every mutation a decay to state 0; the state now comes from a second mixing (2026-09-11).
@@ -71,6 +77,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- Panel sections are ordered by when a session needs them and closed past the first two, so the column fits one screen; widgets stop short of the right edge so their labels are no longer cut off ("Max steps/fram", "edits per even"); controls carry tooltips (2026-09-15).
+- A rule takes its name from its file header, so the library's names reach the summary, the transport bar and the window title rather than being dropped at load (2026-09-15).
+- The Grid panel shows what state 0 is left with, warns when hand-set densities total more than one, and offers an even spread (2026-09-15).
 - `LutRule` is `CompiledRule` and `compileLut` is `compileRule`: the type holds an expression and its generated GLSL as well as a table (2026-09-15).
 - `IntLiteral` values are validated to fit a signed 32-bit integer, which is what both execution paths compute in (2026-09-15).
 - Generations notation is now the two-state rule plus an ageing tail through the one decay transform (IMP-003), so `B2/S/C25` is a 225-entry table rather than an expression no backend could run (2026-09-14).

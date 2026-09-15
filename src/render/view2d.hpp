@@ -113,13 +113,15 @@ struct View2D {
         return {width + kHexA * (height - 1) + 1.0, kHexB * (height - 1) + 1.0};
     }
 
-    // Zoom so the whole grid fits the viewport, centred, at an integer zoom
-    // where one fits and a fractional one otherwise (tiny viewports).
-    void fit(unsigned width, unsigned height, const Rect& vp) {
+    // Zoom so the whole grid fits the viewport, centred. `pixelExact` rounds
+    // down to a whole number of pixels per cell, which is what SPEC §13
+    // asks for and what leaves margins; passing false fills the viewport
+    // instead and gives up the exactness.
+    void fit(unsigned width, unsigned height, const Rect& vp, bool pixelExact = true) {
         if (vp.w <= 0 || vp.h <= 0 || width == 0 || height == 0) return;   // nothing to fit into yet
         auto [ew, eh] = extent(width, height);
         const double z = std::min(static_cast<double>(vp.w) / ew, static_cast<double>(vp.h) / eh);
-        zoom = (z >= 1.0 && lattice == Lattice::Square) ? std::floor(z) : z;
+        zoom = (pixelExact && z >= 1.0 && lattice == Lattice::Square) ? std::floor(z) : z;
         centre_x = ew * 0.5;
         centre_y = eh * 0.5;
     }
