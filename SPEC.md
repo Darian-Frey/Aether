@@ -119,7 +119,7 @@ An IR is valid only if all of the following hold. Validation runs on every IR re
 4. `radius ≥ 1`, and the resulting `N` does not exceed 64 for `non_totalistic` kinds (the signature must fit a `u64`).
 4a. `counted` holds exactly `states` sets when `kind == counted_totalistic`, naming no state outside `0 … states-1`, and is empty for every other kind.
 5. `cell_type == f32` implies `kind == continuous`, and conversely.
-6. The expression tree contains no unbound references and has a type-consistent root.
+6. The expression tree contains no unbound references and has a type-consistent root, and every `IntLiteral` fits a signed 32-bit integer (§6 computes in 32 bits on both paths).
 
 ### IR hash
 
@@ -197,12 +197,14 @@ The size computation must happen before allocation, never as a consequence of it
 
 ## 6. GLSL codegen contract
 
-The codegen backend substitutes a generated function body into a fixed template. The generated function has the signature:
+The codegen backend generates a function and the compute step calls it. The generated function has the signature:
 
 ```glsl
 uint aether_rule(uint self, uint nbr[N]);        // u8 cell type
 float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 ```
+
+`nbr` holds the neighbours in the canonical order of §3. The generator emits one statement per node of the expression arena, in arena order — children precede parents, so a single forward pass suffices and no node is evaluated twice.
 
 Requirements on generated code:
 
@@ -211,7 +213,19 @@ Requirements on generated code:
 3. Deterministic across drivers: no `fma` reassociation assumptions, no reliance on undefined-precision built-ins.
 4. Integer arithmetic only for `u8` rules. Float appears only in the `f32` path.
 
-Compiled shaders are cached keyed on `ir_hash`. A cache hit skips compilation entirely, which is what makes rule mutation viable on codegen-backed rules (D-004).
+Three rules settle cases where C++ and GLSL would otherwise differ, and the CPU interpreter obeys all three so the two paths agree (2026-09-15):
+
+- **Division and modulo by zero yield zero.** A zero divisor is undefined in GLSL and a trap in C++, so neither is allowed to happen: both are emitted and interpreted as `(b == 0) ? 0 : a / b`.
+- **Integer arithmetic is 32-bit and wraps.** `IntLiteral` values are validated to fit `int32` (§4), and the interpreter computes through unsigned arithmetic so that overflow wraps exactly as GLSL's does rather than being undefined.
+- **The result is clamped to `0 … S-1`.** Nothing can prove in general that an arithmetic tree stays in range, and a cell outside the state range would index past the next generation's count array. The clamp is the last statement of the generated function.
+
+Where an expression counts neighbours by state, the function begins by filling a `cnt` array of `S` entries with one statically bounded loop. It is emitted only when some node asks for a count.
+
+Compiled shaders are cached keyed on `ir_hash`. A cache hit skips compilation entirely, which is what makes rule mutation viable on codegen-backed rules (D-004). A table-backed rule's program depends only on its *shape*, so changing its table is an upload and not a compile; a generated rule's program is the rule, so its hash is part of the cache key.
+
+A `Table` rule whose table exceeds `LUT_MAX_ENTRIES` is refused rather than lowered here: lowering is a front-end job, and the front ends do it (§7).
+
+**Measured** (2026-09-15, T1200): generating and compiling a 16-state expression rule takes 61 ms on the first compile of a session and under 2 ms afterwards, against the 250 ms budget of §12. Such a rule steps a 1024² grid at about 2,900 generations per second, against 3,684 for a table-backed Life.
 
 ---
 

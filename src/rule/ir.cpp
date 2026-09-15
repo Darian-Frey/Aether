@@ -3,6 +3,7 @@
 #include "rule/table_layout.hpp"
 
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <type_traits>
@@ -95,8 +96,6 @@ std::optional<NeighbourhoodType> parseNeighbourhoodType(std::string_view s) {
 
 namespace {
 
-enum class ExprType : uint8_t { Int, Float, Bool, Invalid };
-
 struct ExprContext {
     uint32_t neighbours;   // valid Neighbour indices are < this
     uint16_t states;       // valid Count arguments are < this
@@ -120,13 +119,21 @@ int arity(ExprOp op) {
 // root type, or Invalid if anything failed. Children must precede parents;
 // that rule is what makes the tree acyclic, so it is checked here too.
 ExprType checkExpression(const Expression& e, const ExprContext& ctx,
-                         std::string_view where, std::vector<Diagnostic>& out) {
+                         std::string_view where, std::vector<Diagnostic>& out,
+                         std::vector<ExprType>* typesOut = nullptr) {
     if (e.nodes.empty()) {
         out.push_back({std::format("{}: expression has no nodes", where)});
         return ExprType::Invalid;
     }
 
     std::vector<ExprType> types(e.nodes.size(), ExprType::Invalid);
+    // Hand the types out however this returns, so the generator sees exactly
+    // what the validator inferred.
+    struct Publish {
+        std::vector<ExprType>* out;
+        const std::vector<ExprType>& types;
+        ~Publish() { if (out != nullptr) *out = types; }
+    } publish{typesOut, types};
     bool ok = true;
 
     auto fail = [&](size_t i, std::string msg) {
@@ -172,7 +179,11 @@ ExprType checkExpression(const Expression& e, const ExprContext& ctx,
                 }
                 break;
             case ExprOp::IntLiteral:
-                types[i] = ExprType::Int;
+                if (n.ival < INT32_MIN || n.ival > INT32_MAX) {
+                    fail(i, std::format("literal {} does not fit the 32-bit arithmetic both paths use", n.ival));
+                } else {
+                    types[i] = ExprType::Int;
+                }
                 break;
             case ExprOp::FloatLiteral:
                 types[i] = ExprType::Float;
@@ -243,6 +254,13 @@ void checkResultLiterals(const Expression& e, uint16_t states,
 }
 
 }  // namespace
+
+std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states) {
+    std::vector<Diagnostic> ignored;
+    std::vector<ExprType> types;
+    checkExpression(e, {neighbours, states}, "", ignored, &types);
+    return types;
+}
 
 // --- Validation --------------------------------------------------------------
 

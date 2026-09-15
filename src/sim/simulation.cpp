@@ -12,13 +12,14 @@ namespace aether::sim {
 
 namespace {
 
-// A placeholder LutRule so Simulation has a value before its first setRule.
+// A placeholder CompiledRule so Simulation has a value before its first setRule.
 // Never stepped: create() replaces it or fails.
-rule::LutRule emptyLut() {
-    return rule::LutRule{
+rule::CompiledRule emptyLut() {
+    return rule::CompiledRule{
         .ir_hash = 0, .dimensions = 2, .states = 2, .kind = rule::Kind::OuterTotalistic,
         .neighbourhood = {}, .counted = {}, .boundary = rule::Boundary::Wrap, .offsets = {},
         .layout = rule::TableLayout(rule::Kind::OuterTotalistic, 2, 0), .table = {}, .aux = {},
+        .expression = {}, .expressionTypes = {}, .glsl = {},
     };
 }
 
@@ -83,12 +84,9 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
     if (ir.dimensions != spec().dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", ir.dimensions, spec().dimensions)};
     }
-    if (rule::selectBackend(ir) != rule::Backend::Lut) {
-        return core::Error{"this rule needs the codegen backend, which arrives in Phase 4"};
-    }
-    auto compiled = rule::compileLut(ir);
+    auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
-    rule::LutRule lut = std::get<rule::LutRule>(std::move(compiled));
+    rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
 
     // The GPU stepper keeps its previous rule if this fails.
     if (auto e = gpuStepper_.setRule(lut, spec())) return e;
@@ -279,9 +277,9 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.counters_.rule_mutations_skipped = s.ruleMutationsSkipped;
 
     // The current rule, compiled; lineage already holds it, so bypass the append.
-    auto compiled = rule::compileLut(s.rule);
+    auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
-    rule::LutRule lut = std::get<rule::LutRule>(std::move(compiled));
+    rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
     if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
     sim.ir_ = s.rule;
     sim.lut_ = std::move(lut);

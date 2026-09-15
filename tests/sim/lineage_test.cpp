@@ -46,7 +46,16 @@ TEST_CASE("every rule change goes into the lineage; rewind restores and records"
     CHECK(s.lineage().at(1).ir_hash == rule::irHash(s.rule()));
 
     // A refused rule leaves no trace.
-    CHECK(s.setRule(*rule::parseDsl("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1; 1: n(1) < 2 -> 2;").ir).has_value());
+    CHECK(s.setRule([] {
+        rule::RuleIR k;
+        k.cell_type = core::CellType::F32;
+        k.kind = rule::Kind::Continuous;
+        rule::Kernel kern;
+        kern.profile = {1.0f};
+        kern.growth.nodes = {{rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f}};
+        k.transition = kern;
+        return k;
+    }()).has_value());
     CHECK(s.lineage().size() == 2);
 
     for (int i = 0; i < 3; ++i) s.step();

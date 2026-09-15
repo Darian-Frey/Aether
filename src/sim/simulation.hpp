@@ -15,7 +15,7 @@
 #include "core/gpu_grid.hpp"
 #include "core/grid.hpp"
 #include "rule/ir.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/gpu_step.hpp"
 #include "sim/hash.hpp"
 #include "sim/journal.hpp"
@@ -80,8 +80,8 @@ public:
     // reset to 0 so no lookup can index past the new table.
     std::optional<core::Error> setRule(const rule::RuleIR& ir);
     const rule::RuleIR&  rule() const { return ir_; }
-    const rule::LutRule& lut()  const { return lut_; }
-    rule::Backend        backend() const { return rule::Backend::Lut; }
+    const rule::CompiledRule& compiled() const { return lut_; }
+    rule::Backend        backend() const { return lut_.backend; }
 
     // --- Time ---------------------------------------------------------------
     void     step();                  // one generation on the active path
@@ -145,7 +145,7 @@ private:
     core::HostGrid host_;
     core::GpuGrid  gpu_;
     rule::RuleIR   ir_;
-    rule::LutRule  lut_;
+    rule::CompiledRule  lut_;
     GpuStepper     gpuStepper_;
     Scheduler      scheduler_;
     Pcg32          streamA_;

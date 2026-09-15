@@ -1,4 +1,6 @@
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
+
+#include "rule/glsl.hpp"
 
 #include <format>
 
@@ -12,18 +14,41 @@ Backend selectBackend(const RuleIR& ir) {
     return Backend::Lut;
 }
 
-std::variant<LutRule, CompileError> compileLut(const RuleIR& ir) {
+std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
     if (const auto ds = validate(ir); !ds.empty()) {
         return CompileError{"invalid IR: " + ds.front().message};
     }
     if (ir.cell_type != CellType::U8) {
-        return CompileError{"the table backend serves u8 rules only"};
+        return CompileError{"both backends serve u8 rules only; continuous rules arrive in Phase 5"};
     }
+
+    // An expression has no finite table, so it goes to codegen (D-004).
+    if (const auto* expression = std::get_if<Expression>(&ir.transition)) {
+        auto glsl = generateGlsl(ir);
+        if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
+        const uint32_t nbrs = neighbourCount(ir.dimensions, ir.neighbourhood);
+        return CompiledRule{
+            .backend       = Backend::Codegen,
+            .ir_hash       = irHash(ir),
+            .dimensions    = ir.dimensions,
+            .states        = ir.states,
+            .kind          = ir.kind,
+            .neighbourhood = ir.neighbourhood,
+            .counted       = {},
+            .boundary      = ir.boundary,
+            .offsets       = neighbourOffsets(ir.dimensions, ir.neighbourhood),
+            .layout        = TableLayout(ir.kind, ir.states, nbrs),
+            .table         = {},
+            .aux           = {},
+            .expression    = *expression,
+            .expressionTypes = expressionTypes(*expression, nbrs, ir.states),
+            .glsl          = std::get<std::string>(std::move(glsl)),
+        };
+    }
+
     const auto* table = std::get_if<Table>(&ir.transition);
     if (!table) {
-        return CompileError{std::format("kind {} in {} form has no table",
-                                        toString(ir.kind),
-                                        std::holds_alternative<Expression>(ir.transition) ? "expression" : "kernel")};
+        return CompileError{"kernel rules have no backend; continuous automata arrive in Phase 5"};
     }
 
     // Size before anything is copied or built (AV-010). validate() has
@@ -35,7 +60,8 @@ std::variant<LutRule, CompileError> compileLut(const RuleIR& ir) {
                                         size ? std::to_string(*size) : "> 2^64", kLutMaxEntries)};
     }
 
-    LutRule out{
+    CompiledRule out{
+        .backend       = Backend::Lut,
         .ir_hash       = irHash(ir),
         .dimensions    = ir.dimensions,
         .states        = ir.states,
@@ -47,6 +73,9 @@ std::variant<LutRule, CompileError> compileLut(const RuleIR& ir) {
         .layout        = TableLayout(ir.kind, ir.states, N),
         .table         = table->entries,
         .aux           = {},
+        .expression    = {},
+        .expressionTypes = {},
+        .glsl          = {},
     };
 
     if (ir.kind == Kind::OuterTotalistic) {

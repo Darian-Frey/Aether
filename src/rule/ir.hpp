@@ -90,6 +90,15 @@ struct Expression {
     bool operator==(const Expression&) const = default;
 };
 
+// What an expression node evaluates to. The validator and the GLSL
+// generator share this so that the two cannot disagree about a tree's
+// typing (SPEC §6).
+enum class ExprType : uint8_t { Int, Float, Bool, Invalid };
+
+// One entry per node, Invalid where the node is ill-typed. `neighbours` and
+// `states` bound the Neighbour and Count indices.
+std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states);
+
 // Convolution kernel plus growth function. Specified from v1 (D-010),
 // implemented in Phase 5. Backends reject it until then.
 struct Kernel {

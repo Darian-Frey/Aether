@@ -1,7 +1,7 @@
 #include "ui/app.hpp"
 
 #include "core/gl.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/session.hpp"
 
 #include <imgui.h>
@@ -172,14 +172,18 @@ int App::run() {
 void App::refreshRuleSummary() {
     if (!sim_) return;
     const auto& ir = sim_->rule();
-    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · table {} · {:#018x}",
+    const auto& compiled = sim_->compiled();
+    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · {} · {:#018x}",
                                ir.metadata.name.value_or(std::string(rule::toString(ir.kind))), ir.states,
                                ir.metadata.decay_from
                                    ? std::format(" ({} live, decay {})", *ir.metadata.decay_from,
                                                  ir.states - *ir.metadata.decay_from)
                                    : std::string{},
-                               sim_->lut().neighbourCount(), rule::toString(ir.boundary),
-                               sim_->lut().table.size(), sim_->lut().ir_hash);
+                               compiled.neighbourCount(), rule::toString(ir.boundary),
+                               compiled.backend == rule::Backend::Codegen
+                                   ? std::string("codegen")
+                                   : std::format("table {}", compiled.table.size()),
+                               compiled.ir_hash);
 }
 
 bool App::is3D() const { return sim_ && sim_->spec().dimensions == 3; }
@@ -371,10 +375,13 @@ bool App::compileRuleText() {
     ruleError_.clear();
     const auto& ir = sim_->rule();
     refreshRuleSummary();
-    log_.info(std::format("compiled {} -> {} backend, {} entries",
+    log_.info(std::format("compiled {} -> {}",
                           ir.metadata.source_notation.value_or(ir.metadata.name.value_or("rule")).substr(0, 40),
-                          rule::selectBackend(ir) == rule::Backend::Lut ? "table" : "codegen",
-                          sim_->lut().table.size()));
+                          sim_->backend() == rule::Backend::Lut
+                              ? std::format("table backend, {} entries", sim_->compiled().table.size())
+                              : std::format("codegen backend, {} lines of GLSL",
+                                            std::count(sim_->compiled().glsl.begin(),
+                                                       sim_->compiled().glsl.end(), '\n'))));
     if (ir.states != oldStates) applyPaletteForStates();
     if (brush_.state >= ir.states) brush_.state = static_cast<uint8_t>(ir.states - 1);
     const auto lattice = ir.neighbourhood.type == rule::NeighbourhoodType::Hexagonal ? render::Lattice::Hex : render::Lattice::Square;

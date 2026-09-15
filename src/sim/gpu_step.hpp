@@ -8,7 +8,7 @@
 #pragma once
 
 #include "core/gpu_grid.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/hash.hpp"
 
 #include <cstdint>
@@ -30,7 +30,7 @@ public:
     // Compiles the shape variant if not cached and uploads the rule's
     // buffers. On failure nothing is changed and the previous rule, if any,
     // stays active (AV-014).
-    std::optional<core::Error> setRule(const rule::LutRule& rule, const core::GridSpec& spec);
+    std::optional<core::Error> setRule(const rule::CompiledRule& rule, const core::GridSpec& spec);
 
     bool hasRule() const { return cfg_.program != 0; }
 
@@ -52,9 +52,13 @@ public:
     size_t cachedPrograms() const { return owned_.programs.size(); }
 
 private:
-    using ShapeKey = std::tuple<uint8_t, uint32_t, uint16_t, rule::Kind, rule::Boundary>;
+    // The shape a shader is specialised for. A table rule's program depends
+    // on nothing but its shape, so changing the table is an upload; a
+    // generated rule's program is the rule, so its hash joins the key and
+    // each distinct rule gets its own entry (D-004).
+    using ShapeKey = std::tuple<uint8_t, uint32_t, uint16_t, rule::Kind, rule::Boundary, uint64_t>;
 
-    std::optional<core::Error> compileVariant(const ShapeKey& key);
+    std::optional<core::Error> compileVariant(const ShapeKey& key, const rule::CompiledRule& rule);
     void releaseBuffers();
 
     // GL handles, exchanged on move; everything else is plain data copied

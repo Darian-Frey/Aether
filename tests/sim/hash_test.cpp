@@ -1,6 +1,6 @@
 #include "core/grid.hpp"
 #include "rule/dsl.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
 #include "sim/hash.hpp"
 #include "sim/shaders.hpp"
@@ -79,7 +79,7 @@ TEST_CASE("cell mutation on the CPU path replaces about p of the cells", "[hash]
     // B/S: nothing is ever born or survives, so every non-zero cell after one
     // step is a mutation. Half of mutations land on state 0 for S=2.
     const auto ir = *aether::rule::parseDsl("B/S").ir;
-    const auto lut = std::get<aether::rule::LutRule>(aether::rule::compileLut(ir));
+    const auto lut = std::get<aether::rule::CompiledRule>(aether::rule::compileRule(ir));
     aether::core::HostGrid g({2, 512, 512, 1});
     cpuStep(lut, g, 0, CellMutation{mutationThreshold(0.1), 42});
     uint32_t alive = 0;

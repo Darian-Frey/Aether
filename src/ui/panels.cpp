@@ -2,7 +2,7 @@
 
 #include "ui/app.hpp"
 
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/session.hpp"
 
 #include <imgui.h>

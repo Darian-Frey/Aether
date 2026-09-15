@@ -91,10 +91,19 @@ TEST_CASE("a failed rule change leaves the running rule and grid untouched", "[g
     CHECK(rule::irHash(s.rule()) == hash);
     CHECK(snapshot(s) == before);
 
-    // A rule that needs codegen is refused for now, likewise harmlessly.
-    const auto err2 = s.setRule(*rule::parseDsl("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1; 1: n(1) < 2 -> 2;").ir);
+    // A continuous rule has no backend at all, and is refused as harmlessly.
+    const auto err2 = s.setRule([] {
+        rule::RuleIR k;
+        k.cell_type = core::CellType::F32;
+        k.kind = rule::Kind::Continuous;
+        rule::Kernel kern;
+        kern.profile = {1.0f};
+        kern.growth.nodes = {{rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f}};
+        k.transition = kern;
+        return k;
+    }());
     REQUIRE(err2.has_value());
-    CHECK(err2->message.find("codegen") != std::string::npos);
+    CHECK(err2->message.find("Phase 5") != std::string::npos);
     CHECK(rule::irHash(s.rule()) == hash);
 }
 

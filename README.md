@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
 > **Last reviewed:** 2026-08-30
-> **Why this status:** Phases 1–3 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions); Phase 4 (Lua and codegen) not yet started.
+> **Why this status:** Phases 1–4 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions, Lua, codegen, rule library); Phase 5 (continuous states) not yet started.
 
 # Aether
 

@@ -140,7 +140,7 @@ TEST_CASE("named rules are the rules they claim to be", "[library]") {
     CHECK(cyclic.states == 8);
     CHECK(cyclic.kind == Kind::CountedTotalistic);
     CHECK(std::get<Table>(cyclic.transition).entries.size() == 8 * 9);
-    for (uint16_t own = 0; own < 8; ++own) CHECK(cyclic.counted[own].test((own + 1) % 8));
+    for (uint16_t own = 0; own < 8; ++own) CHECK(cyclic.counted[own].test(static_cast<uint16_t>((own + 1) % 8)));
 
     // The fourteen-state cyclic rule needed 2.8M entries as a full count
     // vector and was left out of the library for it (D-016).

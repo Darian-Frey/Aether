@@ -61,7 +61,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-007 Backend divergence on the same rule
 **Severity:** Critical
 **Description.** A rule near the size threshold may be expressible through both the table and codegen backends. If the two produce different results, behaviour depends on `LUT_MAX_ENTRIES` — meaning a tuning constant silently changes simulation semantics. The same class of divergence applies between CPU and GPU implementations of the stream-B hash (SPEC §10).
-**Detection.** Not implemented (requires Phase 4). Planned: for every rule in the fixture set expressible both ways, compile through both backends and compare 1000 generations bitwise. Separately, a direct test that the C++ and GLSL implementations of the stream-B hash agree over a large input sweep, block-correlated decisions included (2026-09-14).
+**Detection.** Implemented 2026-09-15. `tests/sim/equivalence_test.cpp` compiles Conway's Life as a table and as an expression tree, runs both through both execution paths for 1000 generations under each boundary, and requires all four results to be identical — so neither the backend nor the path may change what a rule does. Expression fixtures, including the three-dimensional Moore rule that has no finite table, are in the CPU/GPU comparison alongside the table ones. Separately, a direct test that the C++ and GLSL implementations of the stream-B hash agree over a large input sweep, block-correlated decisions included (2026-09-14).
 **Related decisions.** D-004 (two backends), D-011.
 
 ### AV-012 Rule mutation produces an invalid IR
@@ -106,7 +106,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-013 Mutation interval shorter than codegen compile time
 **Severity:** Minor
 **Description.** A rule on the codegen backend with a short mutation interval recompiles a shader every few generations. On a cache miss this is hundreds of milliseconds, so the simulation spends most of its time compiling rather than stepping, presenting as a severe unexplained slowdown that appears only for large rules.
-**Detection.** Not implemented. Planned: the shader cache keyed on `ir_hash` (SPEC §6) makes repeat rules free, but a random walk mostly produces novel rules. Mitigation is to surface compile time in the UI and warn when it exceeds the mutation interval. Test: measure compile time on the codegen fixture set and assert the SPEC §12 budget.
+**Detection.** Partly implemented 2026-09-15. The shader cache keyed on `ir_hash` exists, and a test checks that a repeated rule does not compile twice while a table rule of unchanged shape never compiles at all. Measured on the T1200, generating and compiling a 16-state expression rule costs 61 ms on a session's first compile and under 2 ms after, so the SPEC §12 budget of 250 ms holds with room; that is a measurement rather than an assertion, because a timing assertion in the suite would be flaky on a cold driver. Still not implemented: surfacing compile time in the UI and warning when it exceeds the mutation interval.
 **Related decisions.** D-004.
 
 ---

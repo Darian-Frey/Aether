@@ -112,8 +112,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Backend selection is automatic from IR shape: lookup table below the size threshold, generated GLSL above it
 - Backend choice is visible in the UI but never a user decision
 - A rule compiled through either backend produces identical results
-**Status:** In progress
-**Progress:** IR, validation, hash, table layout, and the LUT backend with automatic selection exist (2026-09-11); codegen backend is Phase 4.
+**Status:** Complete
+**Progress:** 2026-09-15. Both front ends emit the IR; both backends consume it; selection is automatic from IR shape and shown as metadata. A rule expressible both ways gives identical output through either, which the equivalence suite checks under every boundary.
 
 ### F-010 Rule library
 **Priority:** Should

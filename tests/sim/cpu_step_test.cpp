@@ -1,6 +1,6 @@
 #include "core/grid.hpp"
 #include "rule/dsl.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -11,16 +11,16 @@
 using namespace aether;
 using core::GridSpec;
 using core::HostGrid;
-using rule::LutRule;
+using rule::CompiledRule;
 
 namespace {
 
-LutRule compile(const char* dsl, const rule::DslContext& ctx = {}) {
+CompiledRule compile(const char* dsl, const rule::DslContext& ctx = {}) {
     auto r = rule::parseDsl(dsl, ctx);
     REQUIRE(r);
-    auto c = rule::compileLut(*r.ir);
-    REQUIRE(std::holds_alternative<LutRule>(c));
-    return std::get<LutRule>(std::move(c));
+    auto c = rule::compileRule(*r.ir);
+    REQUIRE(std::holds_alternative<CompiledRule>(c));
+    return std::get<CompiledRule>(std::move(c));
 }
 
 using Cells = std::set<std::pair<uint32_t, uint32_t>>;
@@ -37,14 +37,14 @@ void paint(HostGrid& g, const Cells& cells, uint8_t v = 1) {
     for (const auto& [x, y] : cells) g.set(x, y, 0, v);
 }
 
-void run(const LutRule& rule, HostGrid& g, int generations) {
+void run(const CompiledRule& rule, HostGrid& g, int generations) {
     for (int i = 0; i < generations; ++i) sim::cpuStep(rule, g);
 }
 
 }  // namespace
 
 TEST_CASE("glider arrives at its predicted offset (AV-004 detector)", "[cpu]") {
-    const LutRule life = compile("B3/S23");
+    const CompiledRule life = compile("B3/S23");
     HostGrid g({2, 32, 32, 1});
     const Cells glider = {{1, 0}, {2, 1}, {0, 2}, {1, 2}, {2, 2}};
     paint(g, glider);
@@ -61,7 +61,7 @@ TEST_CASE("glider arrives at its predicted offset (AV-004 detector)", "[cpu]") {
 }
 
 TEST_CASE("blinker has period 2; block is still", "[cpu]") {
-    const LutRule life = compile("B3/S23");
+    const CompiledRule life = compile("B3/S23");
     HostGrid g({2, 8, 8, 1});
     paint(g, {{2, 3}, {3, 3}, {4, 3}});
     run(life, g, 1);
@@ -76,7 +76,7 @@ TEST_CASE("blinker has period 2; block is still", "[cpu]") {
 }
 
 TEST_CASE("step reads only current and writes only next", "[cpu]") {
-    const LutRule life = compile("B3/S23");
+    const CompiledRule life = compile("B3/S23");
     HostGrid g({2, 8, 8, 1});
     paint(g, {{2, 3}, {3, 3}, {4, 3}});
     const std::vector<uint8_t> before(g.current().begin(), g.current().end());
@@ -117,7 +117,7 @@ TEST_CASE("boundary modes differ at the corner in the predicted way", "[cpu]") {
 }
 
 TEST_CASE("a blinker across the wrap seam behaves as in the interior", "[cpu]") {
-    const LutRule life = compile("B3/S23");
+    const CompiledRule life = compile("B3/S23");
     HostGrid g({2, 8, 8, 1});
     paint(g, {{7, 4}, {0, 4}, {1, 4}});
     run(life, g, 1);
@@ -127,7 +127,7 @@ TEST_CASE("a blinker across the wrap seam behaves as in the interior", "[cpu]") 
 }
 
 TEST_CASE("Brian's Brain: birth on two firing neighbours, then refractory, then dead", "[cpu]") {
-    const LutRule bb = compile("B2/S/C3");
+    const CompiledRule bb = compile("B2/S/C3");
     HostGrid g({2, 6, 6, 1});
     paint(g, {{2, 2}, {3, 2}}, 1);
     run(bb, g, 1);
@@ -151,7 +151,7 @@ TEST_CASE("Wireworld: a head advances along a wire", "[cpu]") {
         2: n(0) >= 0 -> 3;
         3: n(1) == 1 or n(1) == 2 -> 1;
     )";
-    const LutRule ww = compile(src);
+    const CompiledRule ww = compile(src);
     HostGrid g({2, 8, 3, 1});
     for (uint32_t x = 0; x < 8; ++x) g.set(x, 1, 0, 3);   // wire
     g.set(1, 1, 0, 1);                                    // head
@@ -179,12 +179,12 @@ TEST_CASE("non-totalistic: a copy-from-neighbour-0 rule shifts the pattern", "[c
         for (uint32_t sig = 0; sig < 256; ++sig)
             t.entries[own * 256 + sig] = static_cast<uint8_t>(sig & 1u);
     ir.transition = t;
-    auto c = rule::compileLut(ir);
-    REQUIRE(std::holds_alternative<LutRule>(c));
+    auto c = rule::compileRule(ir);
+    REQUIRE(std::holds_alternative<CompiledRule>(c));
 
     HostGrid g({2, 8, 8, 1});
     paint(g, {{2, 2}, {3, 2}});
-    run(std::get<LutRule>(c), g, 3);
+    run(std::get<CompiledRule>(c), g, 3);
     CHECK(alive(g) == Cells{{5, 5}, {6, 5}});
 }
 
@@ -198,12 +198,12 @@ TEST_CASE("totalistic: sum == 1 grows a single cell into a 3x3 block", "[cpu]") 
     t.entries.assign(10, 0);
     t.entries[1] = 1;
     ir.transition = t;
-    auto c = rule::compileLut(ir);
-    REQUIRE(std::holds_alternative<LutRule>(c));
+    auto c = rule::compileRule(ir);
+    REQUIRE(std::holds_alternative<CompiledRule>(c));
 
     HostGrid g({2, 7, 7, 1});
     g.set(3, 3, 0, 1);
-    run(std::get<LutRule>(c), g, 1);
+    run(std::get<CompiledRule>(c), g, 1);
     CHECK(alive(g).size() == 9);
     CHECK(g.get(3, 3) == 1);
     CHECK(g.get(2, 2) == 1);
@@ -227,8 +227,8 @@ TEST_CASE("1D: Rule 30 from a single cell", "[cpu]") {
             for (uint32_t r = 0; r < 2; ++r)
                 t.entries[own * 4 + l + 2 * r] = static_cast<uint8_t>(l ^ (own | r));
     ir.transition = t;
-    auto c = rule::compileLut(ir);
-    REQUIRE(std::holds_alternative<LutRule>(c));
+    auto c = rule::compileRule(ir);
+    REQUIRE(std::holds_alternative<CompiledRule>(c));
 
     HostGrid g({1, 11, 1, 1});
     g.set(5, 0, 0, 1);
@@ -238,13 +238,13 @@ TEST_CASE("1D: Rule 30 from a single cell", "[cpu]") {
         return s;
     };
     CHECK(row() == ".....#.....");
-    run(std::get<LutRule>(c), g, 1);
+    run(std::get<CompiledRule>(c), g, 1);
     CHECK(row() == "....###....");
-    run(std::get<LutRule>(c), g, 1);
+    run(std::get<CompiledRule>(c), g, 1);
     CHECK(row() == "...##..#...");
-    run(std::get<LutRule>(c), g, 1);
+    run(std::get<CompiledRule>(c), g, 1);
     CHECK(row() == "..##.####..");
-    run(std::get<LutRule>(c), g, 1);
+    run(std::get<CompiledRule>(c), g, 1);
     CHECK(row() == ".##..#...#.");
 }
 
@@ -257,7 +257,7 @@ TEST_CASE("3D: B1/S on von Neumann grows a cross and kills the seed", "[cpu]") {
     )";
     rule::DslContext ctx;
     ctx.dimensions = 3;
-    const LutRule r = compile(src, ctx);
+    const CompiledRule r = compile(src, ctx);
     CHECK(r.neighbourCount() == 6);
 
     HostGrid g({3, 5, 5, 5});
@@ -277,7 +277,7 @@ TEST_CASE("3D: B1/S on von Neumann grows a cross and kills the seed", "[cpu]") {
 }
 
 TEST_CASE("a cell with an ageing tail fades over the tail's length and then vanishes", "[cpu][decay]") {
-    const LutRule r = compile("states 2; neighbourhood moore 1; decay 3; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    const CompiledRule r = compile("states 2; neighbourhood moore 1; decay 3; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
     HostGrid g({2, 8, 8, 1});
     g.set(3, 3, 0, 1);
     run(r, g, 1);
@@ -296,8 +296,8 @@ TEST_CASE("a still life dies once the rule has an ageing tail", "[cpu][decay]") 
     // cells keep meeting the survival condition. A blinker likewise. What a
     // tail kills is anything the rule was already letting go of, and it does
     // so visibly rather than instantly.
-    const LutRule life = compile("B3/S23");
-    const LutRule fading = compile("states 2; neighbourhood moore 1; decay 2; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    const CompiledRule life = compile("B3/S23");
+    const CompiledRule fading = compile("states 2; neighbourhood moore 1; decay 2; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
     HostGrid a({2, 12, 12, 1}), b({2, 12, 12, 1});
     for (auto* g : {&a, &b}) {
         g->set(1, 1, 0, 1); g->set(2, 1, 0, 1); g->set(1, 2, 0, 1); g->set(2, 2, 0, 1);   // block

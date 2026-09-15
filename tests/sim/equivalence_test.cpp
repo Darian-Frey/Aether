@@ -7,7 +7,7 @@
 #include "core/gpu_grid.hpp"
 #include "core/grid.hpp"
 #include "rule/dsl.hpp"
-#include "rule/lut.hpp"
+#include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
 #include "sim/gpu_step.hpp"
 #include "support/gl_context.hpp"
@@ -68,6 +68,72 @@ rule::RuleIR randomTable(rule::Kind kind, uint8_t dims, uint16_t states, rule::N
     return ir;
 }
 
+// The same automaton an expression tree rather than a table, so that the
+// generated GLSL and the interpreter that mirrors it are both exercised.
+rule::RuleIR lifeAsExpression(uint16_t states = 2) {
+    rule::RuleIR ir;
+    ir.states = states;
+    ir.kind = rule::Kind::Expression;
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::Count, 1},                       //  0  n(1)
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 2},         //  1
+        {rule::ExprOp::Eq, 0, 1},                       //  2  n == 2
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 3},         //  3
+        {rule::ExprOp::Eq, 0, 3},                       //  4  n == 3
+        {rule::ExprOp::Or, 2, 4},                       //  5
+        {rule::ExprOp::Self},                           //  6
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},         //  7
+        {rule::ExprOp::Eq, 6, 7},                       //  8  alive
+        {rule::ExprOp::And, 8, 5},                      //  9  survives
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},         // 10
+        {rule::ExprOp::Eq, 6, 10},                      // 11  dead
+        {rule::ExprOp::And, 11, 4},                     // 12  born
+        {rule::ExprOp::Or, 9, 12},                      // 13
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},         // 14
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},         // 15
+        {rule::ExprOp::Select, 13, 14, 15},             // 16
+    };
+    ir.transition = e;
+    return ir;
+}
+
+// next = (self + number of live neighbours) mod states, which uses the
+// arithmetic, the modulo guard and the clamp all at once.
+rule::RuleIR arithmeticExpression(uint16_t states) {
+    rule::RuleIR ir;
+    ir.states = states;
+    ir.kind = rule::Kind::Expression;
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::Self},                                     // 0
+        {rule::ExprOp::Count, 1},                                 // 1
+        {rule::ExprOp::Add, 0, 1},                                // 2
+        {rule::ExprOp::IntLiteral, 0, 0, 0, states},              // 3
+        {rule::ExprOp::Mod, 2, 3},                                // 4
+        {rule::ExprOp::Count, 0},                                 // 5
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},                   // 6
+        {rule::ExprOp::Div, 4, 6},                                // 7  divide by zero
+        {rule::ExprOp::Sub, 4, 7},                                // 8  so this is node 4
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 7},                   // 9
+        {rule::ExprOp::Gt, 5, 9},                                 // 10 more than seven dead
+        {rule::ExprOp::Select, 10, 6, 8},                         // 11
+    };
+    ir.transition = e;
+    return ir;
+}
+
+// A rule that reads its neighbours by position rather than by count.
+rule::RuleIR shiftExpression() {
+    rule::RuleIR ir;
+    ir.states = 3;
+    ir.kind = rule::Kind::Expression;
+    rule::Expression e;
+    e.nodes = {{rule::ExprOp::Neighbour, 0}};
+    ir.transition = e;
+    return ir;
+}
+
 std::vector<Fixture> fixtures() {
     using rule::Kind;
     using rule::NeighbourhoodType;
@@ -91,10 +157,38 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Signature rule written with rot", dsl(
         "states 3; neighbourhood von_neumann 1;"
         "0: [1, _, _, _] rot -> 1; 1: [_, _, _, _] -> 2; 2: [_, _, _, _] -> 0;")});
+    out.push_back({"Life as an expression (codegen)", lifeAsExpression()});
+    out.push_back({"Arithmetic expression, 5 states (codegen)", arithmeticExpression(5)});
+    out.push_back({"Neighbour-indexed expression (codegen)", shiftExpression()});
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});
     return out;
+}
+
+// The rule Phase 4 was specified against: three-dimensional, Moore, and
+// depending on individual neighbours rather than counts, so its table would
+// be 2^26 entries per state and only generated code can run it.
+rule::RuleIR nonTotalistic3dExpression() {
+    rule::RuleIR ir;
+    ir.dimensions = 3;
+    ir.states = 2;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};   // 26 neighbours
+    ir.kind = rule::Kind::Expression;
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::Neighbour, 0},                     // 0  a corner
+        {rule::ExprOp::Neighbour, 12},                    // 1  a face
+        {rule::ExprOp::Neighbour, 25},                    // 2  the opposite corner
+        {rule::ExprOp::Add, 0, 1},                        // 3
+        {rule::ExprOp::Add, 3, 2},                        // 4
+        {rule::ExprOp::Self},                             // 5
+        {rule::ExprOp::Add, 4, 5},                        // 6
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 2},           // 7
+        {rule::ExprOp::Mod, 6, 7},                        // 8  parity of four cells
+    };
+    ir.transition = e;
+    return ir;
 }
 
 std::vector<Fixture> fixtures3d() {
@@ -105,6 +199,7 @@ std::vector<Fixture> fixtures3d() {
     out.push_back({"3D von Neumann 3 states", dsl(
         "states 3; neighbourhood von_neumann 1;"
         "0: n(1) == 2 -> 1; 1: n(1) >= 0 -> 2; 2: n(1) >= 0 -> 0;", 3)});
+    out.push_back({"3D Moore non-totalistic expression (codegen)", nonTotalistic3dExpression()});
     out.push_back({"3D random non-totalistic von Neumann", randomTable(Kind::NonTotalistic, 3, 2, {NeighbourhoodType::VonNeumann, 1}, 19)});
     return out;
 }
@@ -123,9 +218,9 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
                       uint8_t blockShift = 0) {
     rule::RuleIR ir = f.ir;
     ir.boundary = boundary;
-    auto compiled = rule::compileLut(ir);
-    REQUIRE(std::holds_alternative<rule::LutRule>(compiled));
-    const rule::LutRule& lut = std::get<rule::LutRule>(compiled);
+    auto compiled = rule::compileRule(ir);
+    REQUIRE(std::holds_alternative<rule::CompiledRule>(compiled));
+    const rule::CompiledRule& lut = std::get<rule::CompiledRule>(compiled);
 
     core::HostGrid host(spec);
     fill(host, ir.states, 0x5eed + static_cast<uint32_t>(boundary), 0.4);
@@ -236,7 +331,7 @@ TEST_CASE("cell mutation changes the trajectory and is reproducible", "[gpu]") {
     GlContext gl;
     requireGl(gl);
     const core::GridSpec spec{2, 48, 48, 1};
-    const rule::LutRule life = std::get<rule::LutRule>(rule::compileLut(dsl("B3/S23")));
+    const rule::CompiledRule life = std::get<rule::CompiledRule>(rule::compileRule(dsl("B3/S23")));
     auto run = [&](double p, uint64_t seed) {
         core::HostGrid h(spec);
         fill(h, 2, 77, 0.35);
@@ -253,6 +348,72 @@ TEST_CASE("cell mutation changes the trajectory and is reproducible", "[gpu]") {
     CHECK(mutA != mutB);
 }
 
+TEST_CASE("the two backends agree on a rule expressible both ways (AV-007)", "[gpu][equivalence]") {
+    GlContext gl;
+    requireGl(gl);
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    const core::GridSpec spec{2, 61, 43, 1};
+
+    // Conway's Life as a table and as an expression tree. Which backend runs
+    // a rule must not change what the rule does, whatever LUT_MAX_ENTRIES
+    // happens to be.
+    rule::RuleIR table = dsl("B3/S23");
+    rule::RuleIR expression = lifeAsExpression();
+    table.boundary = expression.boundary = boundary;
+    REQUIRE(rule::selectBackend(table) == rule::Backend::Lut);
+    REQUIRE(rule::selectBackend(expression) == rule::Backend::Codegen);
+
+    auto run = [&](const rule::RuleIR& ir, bool onCpu) {
+        auto compiled = rule::compileRule(ir);
+        if (const auto* e = std::get_if<rule::CompileError>(&compiled)) FAIL(e->message);
+        const rule::CompiledRule& rule = std::get<rule::CompiledRule>(compiled);
+
+        core::HostGrid host(spec);
+        fill(host, 2, 0x11ce, 0.4);
+        auto made = core::GpuGrid::create(spec, core::queryVram());
+        REQUIRE(std::holds_alternative<core::GpuGrid>(made));
+        core::GpuGrid& gpu = std::get<core::GpuGrid>(made);
+        gpu.upload(host.current());
+
+        sim::GpuStepper stepper;
+        if (auto e = stepper.setRule(rule, spec)) FAIL(e->message);
+        for (int i = 0; i < kGenerations; ++i) {
+            if (onCpu) sim::cpuStep(rule, host, static_cast<uint64_t>(i), {});
+            else stepper.step(gpu);
+        }
+        std::vector<uint8_t> out(spec.bytesPerBuffer());
+        if (onCpu) std::copy(host.current().begin(), host.current().end(), out.begin());
+        else gpu.download(out);
+        return out;
+    };
+
+    const auto tableGpu = run(table, false);
+    CHECK(run(expression, false) == tableGpu);
+    CHECK(run(expression, true) == tableGpu);
+    CHECK(run(table, true) == tableGpu);
+}
+
+TEST_CASE("a generated rule is compiled once per rule, a table rule once per shape", "[gpu]") {
+    GlContext gl;
+    requireGl(gl);
+    const core::GridSpec spec{2, 16, 16, 1};
+    sim::GpuStepper stepper;
+
+    // Two table rules of one shape share a program: mutation is an upload.
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B3/S23"))), spec).has_value());
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B36/S23"))), spec).has_value());
+    CHECK(stepper.cachedPrograms() == 1);
+
+    // A generated rule is its program, so a different one compiles again...
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(lifeAsExpression())), spec).has_value());
+    CHECK(stepper.cachedPrograms() == 2);
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(shiftExpression())), spec).has_value());
+    CHECK(stepper.cachedPrograms() == 3);
+    // ...and the same one does not (SPEC §6: the cache is keyed on ir_hash).
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(lifeAsExpression())), spec).has_value());
+    CHECK(stepper.cachedPrograms() == 3);
+}
+
 TEST_CASE("GPU glider arrives at its predicted offset (AV-004 detector)", "[gpu]") {
     GlContext gl;
     requireGl(gl);
@@ -265,7 +426,7 @@ TEST_CASE("GPU glider arrives at its predicted offset (AV-004 detector)", "[gpu]
     core::GpuGrid& gpu = std::get<core::GpuGrid>(made);
     gpu.upload(host.current());
 
-    const rule::LutRule life = std::get<rule::LutRule>(rule::compileLut(dsl("B3/S23")));
+    const rule::CompiledRule life = std::get<rule::CompiledRule>(rule::compileRule(dsl("B3/S23")));
     sim::GpuStepper stepper;
     REQUIRE_FALSE(stepper.setRule(life, spec).has_value());
     for (int i = 0; i < 100; ++i) stepper.step(gpu);
@@ -283,11 +444,11 @@ TEST_CASE("changing the table without changing the shape compiles nothing", "[gp
     requireGl(gl);
     const core::GridSpec spec{2, 16, 16, 1};
     sim::GpuStepper stepper;
-    REQUIRE_FALSE(stepper.setRule(std::get<rule::LutRule>(rule::compileLut(dsl("B3/S23"))), spec).has_value());
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B3/S23"))), spec).has_value());
     CHECK(stepper.cachedPrograms() == 1);
-    REQUIRE_FALSE(stepper.setRule(std::get<rule::LutRule>(rule::compileLut(dsl("B36/S23"))), spec).has_value());
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B36/S23"))), spec).has_value());
     CHECK(stepper.cachedPrograms() == 1);
-    REQUIRE_FALSE(stepper.setRule(std::get<rule::LutRule>(rule::compileLut(dsl("B2/S/C3"))), spec).has_value());
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B2/S/C3"))), spec).has_value());
     CHECK(stepper.cachedPrograms() == 2);
 }
 
@@ -296,8 +457,8 @@ TEST_CASE("a rule whose dimensionality mismatches the grid is refused, leaving t
     requireGl(gl);
     const core::GridSpec spec{2, 16, 16, 1};
     sim::GpuStepper stepper;
-    REQUIRE_FALSE(stepper.setRule(std::get<rule::LutRule>(rule::compileLut(dsl("B3/S23"))), spec).has_value());
-    const auto err = stepper.setRule(std::get<rule::LutRule>(rule::compileLut(dsl("B5/S45", 3))), spec);
+    REQUIRE_FALSE(stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B3/S23"))), spec).has_value());
+    const auto err = stepper.setRule(std::get<rule::CompiledRule>(rule::compileRule(dsl("B5/S45", 3))), spec);
     REQUIRE(err.has_value());
     CHECK(err->message.find("3D") != std::string::npos);
     CHECK(stepper.hasRule());

@@ -75,10 +75,13 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Bundled rule library per the F-010 list, each rule with palette and description — fourteen rules in `rules/`, `--rule @id`, Library panel, user rules saved back (2026-09-14). Langton's loops and the 1D rules remain, each for a stated reason.
 - [x] Sandboxed Lua front end emitting IR (F-008, 2026-09-14)
 - [x] Instruction budget and abort path, plus a memory budget for scripts that fill memory rather than loop (2026-09-14)
-- [ ] GLSL codegen backend with template and shader cache
-- [ ] Automatic backend selection from IR shape
-- [ ] Backend equivalence test: rules expressible both ways compiled through both, compared
+- [x] GLSL codegen backend with template and shader cache — `rule/glsl` generates `aether_rule`, the step shader calls it, the cache is keyed on `ir_hash` (2026-09-15)
+- [x] Automatic backend selection from IR shape — `selectBackend`, reported in the UI as metadata and never a choice (2026-09-15)
+- [x] Backend equivalence test: rules expressible both ways compiled through both, compared (AV-007, 2026-09-15)
+- [x] `Expression` interpreter on the CPU path, so the oracle covers every rule the GPU runs (2026-09-15)
 **Acceptance:** A non-totalistic 3D Moore rule that cannot fit a lookup table runs correctly via generated GLSL, and every rule expressible through both backends produces identical output.
+**Status:** Complete 2026-09-15.
+**Acceptance run (2026-09-15, T1200):** a 3D Moore rule reading individual neighbours — 2²⁶ entries per state as a table — runs through codegen and agrees with the CPU oracle bitwise over 1000 generations under all three boundaries; Life compiled as a table and as an expression gives identical grids on both paths. Generating and compiling a rule costs 61 ms cold and under 2 ms warm against a 250 ms budget, and a generated 16-state rule steps 1024² at ~2,900 gen/s.
 
 ## Phase 5 — Continuous states
 **Goal:** Float-state automata sharing the existing pipeline.

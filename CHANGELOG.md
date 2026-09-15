@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- GLSL codegen backend (F-009, D-004): `rule/glsl` turns an expression IR into the `aether_rule` function of SPEC §6, the step shader calls it, and the program cache is keyed on `ir_hash` so a repeated rule compiles once (2026-09-15).
+- An `Expression` interpreter on the CPU path, so the oracle covers every rule the GPU can run; it mirrors the generator's rules for division by zero, 32-bit wrapping and clamping (2026-09-15).
+- Backend equivalence test (AV-007): Life as a table and as an expression, through both backends and both paths, identical under every boundary; expression fixtures including a 3D Moore rule with no finite table (2026-09-15).
 - `counted_totalistic` (IMP-001, D-016): a kind indexed on `(own state, count of neighbours in a set chosen by that state)`, so a rule pays `S·(N+1)` entries for the one question it asks instead of a combinatorial table. The DSL detects it, Lua declares it, `decay` propagates it (2026-09-14).
 - `rules/cyclic-14.lua`: Griffeath's fourteen-state cyclic rule, 126 entries where the full count vector needed 2.8 million (2026-09-14).
 - Rule library (F-010): `rule/library` reads rule files whose header is a comment block in their own language, so a file is compiled whole; thirteen bundled rules in `rules/` covering Life-like, Generations, cyclic, Wireworld, hexagonal, 3D, ageing and Lua; Library panel, `--rule @id`, and saving a rule back to `rules/` (2026-09-14).
@@ -52,7 +55,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `rule/neighbourhood`: canonical offset enumeration and counts per SPEC §3 (2026-09-11).
 - `rule/table_layout`: exact table sizes and index arithmetic per SPEC §5, with count-vector ranking for multi-state outer-totalistic rules (2026-09-11).
 - `rule/dsl`: parser for B/S, B/S/C and count-condition table blocks, emitting a Table or an Expression by the §5 threshold (2026-09-11).
-- Catch2 test suite (`tests/`) wired into CTest; 211 cases covering the above (2026-09-11).
+- Catch2 test suite (`tests/`) wired into CTest; 219 cases covering the above (2026-09-11).
 - CMake build fetching raylib 6.0 (4.3 backend), Dear ImGui 1.92.7 and rlImGui in-tree; `src/main.cpp` opens a window and verifies a compute dispatch, with `--gl-check` for a headless pass/fail (2026-09-11).
 - `BUILD.md` with prerequisites, dependency pins and PRIME offload instructions for the NVIDIA GPU (2026-09-11).
 - `LICENSE`: Apache-2.0 (2026-09-11).
@@ -68,6 +71,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- `LutRule` is `CompiledRule` and `compileLut` is `compileRule`: the type holds an expression and its generated GLSL as well as a table (2026-09-15).
+- `IntLiteral` values are validated to fit a signed 32-bit integer, which is what both execution paths compute in (2026-09-15).
 - Generations notation is now the two-state rule plus an ageing tail through the one decay transform (IMP-003), so `B2/S/C25` is a 225-entry table rather than an expression no backend could run (2026-09-14).
 - An ageing tail is bounded by SPEC §1's 256 states rather than by the table: 60 states cost 558 entries (2026-09-14).
 - B/S notation may now sit under a comment header and carry a trailing comment, which is what lets a rule file be handed to the front end whole (2026-09-14).
@@ -83,6 +88,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - D-009 project name moved from Proposed to Accepted on author confirmation; GitHub repository created at `Darian-Frey/Aether` (2026-09-11).
 
 ### Notes
+- Phase 4 complete 2026-09-15: both front ends, both backends, and the rule library.
 - Phase 3 complete 2026-09-12: 3D grids rendered as volumes with orbit, clip and slice; 256³ at 49 gen/s and 49 fps on the target GPU.
 - Phase 2 complete 2026-09-12: both mutation controls, lineage with pin/rewind, sessions that replay bit-identically across processes, and hexagonal lattices.
 - Phase 1 complete 2026-09-11: the 2D discrete core runs interactively with Life, HighLife, Brian's Brain and cyclic CAs at 1024² above 2,000 gen/s on the target GPU, CPU and GPU agreeing bitwise.

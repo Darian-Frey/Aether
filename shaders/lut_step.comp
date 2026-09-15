@@ -5,7 +5,7 @@
 //   AETHER_N         neighbour count
 //   AETHER_S         state count
 //   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic,
-//                    5 counted-totalistic
+//                    3 expression (aether_rule is prepended), 5 counted-totalistic
 //   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
 //
 // shaders/hash.glsl is prepended before this file.
@@ -90,6 +90,11 @@ void main() {
         nbr[i] = (nx < 0 || ny < 0 || nz < 0) ? 0u : readCell(ivec3(nx, ny, nz));
     }
 
+#if AETHER_KIND == 3
+    // Expression form: aether_rule is generated from the IR and prepended
+    // to this file by the stepper (SPEC §6).
+    uint next = aether_rule(own, nbr);
+#else
     uint index;
 #if AETHER_KIND == 5
     // Counted-totalistic (D-016): how many neighbours fall in the set this
@@ -131,8 +136,9 @@ void main() {
     }
     index = own * place + signature;
 #endif
-
     uint next = table[index];
+#endif
+
 
     // Cell mutation (SPEC §9.2). At threshold 0 the comparison is false for
     // every invocation and the branch is uniform across the wavefront.

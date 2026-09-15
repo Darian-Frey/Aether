@@ -62,15 +62,18 @@ void GpuStepper::releaseBuffers() {
     }
 }
 
-std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key) {
+std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key, const rule::CompiledRule& rule) {
     if (owned_.programs.contains(key)) return std::nullopt;
-    const auto& [dims, N, S, kind, boundary] = key;
+    const auto& [dims, N, S, kind, boundary, hash] = key;
+    (void)hash;
 
     std::string src = "#version 430\n";
     if (dims == 3) src += "#define AETHER_3D 1\n";
     src += std::format("#define AETHER_N {}\n#define AETHER_S {}\n#define AETHER_KIND {}\n#define AETHER_BOUNDARY {}\n",
                        N, S, static_cast<int>(kind), static_cast<int>(boundary));
     src += shaders::kHashGlsl;
+    // A generated rule arrives as the function the step calls (SPEC §6).
+    if (rule.backend == rule::Backend::Codegen) src += rule.glsl;
     src += "#line 1\n";
     src += shaders::kLutStepComp;
 
@@ -84,7 +87,7 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key) {
     return std::nullopt;
 }
 
-std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const core::GridSpec& spec) {
+std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, const core::GridSpec& spec) {
     if (rule.dimensions != spec.dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", rule.dimensions, spec.dimensions)};
     }
@@ -92,8 +95,9 @@ std::optional<core::Error> GpuStepper::setRule(const rule::LutRule& rule, const 
         return core::Error{"the table backend steps u8 grids only"};
     }
     const uint32_t N = rule.neighbourCount();
-    const ShapeKey key{rule.dimensions, N, rule.states, rule.kind, rule.boundary};
-    if (auto e = compileVariant(key)) return e;
+    const ShapeKey key{rule.dimensions, N, rule.states, rule.kind, rule.boundary,
+                       rule.backend == rule::Backend::Codegen ? rule.ir_hash : 0};
+    if (auto e = compileVariant(key, rule)) return e;
 
     // Build every buffer before touching the active set, so a failure
     // above leaves the previous rule running untouched.

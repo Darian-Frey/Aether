@@ -1,9 +1,10 @@
-// Lookup-table backend (SPEC §5, D-004).
+// Rule compilation (SPEC §5, SPEC §6, D-004).
 //
-// Turns a table-backed IR into the form both execution paths consume: the
-// table bytes, the layout that indexes them, the canonical neighbour offsets,
-// and the W table the multi-state ranking needs. Nothing here touches GL; the
-// GPU path uploads what this produces.
+// Turns an IR into the form both execution paths consume. Which form depends
+// on the rule: a table with the layout that indexes it and whatever auxiliary
+// data that layout needs, or — where no finite table will serve — an
+// expression, with the GLSL the GPU path will compile. Nothing here touches
+// GL; the GPU path uploads or compiles what this produces.
 
 #pragma once
 
@@ -27,7 +28,8 @@ struct CompileError {
     std::string message;
 };
 
-struct LutRule {
+struct CompiledRule {
+    Backend             backend = Backend::Lut;
     uint64_t            ir_hash;
     uint8_t             dimensions;
     uint16_t            states;
@@ -43,11 +45,18 @@ struct LutRule {
     // state mask per own state for CountedTotalistic, empty otherwise.
     std::vector<uint32_t> aux;
 
+    // Codegen only: the tree the CPU path walks, the types the validator
+    // inferred for it, and the GLSL the GPU path compiles.
+    Expression            expression;
+    std::vector<ExprType> expressionTypes;
+    std::string           glsl;
+
     uint32_t neighbourCount() const { return static_cast<uint32_t>(offsets.size()); }
 };
 
-// Fails for IRs the table backend does not serve: non-table forms, f32, or a
-// table over the threshold. A failure allocates no table (AV-010).
-std::variant<LutRule, CompileError> compileLut(const RuleIR& ir);
+// Compiles through whichever backend the IR's shape selects (D-004). Fails
+// for f32 rules, for a table over the threshold that has no expression form
+// to fall back on, and for kernels. A failure allocates no table (AV-010).
+std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir);
 
 }  // namespace aether::rule

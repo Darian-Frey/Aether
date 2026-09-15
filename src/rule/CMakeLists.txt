@@ -5,7 +5,8 @@ add_library(aether_rule STATIC
     dsl.cpp
     ir.cpp
     ir_json.cpp
-    lut.cpp
+    compile.cpp
+    glsl.cpp
     neighbourhood.cpp
     table_layout.cpp)
 
