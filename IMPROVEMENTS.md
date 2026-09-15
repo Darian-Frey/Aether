@@ -23,7 +23,25 @@ Entry format:
 
 ## Suggested
 
-*None.*
+### IMP-004: the Seed button sits below the controls it is the point of
+**Status:** suggested
+**Found:** 2026-09-15 (the author asked for a seed button that already existed)
+**Location:** `src/ui/panels.cpp` (`Grid` section)
+**Effort:** trivial
+**Description.** The Grid section runs: size fields, a separator, "Random fill density", up to sixteen sliders, a total warning, "even spread", and only then the `Seed` button with Clear, Fit and Fill view beside it. The sliders are the rarely touched part and the button is the thing a user reaches for every few minutes, so the section is ordered opposite to how it is used. It is discoverable enough that it was requested as a new feature by someone who has been using the application for a week, which is the clearest evidence available that its placement is wrong.
+**Proposal.** Put the action row — Seed, Clear, Fit, Fill view — directly under the size fields, above the density block, and collapse the sliders behind a "Random fill density" tree node closed by default. The `R` shortcut is unchanged.
+**Trade-offs.** The densities become one click further away, and the relationship between the sliders and what Seed does gets less obvious when they are not adjacent — the button would want a tooltip naming the densities it is about to use. Moving a control the author has learned the position of is a cost paid once.
+**Notes.** Raised alongside F-028, which adds seeding of a dragged region; if both land, the action row carries two seed gestures and is worth laying out once rather than twice. Doing this before F-028 is fine and doing it after avoids moving the same widgets twice.
+
+### IMP-005: `cpuStep` has no per-cell entry point
+**Status:** suggested
+**Found:** 2026-09-15 (planning the cell inspector, F-030)
+**Location:** `src/sim/cpu_step.cpp` (`cpuStep`)
+**Effort:** small
+**Description.** The oracle computes, for every cell of every generation, precisely what somebody would want to know about one cell: the neighbour states it gathered, the count vector or table index it derived, the entry or clause that fired, and the state that came out. All of it is local to the loop body and thrown away. Anything else that wants it — the inspector of F-030, a diagnostic for a failing equivalence case, a future rule debugger — has to recompute it, and recomputing it means a second implementation of the index arithmetic.
+**Proposal.** Extract the loop body into a function over (rule, spec, coordinate, read buffer) returning the next state together with the working that produced it. `cpuStep` becomes a loop over that function. No new tests are needed to cover it: every existing equivalence case exercises it the moment it exists.
+**Trade-offs.** The oracle is deliberately "serial, unoptimised, and obviously correct", and a per-cell struct of working is a host allocation per cell if written carelessly — invariant 8 applies to the CPU path as much as the GPU one, so it must be a plain aggregate filled in place. Returning the working unconditionally also charges the step loop for something almost every caller discards; if that shows in the oracle's runtime, the explaining half moves behind a second entry point and the saving is lost.
+**Notes.** A prerequisite for F-030 rather than a free-standing improvement, but it earns its place on its own: a failing equivalence case today reports which cell disagreed and nothing whatever about why.
 
 ## Applied
 

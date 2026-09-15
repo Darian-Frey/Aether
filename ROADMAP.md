@@ -97,12 +97,16 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 ## Phase 6 — Presentation and release
 **Goal:** The things that make it pleasant rather than merely correct.
 **Status:** Not started
-**Features delivered:** F-005, F-012, F-021, F-022, F-024
+**Features delivered:** F-005, F-012, F-021, F-022, F-024, F-027, F-028, F-029, F-030
 **Deliverables:**
 - [ ] Screensaver mode: fullscreen playlist of bundled rules with optional mutation, exits on input (F-024, added 2026-09-12)
 - [ ] 1D elementary automata with space-time rendering
-- [ ] RLE import with placement
+- [ ] Pattern import and export: extended RLE for 2D square grids, a native format for hexagonal, 3D and multi-state ones, with cursor placement and journalled commits (F-012, widened 2026-09-15 by D-017)
+- [ ] Bundled pattern library in `patterns/`, listed and placeable the way the rule library is (F-027, added 2026-09-15)
+- [ ] Region seeding: seed a dragged rectangle at the fill densities (F-028, added 2026-09-15), and lift the whole-grid Seed control out from under the density sliders (IMP-004)
+- [ ] Pattern editor: a host-side scratch pad painted a cell at a time, stepping forward and back independently of the live run, saving to `patterns/` (F-029, added 2026-09-15 by D-018)
+- [ ] Cell inspector: the state, neighbours, counts and rule clause behind one cell's transition, taken from the oracle's own per-cell entry point rather than derived a second time (F-030, AV-017; needs IMP-005)
 - [ ] PNG and frame-sequence export
 - [ ] Headless mode
 - [ ] `BENCHMARKS.md` with baseline numbers for each acceptance target
-**Acceptance:** A first tagged release with a populated rule library and reproducible benchmark figures.
+**Acceptance:** A first tagged release with a populated rule library, a populated pattern library and reproducible benchmark figures.

@@ -70,6 +70,18 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 **Detection.** Implemented 2026-09-11. `sim::mutateRule` validates every candidate and redraws up to 8 times; `tests/sim/rule_mutation_test.cpp` walks 10⁶ table edits across the fixture set asserting validity, and an expression fixture (a 25-state Generations rule) exercises the redraw path on every run. The cap itself is exercised only in the sense that its exhaustion returns "no mutation" and is counted as a skip; no fixture reliably produces eight invalid draws in a row.
 **Related decisions.** D-002 (IR as single target), D-005.
 
+### AV-016 Malformed or hostile pattern file
+**Severity:** Major
+**Description.** *(Phase 6.)* A pattern file is external data reaching the engine, as a session file is and as nothing the DSL or Lua front ends produce is. An RLE run-length header can claim an extent no allocation can satisfy, a native pattern can name a state index the grid's rule does not have or a lattice the grid is not, and either can stop halfway through a run. The failures that follow are an out-of-range write into the grid, an allocation sized from a number the file chose, and a half-placed pattern left behind by a parse that gave up part-way.
+**Detection.** Not implemented (feature not yet built). Planned: the parser computes the pattern's extent before allocating anything, as AV-010 requires of tables; placement is all-or-nothing against an already validated pattern, as AV-014 requires of rule compilation; a fixture set of truncated, oversized and out-of-range files is expected to be refused with a diagnostic rather than to crash or to place part of itself.
+**Related decisions.** D-017 (pattern formats), D-013 (journal), F-012.
+
+### AV-017 Inspector explains a transition the engine did not perform
+**Severity:** Major
+**Description.** *(Phase 6.)* The cell inspector (F-030) exists to be believed: it is read at exactly the moments the user cannot work the answer out unaided. An inspector that derives the transition in its own code is a second implementation of SPEC §5's index arithmetic and SPEC §6's evaluation rules, free to drift from the one the engine runs. This is worse than a divergent backend, which betrays itself by producing visibly wrong automata; a divergent inspector produces confident, plausible prose about a cell, and the user has no way to check it. Boundary handling is the likeliest place to drift: an inspector that resolves neighbours differently from `sim::resolve` explains every interior cell correctly and lies about every cell on the rim.
+**Detection.** Not implemented (feature not yet built). Planned: structural — the inspector calls the per-cell entry point the stepper itself is a loop over (IMP-005), so there is one implementation rather than two. Test: over every equivalence fixture and every boundary mode, the inspector's predicted next state equals the state `cpuStep` writes, for every cell of the grid including edges and corners.
+**Related decisions.** D-018 (the inspector is the oracle), D-011 (CPU reference as oracle), AV-005, AV-007.
+
 ---
 
 ## Rule authoring

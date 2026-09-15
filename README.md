@@ -86,7 +86,7 @@ aether/
 │   └── main.cpp
 ├── shaders/         Compute and fragment shaders, plus codegen templates
 ├── rules/           Bundled rule library
-├── patterns/        RLE pattern library
+├── patterns/        Bundled pattern library
 ├── tests/
 └── docs/
 ```

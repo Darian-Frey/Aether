@@ -146,12 +146,17 @@ People who want to explore cellular automata rather than run one specific automa
 **Status:** Complete
 **Progress:** 2026-09-12. 2D brush on square and hex lattices; in 3D, painting on the selected axis-aligned slice in slice mode, picked by ray–slab intersection. All painting through `paintSpan` with no readback.
 
-### F-012 RLE pattern import
+### F-012 Pattern import and export
 **Priority:** Should
 **Acceptance:**
 - Standard Life RLE files import, including the `#r`/`rule=` header
-- Imported pattern is placeable by cursor before being committed to the grid
+- Golly's extended RLE imports and exports for multi-state 2D square patterns, so Generations, cyclic and Wireworld creatures pass between Aether and other tools
+- A native format carries what no RLE dialect describes: hexagonal lattices, 3D patterns and any state count, sharing the session cell codec
+- Imported pattern is placeable by cursor before being committed to the grid, and placement journals itself like any other grid mutation, so a session replays a pasted pattern
+- A selected region of the grid exports to a file: extended RLE where the pattern fits it, the native format otherwise, with the choice reported rather than silent
+- A pattern whose lattice or state count does not fit the current grid is refused with a diagnostic, never coerced
 **Status:** Not started
+**Notes:** Widened 2026-09-15 by D-017 from import-only to import and export across two formats. As originally written the entry named standard RLE alone, which describes two states on a square lattice and so could not carry patterns for most of the bundled rules.
 
 ### F-013 Random seeding
 **Priority:** Must
@@ -160,6 +165,51 @@ People who want to explore cellular automata rather than run one specific automa
 - Seeded from the session RNG so the same seed reproduces the same fill
 **Status:** Complete
 **Progress:** 2026-09-11. Per-state densities, one stream-A draw per cell, `--seed` reproduces the fill.
+
+### F-027 Bundled pattern library
+**Priority:** Should
+**Acceptance:**
+- Named patterns bundled in `patterns/`, listed in the interface and placeable into the grid by cursor
+- Searched at run time the way `rules/` is, with `$AETHER_PATTERNS` taking precedence
+- Each pattern names the rule it is meant for, with a description and its provenance
+- The bundled set covers the families the rule library already ships: Life spaceships and a gun, a Brian's Brain oscillator, a Wireworld circuit, a cyclic-CA seed, a hexagonal pattern, and a 3D pattern for Bays' rules
+- User patterns save back to `patterns/` from the same panel, as user rules do to `rules/`
+- A test loads every bundled pattern and checks it parses and fits the rule it names, as the rule-library test does
+**Status:** Not started
+**Notes:** Added 2026-09-15 by D-017. This is the pattern counterpart of F-010, and depends on F-012 for both formats. `patterns/` has existed empty since the tree was created and the README has advertised it since; this is the entry that fills it.
+
+### F-028 Region seeding
+**Priority:** Should
+**Acceptance:**
+- A dragged rectangle seeds only the cells inside it, at the density weights of F-013, leaving the rest of the grid untouched
+- Drawn from stream A like the whole-grid fill and journalled with its bounds, so a session replays it exactly
+- Works on both execution paths and every lattice; in 3D it acts on the painting slice, as F-011 does
+- The whole-grid fill keeps its control and its `R` shortcut
+**Status:** Not started
+**Notes:** Added 2026-09-15 by D-017. Region seeding and pattern placement are the same gesture from opposite directions: put something into part of the grid, from the random side or from the library. The related complaint — that the existing whole-grid Seed button is hard to find beneath the density sliders — is a presentation change rather than a feature, logged as IMP-004.
+
+### F-029 Pattern editor
+**Priority:** Should
+**Acceptance:**
+- A scratch-pad grid, sized independently of the simulation, painted one cell at a time at any state with the F-011 brush
+- Steps forward and back a generation at a time on the CPU path, independently of the live simulation, which carries on or stays paused as it was
+- Adopts the live simulation's rule by default, with any bundled rule selectable instead
+- Saves to and loads from `patterns/` in the formats of F-012
+- Its contents place into the live grid through F-012's placement path, journalled like any other grid mutation
+- Runs with no GL context, so it is testable headlessly
+**Status:** Not started
+**Notes:** Added 2026-09-15 by D-018. Deliberately outside the session and the journal: the scratch pad is not part of the run, so it neither replays nor perturbs replay. Stepping backwards is affordable only because the grid is small and host-side — a history ring is nothing here and would be unthinkable on a 256³ grid.
+
+### F-030 Cell inspector
+**Priority:** Should
+**Acceptance:**
+- For the cell under the cursor: its state, every neighbour's state laid out in the neighbourhood's own geometry, the counts the rule actually asks about, the table entry or expression clause that fires, and the state it becomes
+- Every figure comes from the oracle's per-cell entry point; the inspector never derives a transition of its own
+- Neighbours are resolved through `sim::resolve`, the same boundary handling the step uses, so a cell on an edge or in a corner explains correctly
+- Covers all four table kinds and the expression form
+- A test asserts the inspector's predicted next state equals what `cpuStep` writes, for every cell of every equivalence fixture under every boundary
+**Status:** Not started
+**Notes:** Added 2026-09-15 by D-018, as the inspecting half of the editor. Depends on IMP-005. Built for the scratch pad of F-029, but nothing in it is specific to that grid — pointing it at a running simulation is a readback problem, not an inspector problem, and is the reversal condition recorded in D-018.
 
 ## Dynamics
 

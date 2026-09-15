@@ -421,3 +421,65 @@ The front ends choose the form, since nothing downstream can infer it:
 - Both execution paths gain an index scheme, which is two more chances to disagree — the equivalence fixtures now include counted rules with a set that varies per own state, which is the case a mistake would show up in.
 
 **Reversal conditions.** Revisit if a third indexing scheme is ever wanted, at which point the kinds are doing enough work to deserve a table of index functions rather than a switch.
+
+---
+
+### D-017 Patterns carry extended RLE where it reaches and a native format where it does not
+**Decided:** 2026-09-15
+**Recorded:** 2026-09-15
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-15)
+**Related:** F-012, F-027, F-028, F-010, AV-016, SPEC.md §11, README.md
+
+**Context.** F-012 asked for "standard Life RLE files" and stopped there. RLE as the Life community uses it describes a two-state pattern on a 2D square lattice. This engine runs up to 256 states (SPEC §1) on square, hexagonal and 3D lattices, and most of the fourteen bundled rules are outside the family RLE can describe. A library of creatures to drop into a grid therefore cannot be written in the format F-012 named: a Wireworld diode, a cyclic-CA seed and a 3D Bays glider are all unrepresentable in it.
+
+**Options.**
+- **A. Standard RLE only, as F-012 is written.** Rejected: it serves Life and little else. The bundled library could hold spaceships and guns and nothing from the other nine rules, and export would have to refuse most of what is on screen at any given moment.
+- **B. One native format for everything.** Rejected, though it is the smaller job — the session cell codec already encodes a grid of any lattice and state count, so this is nearly free. It cuts the project off from sixty years of published Life patterns, every one of which would have to be retyped by hand to enter the library.
+- **C. Extended RLE where it reaches, a native format where it does not.** Chosen. Golly's extended RLE carries multi-state 2D patterns through its state letters and names its rule in the header, so Life-like, Generations, cyclic and Wireworld patterns move in and out in a format other tools already read. Hexagonal and 3D patterns, which no RLE dialect describes, use a native JSON format sharing the session's cell codec. The reader picks by extension; the writer picks by what the pattern is.
+- **D. Extend RLE ourselves to cover hexagonal and 3D.** Rejected. A private dialect of a format other tools read is worse than a plainly separate format: the file would claim to be RLE, fail to open in Golly, and the failure would look like a defect in whichever tool the user blamed first. A distinct extension is honest about what it is.
+
+**Decision.** Option C. F-012 widens from import to import and export and names both formats. F-027 adds the bundled pattern library that `patterns/` has been reserved for since the tree was created. F-028 adds region seeding, which is the same gesture — put something into part of the grid — arriving from the random side rather than the library side. All three sit in Phase 6, where F-012 already was; nothing here blocks Phase 5.
+
+**Consequences.**
+- SPEC gains §14, the pattern format: the extended-RLE subset accepted and emitted, the native JSON schema, and the rule by which a pattern whose lattice or state count does not match the grid is refused rather than coerced.
+- Placement is a grid mutation, so it journals itself like every other user-reachable mutator and a session that pastes a creature replays it. Without that the feature would quietly break the determinism contract of D-006.
+- A pattern file is external data reaching the engine, which is what `rule/ir_json` is for rules: validate, then build, never build while validating. AV-016 records the failure mode.
+- `patterns/` gains content and a search order matching `rules/` — `$AETHER_PATTERNS`, `./patterns`, `<exe>/patterns`, `<exe>/../patterns`.
+- README's "RLE pattern library" line narrows to what the directory actually holds.
+- A pattern that came in as RLE and has not left what RLE can say goes back out as RLE. Where the grid has drifted past that, export writes the native format and says which it chose.
+
+**Reversal conditions.** If the extended-RLE reader proves larger than the corpus it unlocks is worth, fall back to option B — the native format alone, with a one-way RLE importer. The native format is what the library depends on; RLE is the bridge to everyone else's work.
+
+---
+
+### D-018 The pattern editor is a host-side scratch pad, and its inspector is the oracle itself
+**Decided:** 2026-09-15
+**Recorded:** 2026-09-15
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-15)
+**Related:** F-029, F-030, F-012, F-027, IMP-005, AV-017, AV-002, D-011
+
+**Context.** Authoring a creature cell by cell needs two things the engine does not have: somewhere to draw that is not the running simulation, and a way to see what the rule will do to a cell and its neighbours. The second is the harder half, though not for the reason it first appears. The information is not new or expensive — `cpuStep` computes every part of it for every cell of every generation — but it is computed inside a loop body and discarded, with no per-cell entry point to ask for it.
+
+**Options — where the editing happens.**
+- **A. In place on the live grid.** Rejected for now. It shows the creature in the context it will live in, which is genuinely the better view, but every edit journals, experimenting means altering the run being watched, and on the GPU path the host grid is stale — so an inspector open on a live grid needs a readback every frame, which is AV-002 in the place AV-002 warns about.
+- **B. A host-side scratch pad.** Chosen. A small grid of its own, stepped on the CPU path, independent of whatever the simulation is doing. No readback, no journal entries, no disturbance to a running session, and being small it can afford luxuries the main grid cannot — a history ring giving a step-backward control, for one.
+- **C. Both.** Deferred, not rejected. The inspector built for B works unchanged on a live grid; what C adds is the region readback and a policy for how often to take it. Left as a reversal condition rather than a candidate feature, because the decision that would need revisiting is this one.
+
+**Options — where the explanation comes from.**
+- **D. The inspector derives the transition itself.** Rejected. It is the obvious implementation and it is a trap: a second implementation of SPEC §5's index arithmetic and SPEC §6's evaluation rules, free to drift from the first, whose entire purpose is to be believed. This is the AV-005 and AV-007 failure mode in a new place, and worse there than in a backend, because a divergent backend produces visibly odd automata while a divergent inspector produces confident prose. It is consulted precisely when the user cannot check the answer.
+- **E. The inspector calls the oracle.** Chosen. `cpuStep`'s loop body becomes a function that returns a cell's next state together with the working that produced it; the stepper is a loop over that function and the inspector is a single call to it. One implementation, and the equivalence suite covers it from the moment it is extracted.
+
+**Decision.** B and E. F-029 is the scratch pad, F-030 the inspector, IMP-005 the extraction that makes E possible. All three are Phase 6, with F-012 and F-027 — an editor with no format to save into is half a feature.
+
+**Consequences.**
+- `sim/cpu_step` gains a per-cell entry point returning the transition and its working: neighbour states as gathered, the counts or table index derived, the entry or clause that fired, the resulting state. `cpuStep` becomes a loop over it, so there remains exactly one implementation of what a cell does. IMP-005 records the refactor and the allocation trap in it — invariant 8 applies to the CPU path too.
+- AV-017 records the divergence this is all guarding against, with the test that catches it: the inspector's predicted next state must equal what the stepper writes, for every cell of every equivalence fixture under every boundary. Edges and corners are the cells that matter, since an inspector resolving neighbours differently from `sim::resolve` explains the interior perfectly and lies about the rim.
+- The scratch pad is host-side, so no readback is needed and `core/gpu_grid` gains nothing. Option C would need a `downloadRegion`, and on GL 4.3 that is a compute shader copying a region into an SSBO — `glGetTextureSubImage` is 4.5 and not available to us.
+- The scratch pad sits outside the session and the journal by design: it is not part of the run, so it neither replays nor perturbs replay. Placing its contents into the live grid does journal, through F-012's placement path.
+- It defaults to the live simulation's rule, so what it shows is what the creature will do where it is going, with any bundled rule selectable instead.
+- Being host-side and free of GL, the scratch pad and the inspector are testable with no display, which most of `ui/` is not.
+- Its contents are a pattern as SPEC §14 defines one. No new format.
+
+**Reversal conditions.** If the inspector turns out to be wanted more on a running grid than on the scratch pad, promote option C. The inspector itself does not change — it is already the oracle — and the work is the region readback plus a policy for when to take it.
