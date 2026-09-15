@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 
 namespace aether::ui {
@@ -35,6 +36,12 @@ int App::run() {
     int exitCode = 0;
     {
         rlImGuiSetup(true);
+        // Keep the layout ImGui remembers out of whatever directory the
+        // binary was launched from, which is where it lands by default.
+        iniPath_ = configDirectory() + "/imgui.ini";
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(iniPath_).parent_path(), ec);
+        ImGui::GetIO().IniFilename = iniPath_.c_str();
 
         auto made = render::Renderer2D::create();
         if (const auto* e = std::get_if<core::Error>(&made)) {
@@ -187,6 +194,18 @@ void App::refreshRuleSummary() {
                                compiled.backend == rule::Backend::Codegen
                                    ? std::string("codegen")
                                    : std::format("table {}", compiled.table.size()));
+}
+
+// Somewhere per-user to keep interface state: the XDG location if the
+// environment names one, the conventional fallback otherwise.
+std::string App::configDirectory() {
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0') {
+        return std::string(xdg) + "/aether";
+    }
+    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        return std::string(home) + "/.config/aether";
+    }
+    return ".";
 }
 
 // Where the three regions sit. Called every frame so a resize is free.

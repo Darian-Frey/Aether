@@ -26,6 +26,16 @@ Entry format:
 
 ## Fixed
 
+### BUG-009: the application writes its interface state into the working directory
+**Status:** fixed
+**Found:** 2026-09-15 (noticed in the file list of the interface commit)
+**Fixed:** 2026-09-15
+**Location:** `src/ui/app.cpp`; `imgui.ini`
+**Severity:** low
+**Description.** Dear ImGui saves the layout it remembers to `imgui.ini` beside whatever directory the binary was launched from, and nothing had told it otherwise. So a run from the project root left a file in the repository — where it was committed by accident in `eb1889f` and then rewrote itself on every subsequent run, dirtying the tree — and a run from anywhere else littered that directory too.
+**Reproduction.** `cd /tmp && aether --frames 1`, then look for `/tmp/imgui.ini`.
+**Notes.** Fixed by pointing `IniFilename` at `$XDG_CONFIG_HOME/aether/imgui.ini`, falling back to `~/.config/aether`, and by untracking the file and ignoring it. The path string has to outlive the call, since ImGui keeps the pointer rather than a copy.
+
 ### BUG-008: default random-fill densities sum to more than one above nine states
 **Status:** fixed
 **Found:** 2026-09-14 (D-016, rendering the fourteen-state cyclic rule)

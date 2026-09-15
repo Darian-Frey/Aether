@@ -56,6 +56,7 @@ private:
     bool createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path);
     bool is3D() const;
     void layOut();
+    static std::string configDirectory();
     render::VolumeSettings volumeSettings() const;
     void drawViewPanel();
     void paintAt3D(const std::array<int, 3>& cell);
@@ -108,6 +109,7 @@ private:
     render::Rect   viewport_;
     render::Rect   panelRect_;
     bool           showHelp_ = false;
+    std::string    iniPath_;   // must outlive ImGui, which keeps the pointer
 
     rule::DslContext ctx_;
     std::array<char, 65536> ruleText_{};   // Lua scripts are longer than B/S notation

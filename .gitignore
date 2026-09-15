@@ -4,6 +4,11 @@ build-*/
 cmake-build-*/
 CMakeUserPresets.json
 
+# Runtime state: Dear ImGui writes its layout beside whatever directory the
+# binary is launched from unless told otherwise, and the app now tells it
+# otherwise. This catches the copies made before that.
+imgui.ini
+
 # Editor and tooling
 .cache/
 .vscode/

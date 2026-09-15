@@ -67,6 +67,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-009: the interface state file is written to `$XDG_CONFIG_HOME/aether/` rather than beside whatever directory the binary was launched from, and is no longer tracked (2026-09-15).
 - BUG-008: the default random-fill densities summed past one above nine states, so a rule's last states were never seeded — the fourteen-state cyclic rule started with four of its states missing. `sim::defaultDensity` now spreads evenly over a rule's live states and leaves its ageing tail empty, replacing three copies of the arithmetic (2026-09-15).
 - BUG-007: `GpuStepper`'s move constructor dropped later-added fields, so the GPU path of any `Simulation` ran without cell mutation; state is now split into exchanged handles and copied config (2026-09-12).
 - BUG-006: append-only lineage versus grid rewind; grid rewind now truncates (2026-09-12).
