@@ -14,6 +14,7 @@ add_executable(aether_tests
     rule/library_test.cpp
     rule/compile_test.cpp
     rule/glsl_test.cpp
+    rule/growth_test.cpp
     rule/ir_json_test.cpp
     sim/boundary_test.cpp
     sim/cpu_step_test.cpp

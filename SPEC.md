@@ -204,6 +204,8 @@ uint aether_rule(uint self, uint nbr[N]);        // u8 cell type
 float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 ```
 
+`ExprOp::Self` names whichever value the expression is a function of, and its type follows: the own state, an integer, in a transition expression; the convolution result, a float, in a `Kernel`'s growth expression. Typing it as an integer everywhere made every useful growth function ill-typed, since the numeric operators require both operands to share a type — so the only growth expressions that validated were those that ignored the convolution entirely (BUG-010, corrected 2026-09-16).
+
 `nbr` holds the neighbours in the canonical order of §3. The generator emits one statement per node of the expression arena, in arena order — children precede parents, so a single forward pass suffices and no node is evaluated twice.
 
 Requirements on generated code:
@@ -331,7 +333,16 @@ A rule script is a Lua chunk returning a table convertible to a `RuleIR`. It exe
 
   The function must return a state in `0 … S-1`; anything else is a compile error naming the arguments that produced it.
 
-The function form is what makes a large hand-specified automaton practical to write, since the script can compute an entry rather than lay out a table of thousands. `expression` and `continuous` rules cannot yet be returned: no backend can execute one.
+The function form is what makes a large hand-specified automaton practical to write, since the script can compute an entry rather than lay out a table of thousands.
+
+**Continuous rules** (2026-09-16). A script with `cell_type = "f32"` takes the `continuous` kind and returns a `kernel` and a `growth` instead of a `transition`; it has no `states`, an `f32` cell holding a value rather than an index into a state set (§1).
+
+- `kernel = {shape = "radial" | "explicit", profile = {...}}`. `profile` is a list of numbers: samples from the centre outward for `radial`, `(2r+1)^d` row-major weights for `explicit`. The shell is computed by the script — `math` is in the sandbox — so a Gaussian or polynomial kernel arrives already sampled and nothing in the engine has to know which it was.
+- `growth = {form, mu, sigma}`, a named function rather than an expression. `rectangular` is `1` inside `[mu - sigma, mu + sigma]` and `-1` outside; `polynomial` is `2·max(0, 1 − (u − mu)² / 9sigma²)⁴ − 1`. Both lower to the expression form of §6 in the front end, so backends see an ordinary `Kernel` and know nothing about the names, as they know nothing about `decay`. `sigma` must be positive and `mu` must lie in `0 … 1`, the range a normalised kernel over cells in `[0, 1]` can convolve to.
+
+The set of forms is closed deliberately. Lenia's third growth function is a Gaussian, which needs `exp`, and §6 forbids relying on built-ins whose precision the driver decides; adding one would work directly against AV-015 in the phase that already expects to narrow the determinism claim for `f32`.
+
+`expression` rules still cannot be returned — not for want of a backend, codegen executes them, but because there is no way to write one here.
 
 ---
 

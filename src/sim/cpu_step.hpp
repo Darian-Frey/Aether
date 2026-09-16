@@ -24,6 +24,13 @@ struct ExprValue {
     bool    b = false;
 };
 
+// A continuous rule's growth function at one convolution value (Phase 5).
+// The same arena walk the discrete path uses, so the two cannot drift; `types`
+// comes from expressionTypes(growth, 0, 0, true), where the trailing flag is
+// what makes Self the convolution result rather than an own state (BUG-010).
+float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType> types,
+                 float convolution, std::vector<ExprValue>& scratch);
+
 // Working room for a cell's transition, sized from the rule. Make one and
 // reuse it for every cell: the step loop allocates nothing (ARCHITECTURE
 // §Key invariants 8). After a stepCell call, `neighbours` and `counts` hold

@@ -1,6 +1,8 @@
 #include "rule/dsl.hpp"
 #include "rule/lua.hpp"
 #include "rule/table_layout.hpp"
+#include <format>
+#include "rule/growth.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -225,11 +227,14 @@ TEST_CASE("a rule too large for the table backend is refused with its size", "[l
     CHECK(m.find("65536") != std::string::npos);
 }
 
-TEST_CASE("kinds with no backend are refused rather than half-built", "[lua]") {
-    CHECK(errorOf("return { states = 2, kind = 'continuous', neighbourhood = { type = 'moore', radius = 1 }, transition = {} }")
-              .find("no backend") != std::string::npos);
+TEST_CASE("a kind with no way to write it is refused rather than half-built", "[lua]") {
+    // Expression is the one left: codegen executes expressions perfectly well,
+    // so the reason is authorship rather than any missing backend (2026-09-16).
     CHECK(errorOf("return { states = 2, kind = 'expression', neighbourhood = { type = 'moore', radius = 1 }, transition = {} }")
-              .find("no backend") != std::string::npos);
+              .find("no way to write one") != std::string::npos);
+    // Continuous used to sit here too, and is authorable as of Phase 5 step 2.
+    CHECK(errorOf("return { states = 2, kind = 'continuous', neighbourhood = { type = 'moore', radius = 1 }, transition = {} }")
+              .find("do not agree") != std::string::npos);
 }
 
 TEST_CASE("dimensions and boundary come from the context unless the script says", "[lua]") {
@@ -251,4 +256,85 @@ TEST_CASE("dimensions and boundary come from the context unless the script says"
     )", ctx);
     CHECK(says.dimensions == 2);
     CHECK(says.boundary == Boundary::Zero);
+}
+
+TEST_CASE("Lua authors a continuous rule: a kernel shell and a named growth function", "[lua]") {
+    // The script works the kernel out with math.*, which is the whole reason
+    // Lua was the cheap route to kernel authoring: nothing in C++ has to know
+    // what a Gaussian shell is, because the profile arrives as samples.
+    const char* src = R"(
+        local r = 13
+        local profile = {}
+        for i = 0, r do
+            local x = i / r
+            profile[i + 1] = math.exp(-((x - 0.5) ^ 2) / (2 * 0.15 ^ 2))
+        end
+        return {
+            cell_type = "f32",
+            kind = "continuous",
+            dimensions = 2,
+            neighbourhood = { type = "moore", radius = r },
+            kernel = { shape = "radial", profile = profile },
+            growth = { form = "polynomial", mu = 0.15, sigma = 0.015 },
+            metadata = { name = "Lenia-like" },
+        }
+    )";
+    const RuleIR ir = ok(src);
+    CHECK(ir.cell_type == aether::core::CellType::F32);
+    CHECK(ir.kind == Kind::Continuous);
+    CHECK(ir.neighbourhood.radius == 13);
+    REQUIRE(std::holds_alternative<Kernel>(ir.transition));
+    const Kernel& k = std::get<Kernel>(ir.transition);
+    CHECK(k.shape == Kernel::Shape::Radial);
+    CHECK(k.profile.size() == 14);
+    // The shell peaks partway out and falls off at both ends, which is what
+    // makes a Lenia kernel an annulus rather than a disc.
+    CHECK(k.profile[7] > k.profile.front());
+    CHECK(k.profile[7] > k.profile.back());
+    CHECK(k.growth == growthExpression({GrowthForm::Polynomial, 0.15f, 0.015f}));
+    CHECK(ir.metadata.name == "Lenia-like");
+    CHECK(validate(ir).empty());
+}
+
+TEST_CASE("an explicit kernel must have one weight per neighbourhood site", "[lua]") {
+    auto script = [](int radius, int weights) {
+        std::string p;
+        for (int i = 0; i < weights; ++i) p += (i ? ", " : "") + std::string("0.1");
+        return std::string(R"(
+            return { cell_type = "f32", kind = "continuous", dimensions = 2,
+                     neighbourhood = { type = "moore", radius = )") + std::to_string(radius) +
+               R"( }, kernel = { shape = "explicit", profile = { )" + p + R"( } },
+                     growth = { form = "rectangular", mu = 0.3, sigma = 0.05 } })";
+    };
+    CHECK(errorOf(script(1, 9)) == "<compiled>");         // 3x3
+    CHECK(errorOf(script(1, 8)).find("needs 9") != std::string::npos);
+}
+
+TEST_CASE("a continuous rule is refused what it cannot mean", "[lua]") {
+    auto withGrowth = [](const std::string& form, const std::string& mu, const std::string& sigma) {
+        return std::string(R"(
+            return { cell_type = "f32", kind = "continuous", dimensions = 2,
+                     neighbourhood = { type = "moore", radius = 2 },
+                     kernel = { shape = "radial", profile = { 1, 0.5, 0.25 } },
+                     growth = { form = ")") + form + R"(", mu = )" + mu + ", sigma = " + sigma + " } }";
+    };
+    CHECK(errorOf(withGrowth("polynomial", "0.15", "0.015")) == "<compiled>");
+    CHECK(errorOf(withGrowth("gaussian", "0.15", "0.015")).find("unknown growth form") != std::string::npos);
+    CHECK(errorOf(withGrowth("polynomial", "0.15", "0")).find("sigma must be positive") != std::string::npos);
+
+    // An f32 cell holds a value, so a state count has nothing to describe.
+    CHECK(errorOf(R"(
+        return { cell_type = "f32", kind = "continuous", states = 4, dimensions = 2,
+                 neighbourhood = { type = "moore", radius = 2 },
+                 kernel = { shape = "radial", profile = { 1 } },
+                 growth = { form = "rectangular", mu = 0.3, sigma = 0.05 } }
+    )").find("has no 'states'") != std::string::npos);
+
+    // And a discrete rule cannot claim the continuous kind.
+    CHECK(errorOf(R"(
+        return { kind = "continuous", states = 2, dimensions = 2,
+                 neighbourhood = { type = "moore", radius = 1 },
+                 kernel = { shape = "radial", profile = { 1 } },
+                 growth = { form = "rectangular", mu = 0.3, sigma = 0.05 } }
+    )").find("do not agree") != std::string::npos);
 }

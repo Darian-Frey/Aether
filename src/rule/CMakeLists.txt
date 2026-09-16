@@ -1,5 +1,6 @@
 add_library(aether_rule STATIC
     decay.cpp
+    growth.cpp
     library.cpp
     lua.cpp
     dsl.cpp

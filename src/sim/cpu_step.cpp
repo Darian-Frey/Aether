@@ -22,10 +22,10 @@ int32_t wrapMul(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<
 // Walks the arena in order, which is valid because every child precedes its
 // parent. The twin of rule/glsl.cpp: the two must agree on every rule, and
 // the backend equivalence test is what says they do (AV-007).
-uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<const uint8_t> nbr,
-                       std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
-    const auto& nodes = rule.expression.nodes;
-    const auto& types = rule.expressionTypes;
+void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
+               ExprValue self, std::span<const uint8_t> nbr,
+               std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
+    const auto& nodes = e.nodes;
     scratch.resize(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
         const rule::ExprNode& node = nodes[i];
@@ -35,7 +35,7 @@ uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<co
         ExprValue v;
         const bool asFloat = types[i] == rule::ExprType::Float;
         switch (node.op) {
-            case rule::ExprOp::Self:         v.i = own; break;
+            case rule::ExprOp::Self:         v = self; break;
             case rule::ExprOp::Neighbour:    v.i = nbr[node.a]; break;
             case rule::ExprOp::Count:        v.i = static_cast<int32_t>(counts[node.a]); break;
             case rule::ExprOp::IntLiteral:   v.i = static_cast<int32_t>(node.ival); break;
@@ -66,12 +66,28 @@ uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<co
         }
         scratch[i] = v;
     }
+}
+
+uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<const uint8_t> nbr,
+                       std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
+    ExprValue self;
+    self.i = own;
+    evalArena(rule.expression, rule.expressionTypes, self, nbr, counts, scratch);
     const int32_t result = scratch.back().i;
     const int32_t top = static_cast<int32_t>(rule.states) - 1;
     return static_cast<uint8_t>(result < 0 ? 0 : (result > top ? top : result));
 }
 
 }  // namespace
+
+float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType> types,
+                 float convolution, std::vector<ExprValue>& scratch) {
+    ExprValue self;
+    self.f = convolution;
+    evalArena(growth, types, self, {}, {}, scratch);
+    return scratch.back().f;
+}
+
 
 StepScratch::StepScratch(const rule::CompiledRule& rule)
     : neighbours(rule.neighbourCount()),

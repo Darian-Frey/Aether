@@ -99,6 +99,10 @@ namespace {
 struct ExprContext {
     uint32_t neighbours;   // valid Neighbour indices are < this
     uint16_t states;       // valid Count arguments are < this
+    // In a growth expression Self is the convolution result, which is a float,
+    // rather than the own state, which is an integer (BUG-010). Nothing else
+    // about the check changes.
+    bool     selfIsFloat = false;
 };
 
 int arity(ExprOp op) {
@@ -162,7 +166,7 @@ ExprType checkExpression(const Expression& e, const ExprContext& ctx,
 
         switch (n.op) {
             case ExprOp::Self:
-                types[i] = ExprType::Int;
+                types[i] = ctx.selfIsFloat ? ExprType::Float : ExprType::Int;
                 break;
             case ExprOp::Neighbour:
                 if (n.a >= ctx.neighbours) {
@@ -255,10 +259,11 @@ void checkResultLiterals(const Expression& e, uint16_t states,
 
 }  // namespace
 
-std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states) {
+std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states,
+                                      bool selfIsFloat) {
     std::vector<Diagnostic> ignored;
     std::vector<ExprType> types;
-    checkExpression(e, {neighbours, states}, "", ignored, &types);
+    checkExpression(e, {neighbours, states, selfIsFloat}, "", ignored, &types);
     return types;
 }
 
@@ -382,7 +387,7 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
             }
         }
         // The growth function sees only the convolution result (Self).
-        const ExprType t = checkExpression(kernel->growth, {0, 0}, "growth", out);
+        const ExprType t = checkExpression(kernel->growth, {0, 0, true}, "growth", out);
         if (t != ExprType::Invalid && t != ExprType::Float) {
             err("growth expression must produce a float");
         }

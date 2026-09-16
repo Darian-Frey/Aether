@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Kernel authoring in Lua (Phase 5 step 2, F-006): a `cell_type = "f32"` script returns a `kernel` of samples it computes itself with `math`, and a named `growth` of `{form, mu, sigma}`. `rule/growth` lowers `rectangular` and `polynomial` to the expression form, so backends see an ordinary `Kernel` and know nothing about the names (2026-09-16).
+- `sim::evalGrowth`: a growth function at one convolution value, through the same arena walk the discrete path uses rather than a second one (2026-09-16).
 - `sim::stepCell` (IMP-005): one cell's transition, gathered and boundary-resolved exactly as the step does it, with `cpuStep` a loop over it. Returns what the cell did — the state read, what the rule alone gives, what is written, whether mutation overrode it, the entry that fired — with the buffers in a caller-owned `StepScratch` so the loop still allocates nothing. Measured no slower than the loop it replaced (2026-09-16).
 - A test running `stepCell` across a whole grid against `cpuStep`'s output, over all four table kinds and the expression form with mutation on: the guard that stops a second implementation of a cell's transition appearing (AV-017) (2026-09-16).
 - The `f32` grid path (Phase 5 step 1, F-006): `HostGrid` keeps its byte storage and gains float views and accessors over it, so the session codec, the sidecar, the GPU transfers and the VRAM arithmetic all keep working in bytes and only the accessors know the difference (2026-09-16).
@@ -70,6 +72,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-010: `ExprOp::Self` typed as an integer even inside a growth expression, where it is the convolution result, so every growth function that read its own input was ill-typed and only constants validated. It now follows its context, and SPEC §6 says so (2026-09-16).
 - BUG-009: the interface state file is written to `$XDG_CONFIG_HOME/aether/` rather than beside whatever directory the binary was launched from, and is no longer tracked (2026-09-15).
 - BUG-008: the default random-fill densities summed past one above nine states, so a rule's last states were never seeded — the fourteen-state cyclic rule started with four of its states missing. `sim::defaultDensity` now spreads evenly over a rule's live states and leaves its ageing tail empty, replacing three copies of the arithmetic (2026-09-15).
 - BUG-007: `GpuStepper`'s move constructor dropped later-added fields, so the GPU path of any `Simulation` ran without cell mutation; state is now split into exchanged handles and copied config (2026-09-12).

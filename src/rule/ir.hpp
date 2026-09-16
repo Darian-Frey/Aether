@@ -96,8 +96,11 @@ struct Expression {
 enum class ExprType : uint8_t { Int, Float, Bool, Invalid };
 
 // One entry per node, Invalid where the node is ill-typed. `neighbours` and
-// `states` bound the Neighbour and Count indices.
-std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states);
+// `states` bound the Neighbour and Count indices. `selfIsFloat` says which
+// thing Self is: the convolution result inside a growth expression, the own
+// state everywhere else (BUG-010).
+std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states,
+                                      bool selfIsFloat = false);
 
 // Convolution kernel plus growth function. Specified from v1 (D-010),
 // implemented in Phase 5. Backends reject it until then.

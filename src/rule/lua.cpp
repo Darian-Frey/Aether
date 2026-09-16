@@ -1,5 +1,7 @@
 #include "rule/lua.hpp"
 
+#include "rule/growth.hpp"
+
 #include "rule/table_layout.hpp"
 
 #include <lua.hpp>
@@ -121,6 +123,102 @@ std::optional<std::string> stringField(lua_State* L, int table, const char* name
     std::string v = lua_tostring(L, -1);
     lua_pop(L, 1);
     return v;
+}
+
+std::optional<double> numberField(lua_State* L, int table, const char* name, std::string& err) {
+    lua_getfield(L, table, name);
+    if (lua_isnil(L, -1)) { lua_pop(L, 1); return std::nullopt; }
+    if (!lua_isnumber(L, -1)) {
+        err = std::format("field '{}' must be a number, not a {}", name, typeName(L, -1));
+        lua_pop(L, 1);
+        return std::nullopt;
+    }
+    const double v = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return v;
+}
+
+// A continuous rule's kernel and growth function (F-006, Phase 5). The profile
+// is a plain list of numbers, which is what makes this cheap: the script has
+// math.* and works the shell out at compile time, so nothing here has to know
+// what a Gaussian is. The growth function is named rather than written out,
+// because Lenia configurations are published as a form and two numbers.
+bool readKernel(lua_State* L, int rule, RuleIR& ir, std::string& err) {
+    lua_getfield(L, rule, "kernel");
+    if (!lua_istable(L, -1)) {
+        err = std::format("a continuous rule needs a 'kernel' table of {{shape, profile}}, not a {}",
+                          typeName(L, -1));
+        return false;
+    }
+    const int kt = lua_gettop(L);
+    Kernel k;
+    if (const auto shape = stringField(L, kt, "shape", err)) {
+        if (*shape == "radial")        k.shape = Kernel::Shape::Radial;
+        else if (*shape == "explicit") k.shape = Kernel::Shape::Explicit;
+        else { err = std::format("unknown kernel shape '{}'; the shapes are radial and explicit", *shape); return false; }
+    }
+    if (!err.empty()) return false;
+
+    lua_getfield(L, kt, "profile");
+    if (!lua_istable(L, -1)) {
+        err = std::format("kernel needs a 'profile' list of weights, not a {}", typeName(L, -1));
+        return false;
+    }
+    const lua_Unsigned len = lua_rawlen(L, -1);
+    k.profile.reserve(len);
+    for (lua_Unsigned i = 1; i <= len; ++i) {
+        lua_rawgeti(L, -1, static_cast<lua_Integer>(i));
+        if (!lua_isnumber(L, -1)) {
+            err = std::format("kernel profile[{}] is a {}, not a number", i, typeName(L, -1));
+            return false;
+        }
+        k.profile.push_back(static_cast<float>(lua_tonumber(L, -1)));
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 2);   // profile, kernel
+
+    lua_getfield(L, rule, "growth");
+    if (!lua_istable(L, -1)) {
+        err = std::format("a continuous rule needs a 'growth' table of {{form, mu, sigma}}, not a {}",
+                          typeName(L, -1));
+        return false;
+    }
+    const int gt = lua_gettop(L);
+    GrowthSpec g;
+    const auto form = stringField(L, gt, "form", err);
+    if (!err.empty()) return false;
+    if (!form) { err = "growth needs a 'form'"; return false; }
+    const auto parsedForm = parseGrowthForm(*form);
+    if (!parsedForm) {
+        err = std::format("unknown growth form '{}'; the forms are rectangular and polynomial", *form);
+        return false;
+    }
+    g.form = *parsedForm;
+    const auto mu = numberField(L, gt, "mu", err);
+    if (!err.empty()) return false;
+    if (!mu) { err = "growth needs a 'mu', the value the convolution grows at"; return false; }
+    g.mu = static_cast<float>(*mu);
+    const auto sigma = numberField(L, gt, "sigma", err);
+    if (!err.empty()) return false;
+    if (!sigma) { err = "growth needs a 'sigma', the width of the band it grows in"; return false; }
+    g.sigma = static_cast<float>(*sigma);
+    lua_pop(L, 1);
+
+    if (const auto bad = problems(g); !bad.empty()) { err = bad.front(); return false; }
+    k.growth = growthExpression(g);
+    ir.transition = std::move(k);
+    return true;
+}
+
+void readMetadata(lua_State* L, int rule, RuleIR& ir) {
+    lua_getfield(L, rule, "metadata");
+    if (lua_istable(L, -1)) {
+        const int meta = lua_gettop(L);
+        std::string ignore;
+        if (auto v = stringField(L, meta, "name", ignore)) ir.metadata.name = *v;
+        if (auto v = stringField(L, meta, "author", ignore)) ir.metadata.author = *v;
+    }
+    lua_pop(L, 1);
 }
 
 // Calls the script's transition function for one entry and reads the state
@@ -321,11 +419,25 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
         return LuaError{std::format("dimensions must be 1, 2 or 3 (got {})", ir.dimensions)};
     }
 
+    // Read before the state count, because it decides whether one means
+    // anything: an f32 cell holds a value, not an index into a state set.
+    if (const auto ct = stringField(L, rule, "cell_type", err)) {
+        const auto parsed = core::parseCellType(*ct);
+        if (!parsed) return LuaError{std::format("unknown cell_type '{}'", *ct)};
+        ir.cell_type = *parsed;
+    }
+    if (!err.empty()) return LuaError{err};
+    const bool continuous = ir.cell_type == core::CellType::F32;
+
     const auto states = integerField(L, rule, "states", err);
     if (!err.empty()) return LuaError{err};
-    if (!states) return LuaError{"the rule needs a 'states' count"};
-    if (*states < 2 || *states > 256) return LuaError{std::format("states must be in 2..256 (got {})", *states)};
-    ir.states = static_cast<uint16_t>(*states);
+    if (continuous) {
+        if (states) return LuaError{"a continuous rule has no 'states': an f32 cell holds a value, not an index"};
+    } else {
+        if (!states) return LuaError{"the rule needs a 'states' count"};
+        if (*states < 2 || *states > 256) return LuaError{std::format("states must be in 2..256 (got {})", *states)};
+        ir.states = static_cast<uint16_t>(*states);
+    }
 
     lua_getfield(L, rule, "neighbourhood");
     if (!lua_istable(L, -1)) return LuaError{"the rule needs a 'neighbourhood' table of {type, radius}"};
@@ -352,14 +464,33 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
 
     const auto kind = stringField(L, rule, "kind", err);
     if (!err.empty()) return LuaError{err};
-    ir.kind = Kind::OuterTotalistic;
+    ir.kind = continuous ? Kind::Continuous : Kind::OuterTotalistic;
     if (kind) {
         const auto parsed = parseKind(*kind);
         if (!parsed) return LuaError{std::format("unknown kind '{}'", *kind)};
         ir.kind = *parsed;
     }
-    if (ir.kind == Kind::Expression || ir.kind == Kind::Continuous) {
-        return LuaError{std::format("kind {} cannot be returned yet: no backend can execute one", toString(ir.kind))};
+    if (ir.kind == Kind::Expression) {
+        return LuaError{"kind expression cannot be returned yet: there is no way to write one here"};
+    }
+
+    // Caught here rather than left to validate(), so that a discrete rule
+    // claiming the continuous kind is told what is actually wrong instead of
+    // being asked for a kernel it was never going to have.
+    if ((ir.kind == Kind::Continuous) != continuous) {
+        return LuaError{std::format("kind {} and cell_type {} do not agree: the continuous kind is the f32 one",
+                                    toString(ir.kind), core::toString(ir.cell_type))};
+    }
+
+    // A continuous rule has a kernel where a discrete one has a table, so the
+    // rest of the discrete path does not apply to it.
+    if (ir.kind == Kind::Continuous) {
+        if (!readKernel(L, rule, ir, err)) return LuaError{err};
+        readMetadata(L, rule, ir);
+        if (const auto diagnostics = validate(ir); !diagnostics.empty()) {
+            return LuaError{"the returned rule is not valid: " + diagnostics.front().message};
+        }
+        return ir;
     }
 
     // A counted rule must say what each state counts: the transition is a
@@ -427,14 +558,7 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
     lua_pop(L, 1);
     ir.transition = std::move(table);
 
-    lua_getfield(L, rule, "metadata");
-    if (lua_istable(L, -1)) {
-        const int meta = lua_gettop(L);
-        std::string ignore;
-        if (auto v = stringField(L, meta, "name", ignore)) ir.metadata.name = *v;
-        if (auto v = stringField(L, meta, "author", ignore)) ir.metadata.author = *v;
-    }
-    lua_pop(L, 1);
+    readMetadata(L, rule, ir);
 
     if (const auto diagnostics = validate(ir); !diagnostics.empty()) {
         return LuaError{"the returned rule is not valid: " + diagnostics.front().message};

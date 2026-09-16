@@ -71,7 +71,8 @@ People who want to explore cellular automata rather than run one specific automa
 **Acceptance:**
 - Float cell states with a convolution kernel and a growth function (SmoothLife, Lenia)
 - Kernel authored as a radial profile or as an explicit matrix
-**Status:** Not started
+**Status:** In progress
+**Progress:** 2026-09-16 (Phase 5). The `f32` grid path holds, saves and loads a float grid, and Lua authors a continuous rule: a kernel as a list of samples the script works out with `math`, and a named growth function — `rectangular` or `polynomial` — lowered to the expression form in `rule/growth`, as `decay` lowers an ageing tail. Nothing steps one yet.
 **Notes:** Phase 5. The IR must accommodate float states from day one even though this feature is late — see D-010.
 
 ### F-023 Hexagonal lattice

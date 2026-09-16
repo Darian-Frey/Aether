@@ -120,6 +120,17 @@ Entries are kept in ID order within each section. Entry format:
 **Notes.** The path string has to outlive the call, since ImGui keeps the pointer rather than a copy — a local `std::string` there would be a use-after-free rather than a stray file.
 **Resolution (2026-09-15, commit `74f54e5`).** `IniFilename` points at `$XDG_CONFIG_HOME/aether/imgui.ini`, falling back to `~/.config/aether`; the file is untracked and ignored, and a run from an arbitrary directory now leaves nothing behind.
 
+### BUG-010: a growth expression cannot read the convolution result it is a function of
+**Status:** fixed
+**Found:** 2026-09-16 (Phase 5 step 2, authoring the first kernel)
+**Fixed:** 2026-09-16
+**Location:** `src/rule/ir.cpp` (`checkExpression`, the `ExprOp::Self` case); SPEC.md §6
+**Severity:** medium
+**Description.** A `Kernel`'s growth function is documented in the IR as an expression whose `Self` is the convolution result, and validation requires it to produce a `Float`. But `checkExpression` types `ExprOp::Self` as `Int` unconditionally, and the numeric operators require both operands to share a type, so any expression combining `Self` with a float literal is ill-typed. The only growth expressions that validate are those built purely from `FloatLiteral` arithmetic — that is, constants, which ignore the convolution result entirely and are not growth functions. The rule is therefore unsatisfiable in every useful case, and has been since the IR was written.
+**Reproduction.** Build a `Kernel` whose growth is `Sub(Mul(FloatLiteral 2, Self), FloatLiteral 1)` and call `validate`: it reports that the growth expression must produce a float, because the subtree containing `Self` typed as `Int`.
+**Notes.** Unreached until now because nothing constructed a `Kernel`: both backends refuse `f32` and neither front end could emit one. Phase 5 step 2 is the first thing to try. The fix is context-dependent typing — inside a growth expression `Self` is the convolution result and is `Float`, while everywhere else it stays the own state and is `Int` — which is a change to SPEC §6's typing rules rather than to the IR's data layout. It blocks kernel authoring completely, so it cannot be deferred past step 2 without leaving the step undeliverable.
+**Resolution (2026-09-16).** `ExprContext` gained a `selfIsFloat` flag, set only where a growth expression is checked, so `Self` types as the convolution result there and as the own state everywhere else. SPEC §6 states the rule. The fix is to the typing of an operator rather than to the IR's data layout, so no schema change and no `ir_version` bump. `tests/rule/ir_test.cpp` had asserted the defect as intended behaviour — a growth function of `Self` alone was expected to be refused — which is how it survived being written; it now checks that the identity growth function is accepted and uses a Bool-valued expression to exercise the diagnostic.
+
 ## Won't Fix
 
 *None.*

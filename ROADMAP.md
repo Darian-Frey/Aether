@@ -89,8 +89,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Features delivered:** F-006
 **Deliverables:**
 - [x] Float texture grid path (2026-09-16): `HostGrid` keeps byte storage with float views over it, the session codec and sidecar work in bytes rather than cells, and `Simulation::create` refuses a grid whose cell type disagrees with its rule's
-- [ ] Convolution kernel authoring, radial and explicit
-- [ ] Growth function in the IR expression tree
+- [x] Convolution kernel authoring, radial and explicit (2026-09-16): Lua returns a profile it computes itself, so the shell arrives sampled
+- [x] Growth function in the IR expression tree (2026-09-16): named forms — rectangular and polynomial — lowered by `rule/growth`; the Gaussian is deliberately absent, needing `exp`, which SPEC §6 forbids relying on
 - [ ] Documented precision expectations across GPU vendors
 **Acceptance:** SmoothLife and a basic Lenia configuration run stably at 512² without state divergence over 10,000 generations.
 

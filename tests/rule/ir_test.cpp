@@ -202,7 +202,17 @@ TEST_CASE("continuous IR validates structurally", "[ir]") {
     Kernel k;
     k.shape = Kernel::Shape::Explicit;
     k.profile.assign(9, 1.0f / 9.0f);
-    k.growth.nodes = {{ExprOp::Self}};   // growth = conv, wrong type on purpose below
+    // Self is the convolution result here, so the identity growth function is
+    // correctly typed even though it is a useless rule (BUG-010). This test
+    // asserted the opposite until 2026-09-16, which is how the defect lasted.
+    k.growth.nodes = {{ExprOp::Self}};
+    ir.transition = k;
+    CHECK(isValid(ir));
+
+    // A comparison produces a Bool, which is what the diagnostic is for.
+    k.growth.nodes = {{ExprOp::Self},
+                      {ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f},
+                      {ExprOp::Gt, 0, 1}};
     ir.transition = k;
     CHECK(hasDiagnostic(validate(ir), "growth expression must produce a float"));
 
