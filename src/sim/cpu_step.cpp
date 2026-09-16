@@ -19,26 +19,20 @@ int32_t wrapAdd(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<
 int32_t wrapSub(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) - static_cast<uint32_t>(b)); }
 int32_t wrapMul(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) * static_cast<uint32_t>(b)); }
 
-struct Value {
-    int32_t i = 0;
-    float   f = 0.0f;
-    bool    b = false;
-};
-
 // Walks the arena in order, which is valid because every child precedes its
 // parent. The twin of rule/glsl.cpp: the two must agree on every rule, and
 // the backend equivalence test is what says they do (AV-007).
 uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<const uint8_t> nbr,
-                       std::span<const uint32_t> counts, std::vector<Value>& scratch) {
+                       std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
     const auto& nodes = rule.expression.nodes;
     const auto& types = rule.expressionTypes;
     scratch.resize(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
         const rule::ExprNode& node = nodes[i];
-        const Value& a = scratch[node.a];
-        const Value& b = scratch[node.b];
-        const Value& c = scratch[node.c];
-        Value v;
+        const ExprValue& a = scratch[node.a];
+        const ExprValue& b = scratch[node.b];
+        const ExprValue& c = scratch[node.c];
+        ExprValue v;
         const bool asFloat = types[i] == rule::ExprType::Float;
         switch (node.op) {
             case rule::ExprOp::Self:         v.i = own; break;
@@ -79,6 +73,87 @@ uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<co
 
 }  // namespace
 
+StepScratch::StepScratch(const rule::CompiledRule& rule)
+    : neighbours(rule.neighbourCount()),
+      counts(rule.states > 1 ? rule.states - 1u : 0u),
+      stateCounts(rule.backend == rule::Backend::Codegen ? rule.states : 0u) {}
+
+CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& spec,
+                        std::span<const uint8_t> current,
+                        uint32_t x, uint32_t y, uint32_t z,
+                        uint64_t generation, CellMutation mutation,
+                        StepScratch& scratch) {
+    const uint32_t W = spec.width, H = spec.height, D = spec.depth;
+    const uint32_t N = rule.neighbourCount();
+    const uint16_t S = rule.states;
+
+    auto cellAt = [&](uint32_t cx, uint32_t cy, uint32_t cz) -> uint8_t {
+        return current[(size_t{cz} * H + cy) * W + cx];
+    };
+
+    // Gather in canonical order.
+    std::vector<uint8_t>& nbr = scratch.neighbours;
+    for (uint32_t i = 0; i < N; ++i) {
+        const rule::Offset& o = rule.offsets[i];
+        const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
+        const auto ny = resolve(int64_t{y} + o.dy, H, rule.boundary);
+        const auto nz = resolve(int64_t{z} + o.dz, D, rule.boundary);
+        nbr[i] = (nx && ny && nz) ? cellAt(*nx, *ny, *nz) : uint8_t{0};
+    }
+
+    CellTransition t;
+    t.own = cellAt(x, y, z);
+
+    if (rule.backend == rule::Backend::Codegen) {
+        for (uint32_t& c : scratch.stateCounts) c = 0;
+        for (uint32_t i = 0; i < N; ++i) ++scratch.stateCounts[nbr[i]];
+        t.fromRule = evalExpression(rule, t.own, nbr, scratch.stateCounts, scratch.expr);
+    } else {
+        switch (rule.kind) {
+            case Kind::OuterTotalistic: {
+                for (uint32_t& c : scratch.counts) c = 0;
+                for (uint32_t i = 0; i < N; ++i) {
+                    if (nbr[i] != 0) ++scratch.counts[nbr[i] - 1u];
+                }
+                t.tableIndex = rule.layout.indexOuterTotalistic(t.own, scratch.counts);
+                break;
+            }
+            case Kind::CountedTotalistic: {
+                uint32_t k = 0;
+                for (uint32_t i = 0; i < N; ++i) {
+                    if (rule.counted[t.own].test(nbr[i])) ++k;
+                }
+                t.scalar = k;
+                t.tableIndex = rule.layout.indexCounted(t.own, k);
+                break;
+            }
+            case Kind::Totalistic: {
+                uint32_t sum = t.own;
+                for (uint32_t i = 0; i < N; ++i) sum += nbr[i];
+                t.scalar = sum;
+                t.tableIndex = rule.layout.indexTotalistic(sum);
+                break;
+            }
+            case Kind::NonTotalistic:
+                t.tableIndex = rule.layout.indexNonTotalistic(t.own, nbr);
+                break;
+            case Kind::Expression:
+            case Kind::Continuous:
+                assert(false && "handled above, or refused at compile time");
+                break;
+        }
+        t.hasIndex = true;
+        t.fromRule = rule.table[t.tableIndex];
+    }
+
+    t.next = t.fromRule;
+    if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
+        t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
+        t.mutated = true;
+    }
+    return t;
+}
+
 void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
              uint64_t generation, CellMutation mutation) {
@@ -87,85 +162,16 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
     assert(rule.dimensions == spec.dimensions);
 
     const uint32_t W = spec.width, H = spec.height, D = spec.depth;
-    const uint32_t N = rule.neighbourCount();
-    const uint16_t S = rule.states;
 
     // Scratch, allocated once per step rather than per cell. The step loop
     // itself allocates nothing.
-    std::vector<uint8_t>  nbr(N);
-    std::vector<uint32_t> counts(S > 1 ? S - 1u : 0u);
-    const bool expression = rule.backend == rule::Backend::Codegen;
-    std::vector<uint32_t> stateCounts(expression ? S : 0u);   // indexed by state, 0 included
-    std::vector<Value>    scratch;
-
-    auto cellAt = [&](uint32_t x, uint32_t y, uint32_t z) -> uint8_t {
-        return current[(size_t{z} * H + y) * W + x];
-    };
+    StepScratch scratch(rule);
 
     for (uint32_t z = 0; z < D; ++z) {
         for (uint32_t y = 0; y < H; ++y) {
             for (uint32_t x = 0; x < W; ++x) {
-                // Gather in canonical order.
-                for (uint32_t i = 0; i < N; ++i) {
-                    const rule::Offset& o = rule.offsets[i];
-                    const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
-                    const auto ny = resolve(int64_t{y} + o.dy, H, rule.boundary);
-                    const auto nz = resolve(int64_t{z} + o.dz, D, rule.boundary);
-                    nbr[i] = (nx && ny && nz) ? cellAt(*nx, *ny, *nz) : uint8_t{0};
-                }
-
-                const uint8_t own = cellAt(x, y, z);
-                if (expression) {
-                    for (uint32_t& c : stateCounts) c = 0;
-                    for (uint32_t i = 0; i < N; ++i) ++stateCounts[nbr[i]];
-                    uint8_t out = evalExpression(rule, own, nbr, stateCounts, scratch);
-                    if (mutation.threshold != 0) {
-                        if (mutates(blockHash(x, y, z, generation, mutation), mutation)) {
-                            out = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
-                        }
-                    }
-                    next[(size_t{z} * H + y) * W + x] = out;
-                    continue;
-                }
-                uint64_t index = 0;
-                switch (rule.kind) {
-                    case Kind::OuterTotalistic: {
-                        for (uint32_t& c : counts) c = 0;
-                        for (uint32_t i = 0; i < N; ++i) {
-                            if (nbr[i] != 0) ++counts[nbr[i] - 1u];
-                        }
-                        index = rule.layout.indexOuterTotalistic(own, counts);
-                        break;
-                    }
-                    case Kind::CountedTotalistic: {
-                        uint32_t k = 0;
-                        for (uint32_t i = 0; i < N; ++i) {
-                            if (rule.counted[own].test(nbr[i])) ++k;
-                        }
-                        index = rule.layout.indexCounted(own, k);
-                        break;
-                    }
-                    case Kind::Totalistic: {
-                        uint32_t sum = own;
-                        for (uint32_t i = 0; i < N; ++i) sum += nbr[i];
-                        index = rule.layout.indexTotalistic(sum);
-                        break;
-                    }
-                    case Kind::NonTotalistic:
-                        index = rule.layout.indexNonTotalistic(own, nbr);
-                        break;
-                    case Kind::Expression:
-                    case Kind::Continuous:
-                        assert(false && "handled above, or refused at compile time");
-                        break;
-                }
-                uint8_t out = rule.table[index];
-                if (mutation.threshold != 0) {
-                    if (mutates(blockHash(x, y, z, generation, mutation), mutation)) {
-                        out = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
-                    }
-                }
-                next[(size_t{z} * H + y) * W + x] = out;
+                next[(size_t{z} * H + y) * W + x] =
+                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch).next;
             }
         }
     }

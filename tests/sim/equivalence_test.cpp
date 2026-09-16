@@ -213,6 +213,33 @@ std::vector<Fixture> fixtures1d() {
     return out;
 }
 
+// What the CPU path makes of one cell. This is the standalone reason IMP-005
+// was worth doing: a failing case used to name a cell index and stop there.
+std::string explainCell(const rule::CompiledRule& r, const core::GridSpec& spec,
+                        std::span<const uint8_t> cells, size_t linear,
+                        uint64_t generation, sim::CellMutation mutation) {
+    const uint32_t x = static_cast<uint32_t>(linear % spec.width);
+    const uint32_t y = static_cast<uint32_t>((linear / spec.width) % spec.height);
+    const uint32_t z = static_cast<uint32_t>(linear / (size_t{spec.width} * spec.height));
+    sim::StepScratch scratch(r);
+    const sim::CellTransition t = sim::stepCell(r, spec, cells, x, y, z, generation, mutation, scratch);
+
+    std::string nbrs;
+    for (uint32_t i = 0; i < r.neighbourCount(); ++i) {
+        nbrs += std::format("{}{}", i ? "," : "", static_cast<int>(scratch.neighbours[i]));
+    }
+    // An axis of extent 1 has no edges; without that, every cell of a 2D grid
+    // reports as being on one, since z is both 0 and depth - 1.
+    const bool edge = (spec.width  > 1 && (x == 0 || x + 1 == spec.width)) ||
+                      (spec.height > 1 && (y == 0 || y + 1 == spec.height)) ||
+                      (spec.depth  > 1 && (z == 0 || z + 1 == spec.depth));
+    return std::format("({},{},{}){}, state {}, neighbours [{}] -> {} {}{}",
+                       x, y, z, edge ? " on an edge" : "", static_cast<int>(t.own), nbrs,
+                       static_cast<int>(t.fromRule),
+                       t.hasIndex ? std::format("from table entry {}", t.tableIndex) : "from the expression",
+                       t.mutated ? std::format(", then mutated to {}", static_cast<int>(t.next)) : "");
+}
+
 // Runs one fixture under one boundary on both paths and compares.
 void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec, double p = 0.0,
                       uint8_t blockShift = 0) {
@@ -249,8 +276,16 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     for (size_t i = 0; i < fromCpu.size(); ++i) {
         if (fromCpu[i] != fromGpu[i]) { firstDiff = i; break; }
     }
-    INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}", f.name,
-                     rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff));
+    std::string detail;
+    if (firstDiff != fromCpu.size()) {
+        // The grids are compared after kGenerations, so this cell is where the
+        // divergence had reached, not necessarily where it began.
+        detail = std::format("\n  cpu {} vs gpu {}\n  the CPU path reads that cell as {}",
+                             static_cast<int>(fromCpu[firstDiff]), static_cast<int>(fromGpu[firstDiff]),
+                             explainCell(lut, spec, fromCpu, firstDiff, kGenerations, mutation));
+    }
+    INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}{}", f.name,
+                     rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff, detail));
     CHECK(firstDiff == fromCpu.size());
 }
 

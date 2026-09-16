@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- `sim::stepCell` (IMP-005): one cell's transition, gathered and boundary-resolved exactly as the step does it, with `cpuStep` a loop over it. Returns what the cell did — the state read, what the rule alone gives, what is written, whether mutation overrode it, the entry that fired — with the buffers in a caller-owned `StepScratch` so the loop still allocates nothing. Measured no slower than the loop it replaced (2026-09-16).
+- A test running `stepCell` across a whole grid against `cpuStep`'s output, over all four table kinds and the expression form with mutation on: the guard that stops a second implementation of a cell's transition appearing (AV-017) (2026-09-16).
 - The `f32` grid path (Phase 5 step 1, F-006): `HostGrid` keeps its byte storage and gains float views and accessors over it, so the session codec, the sidecar, the GPU transfers and the VRAM arithmetic all keep working in bytes and only the accessors know the difference (2026-09-16).
 - A transport bar spanning the window: play/pause, step, burst, the rate slider and the generation, rate and frame-rate readouts, with the running rule's name at the right. None of it scrolls away (2026-09-15).
 - A viewport overlay showing the cell under the cursor and its state, the zoom, the brush, and a paused badge (2026-09-15).
@@ -86,6 +88,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - `IntLiteral` values are validated to fit a signed 32-bit integer, which is what both execution paths compute in (2026-09-15).
 - Generations notation is now the two-state rule plus an ageing tail through the one decay transform (IMP-003), so `B2/S/C25` is a 225-entry table rather than an expression no backend could run (2026-09-14).
 - An ageing tail is bounded by SPEC §1's 256 states rather than by the table: 60 states cost 558 entries (2026-09-14).
+- A failing CPU/GPU equivalence case describes the disagreeing cell — coordinates, whether it is on an edge, its neighbours in canonical order, the table entry that fired, whether mutation overrode the result — where it used to name a cell index and stop (2026-09-16).
 - The session writer emits whichever inline cell encoding is shorter and names it: `rle` as before, or a new `bytes` holding the buffer itself (IMP-006). A run-length pass costs two bytes per run, so it halves a quiescent u8 grid and doubles a continuous f32 one; the choice is measured rather than inferred from the cell type. Files written before this say `rle` and load unchanged, and the decoded grid is identical either way (2026-09-16).
 - A `state` block whose encoding is not recognised is now an error rather than silently skipped, which used to leave a session loaded with no current grid (2026-09-16).
 - The session cell codec and the sidecar threshold count bytes rather than cells, which is the same number for `u8` and four times it for `f32`; the decoded-length check and `kInlineCellLimit`, now `kInlineByteLimit`, follow. Existing files are unaffected (2026-09-16).

@@ -33,16 +33,6 @@ Entries are kept in ID order within each section. Entry format:
 **Trade-offs.** The densities become one click further away, and the relationship between the sliders and what Seed does gets less obvious when they are not adjacent — the button would want a tooltip naming the densities it is about to use. Moving a control the author has learned the position of is a cost paid once.
 **Notes.** Raised alongside F-028, which adds seeding of a dragged region; if both land, the action row carries two seed gestures and is worth laying out once rather than twice. Doing this before F-028 is fine and doing it after avoids moving the same widgets twice.
 
-### IMP-005: `cpuStep` has no per-cell entry point
-**Status:** suggested
-**Found:** 2026-09-15 (planning the cell inspector, F-030)
-**Location:** `src/sim/cpu_step.cpp` (`cpuStep`)
-**Effort:** small
-**Description.** The oracle computes, for every cell of every generation, precisely what somebody would want to know about one cell: the neighbour states it gathered, the count vector or table index it derived, the entry or clause that fired, and the state that came out. All of it is local to the loop body and thrown away. Anything else that wants it — the inspector of F-030, a diagnostic for a failing equivalence case, a future rule debugger — has to recompute it, and recomputing it means a second implementation of the index arithmetic.
-**Proposal.** Extract the loop body into a function over (rule, spec, coordinate, read buffer) returning the next state together with the working that produced it. `cpuStep` becomes a loop over that function. No new tests are needed to cover it: every existing equivalence case exercises it the moment it exists.
-**Trade-offs.** The oracle is deliberately "serial, unoptimised, and obviously correct", and a per-cell struct of working is a host allocation per cell if written carelessly — invariant 8 applies to the CPU path as much as the GPU one, so it must be a plain aggregate filled in place. Returning the working unconditionally also charges the step loop for something almost every caller discards; if that shows in the oracle's runtime, the explaining half moves behind a second entry point and the saving is lost.
-**Notes.** A prerequisite for F-030 rather than a free-standing improvement, but it earns its place on its own: a failing equivalence case today reports which cell disagreed and nothing whatever about why.
-
 ## Applied
 
 ### IMP-001: Outer-totalistic tables are oversized for rules that count a single state
@@ -84,6 +74,21 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 **Notes.** Worth doing when the codegen backend lands and the lowering path stops being a dead end.
 
 **As built (2026-09-14).** Done as part of D-016, which made it worth doing: routing `/C` through `applyDecay` means a Generations rule of any length compiles to a counted table, where before `B2/S/C25` lowered to an expression no backend could run. The oversized-lowering interaction that deferred this no longer arises.
+
+### IMP-005: `cpuStep` has no per-cell entry point
+**Status:** applied
+**Found:** 2026-09-15 (planning the cell inspector, F-030)
+**Applied:** 2026-09-16
+**Location:** `src/sim/cpu_step.cpp` (`cpuStep`)
+**Effort:** small
+**Description.** The oracle computes, for every cell of every generation, precisely what somebody would want to know about one cell: the neighbour states it gathered, the count vector or table index it derived, the entry or clause that fired, and the state that came out. All of it is local to the loop body and thrown away. Anything else that wants it — the inspector of F-030, a diagnostic for a failing equivalence case, a future rule debugger — has to recompute it, and recomputing it means a second implementation of the index arithmetic.
+**Proposal.** Extract the loop body into a function over (rule, spec, coordinate, read buffer) returning the next state together with the working that produced it. `cpuStep` becomes a loop over that function. No new tests are needed to cover it: every existing equivalence case exercises it the moment it exists.
+**Trade-offs.** The oracle is deliberately "serial, unoptimised, and obviously correct", and a per-cell struct of working is a host allocation per cell if written carelessly — invariant 8 applies to the CPU path as much as the GPU one, so it must be a plain aggregate filled in place. Returning the working unconditionally also charges the step loop for something almost every caller discards; if that shows in the oracle's runtime, the explaining half moves behind a second entry point and the saving is lost.
+**Notes.** A prerequisite for F-030 rather than a free-standing improvement, but it earns its place on its own: a failing equivalence case today reports which cell disagreed and nothing whatever about why.
+
+**As built (2026-09-16).** Results and scratch were split rather than returned together, which the proposal did not distinguish and which is what keeps the allocation trap shut: `CellTransition` is plain data returned by value (the state read, what the rule alone gives, what is written, whether mutation overrode it, the table entry that fired, and the one scalar a kind reduced the neighbourhood to), while the buffers live in a caller-owned `StepScratch` sized once from the rule and reused for every cell. `cpuStep` makes one and loops. The feared cost did not appear: 512² × 200 generations of Life on the CPU path measured 1.83 s before and 1.75 s after, back to back on the same machine, so the second entry point the trade-off hedged about was not needed.
+
+Two things came out of it beyond the refactor. The equivalence failure message now describes the disagreeing cell — coordinates, whether it is on a real edge, its neighbours in canonical order, the entry that fired and whether mutation overrode the result — instead of naming a cell index, which was the entry's stated standalone justification. And a new test runs `stepCell` over a whole grid against what `cpuStep` writes, across all four table kinds and the expression form, with mutation on; it is the AV-017 guard in embryo, and its coverage assertion immediately caught two wrong assumptions about which kind a rule compiles to.
 
 ### IMP-006: the session cell codec expands float data rather than compressing it
 **Status:** applied

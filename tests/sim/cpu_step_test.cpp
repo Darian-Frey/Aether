@@ -7,6 +7,7 @@
 
 #include <set>
 #include <utility>
+#include <vector>
 
 using namespace aether;
 using core::GridSpec;
@@ -42,6 +43,69 @@ void run(const CompiledRule& rule, HostGrid& g, int generations) {
 }
 
 }  // namespace
+
+TEST_CASE("stepCell is the loop, not a second opinion (IMP-005)", "[cpu]") {
+    // One fixture per rule form, so no kind can quietly grow its own answer.
+    std::vector<std::pair<const char*, CompiledRule>> fixtures;
+    // Life is outer-totalistic, not counted: D-016 takes the counted form only
+    // where it is strictly smaller, which for two states it is not.
+    fixtures.emplace_back("B3/S23", compile("B3/S23"));
+    fixtures.emplace_back("B2/S/C4", compile("B2/S/C4"));
+    fixtures.emplace_back("two counts at once",
+        compile("states 4; neighbourhood moore 1; 0: n(1) == 1 and n(2) == 1 -> 1;"));
+    fixtures.emplace_back("signature literal",
+        compile("states 2; neighbourhood von_neumann 1; 0: [1, _, _, _] -> 1;"));
+    // Asking about two states in one clause is what keeps this an expression;
+    // with a single count per own state the DSL would build a counted table.
+    fixtures.emplace_back("expression",
+        compile("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1; 1: n(1) < 2 -> 2;"));
+    {   // Totalistic has no DSL spelling, so it is built as an IR.
+        rule::RuleIR ir;
+        ir.dimensions = 2;
+        ir.states = 2;
+        ir.kind = rule::Kind::Totalistic;
+        ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};
+        rule::Table t;
+        t.entries.assign(10, 0);
+        t.entries[1] = 1;
+        ir.transition = t;
+        auto c = rule::compileRule(ir);
+        REQUIRE(std::holds_alternative<CompiledRule>(c));
+        fixtures.emplace_back("totalistic", std::get<CompiledRule>(std::move(c)));
+    }
+
+    std::set<rule::Kind> kinds;
+    for (const auto& [name, r] : fixtures) {
+        kinds.insert(r.kind);
+        GridSpec spec{2, 13, 11, 1};   // odd extents, so edges and corners land awkwardly
+        HostGrid g(spec);
+        for (uint32_t y = 0; y < spec.height; ++y)
+            for (uint32_t x = 0; x < spec.width; ++x)
+                g.set(x, y, 0, static_cast<uint8_t>((x * 7 + y * 5) % r.states));
+
+        // Mutation on, so the hashed override is part of what has to agree.
+        const sim::CellMutation mutation{sim::mutationThreshold(0.05), 0xfeedfaceull, 0};
+        std::vector<uint8_t> expected(spec.bytesPerBuffer());
+        sim::cpuStep(r, spec, g.current(), expected, 9, mutation);
+
+        sim::StepScratch scratch(r);
+        for (uint32_t y = 0; y < spec.height; ++y) {
+            for (uint32_t x = 0; x < spec.width; ++x) {
+                const auto t = sim::stepCell(r, spec, g.current(), x, y, 0, 9, mutation, scratch);
+                INFO(name << " at " << x << "," << y);
+                CHECK(t.next == expected[g.index(x, y)]);
+                CHECK(t.own == g.get(x, y));
+                if (!t.mutated) CHECK(t.next == t.fromRule);
+                if (t.hasIndex) CHECK(t.tableIndex < r.table.size());
+                CHECK(scratch.neighbours.size() == r.neighbourCount());
+            }
+        }
+    }
+    // All four table kinds and the expression form, or the fixtures have drifted
+    // under the DSL's feet — which is exactly how two of them drifted already.
+    CHECK(kinds.size() == 5);
+    CHECK(kinds.count(rule::Kind::Expression) == 1);
+}
 
 TEST_CASE("glider arrives at its predicted offset (AV-004 detector)", "[cpu]") {
     const CompiledRule life = compile("B3/S23");
