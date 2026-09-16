@@ -15,7 +15,9 @@ using nlohmann::json;
 
 // --- Cell codec ------------------------------------------------------------------
 
-std::string encodeCells(const std::vector<uint8_t>& cells) {
+namespace {
+
+std::vector<uint8_t> runLengthEncode(const std::vector<uint8_t>& cells) {
     std::vector<uint8_t> rle;
     rle.reserve(cells.size() / 4);
     size_t i = 0;
@@ -27,21 +29,40 @@ std::string encodeCells(const std::vector<uint8_t>& cells) {
         rle.push_back(v);
         i += run;
     }
-    return rule::base64Encode(rle);
+    return rle;
 }
 
-std::variant<std::vector<uint8_t>, SessionError> decodeCells(const std::string& text, size_t expectedCount) {
+}  // namespace
+
+EncodedCells encodeCells(const std::vector<uint8_t>& cells) {
+    const std::vector<uint8_t> rle = runLengthEncode(cells);
+    // Two bytes a run, so a buffer with no runs comes back twice its size.
+    // A quiescent u8 grid compresses enormously and a float grid not at all
+    // (IMP-006), and there is no need to guess which this is: measure.
+    if (rle.size() <= cells.size()) return {"rle", rule::base64Encode(rle)};
+    return {"bytes", rule::base64Encode(cells)};
+}
+
+std::variant<std::vector<uint8_t>, SessionError> decodeCells(const std::string& encoding,
+                                                             const std::string& text,
+                                                             size_t expectedBytes) {
     auto bytes = rule::base64Decode(text);
     if (const auto* e = std::get_if<std::string>(&bytes)) return SessionError{*e};
-    const auto& rle = std::get<std::vector<uint8_t>>(bytes);
-    if (rle.size() % 2 != 0) return SessionError{"cell data has an odd byte count"};
     std::vector<uint8_t> out;
-    out.reserve(expectedCount);
-    for (size_t i = 0; i < rle.size(); i += 2) {
-        out.insert(out.end(), rle[i], rle[i + 1]);
+    if (encoding == "bytes") {
+        out = std::move(std::get<std::vector<uint8_t>>(bytes));
+    } else if (encoding == "rle") {
+        const auto& rle = std::get<std::vector<uint8_t>>(bytes);
+        if (rle.size() % 2 != 0) return SessionError{"cell data has an odd byte count"};
+        out.reserve(expectedBytes);
+        for (size_t i = 0; i < rle.size(); i += 2) {
+            out.insert(out.end(), rle[i], rle[i + 1]);
+        }
+    } else {
+        return SessionError{std::format("unsupported cell encoding '{}'", encoding)};
     }
-    if (out.size() != expectedCount) {
-        return SessionError{std::format("cell data decodes to {} cells; the grid has {}", out.size(), expectedCount)};
+    if (out.size() != expectedBytes) {
+        return SessionError{std::format("cell data decodes to {} bytes; the grid needs {}", out.size(), expectedBytes)};
     }
     return out;
 }
@@ -221,7 +242,8 @@ std::string sessionToJson(const Session& s) {
     j["grid"] = {{"dimensions", s.spec.dimensions}, {"w", s.spec.width}, {"h", s.spec.height}, {"d", s.spec.depth},
                  {"cell_type", std::string(core::toString(s.spec.cell_type))},
                  {"boundary", std::string(rule::toString(s.boundary))}};
-    j["initial"] = {{"encoding", "rle"}, {"data", encodeCells(s.initial)}};
+    const EncodedCells initial = encodeCells(s.initial);
+    j["initial"] = {{"encoding", initial.encoding}, {"data", initial.data}};
     j["rule"] = {{"ir", rule::irToJson(s.rule)}, {"ir_hash", hex(rule::irHash(s.rule))}};
     if (s.rule.metadata.source_notation) j["rule"]["source_notation"] = *s.rule.metadata.source_notation;
     j["rng"] = {{"seed_a", s.seedA}, {"seed_b", s.seedB}};
@@ -234,7 +256,10 @@ std::string sessionToJson(const Session& s) {
     j["lineage"] = lineageToJson(s.lineage);
     j["generation"] = s.generation;
     j["counters"] = {{"rule_mutations", s.ruleMutationsApplied}, {"rule_mutations_skipped", s.ruleMutationsSkipped}};
-    if (!s.current.empty()) j["state"] = {{"encoding", "rle"}, {"data", encodeCells(s.current)}};
+    if (!s.current.empty()) {
+        const EncodedCells state = encodeCells(s.current);
+        j["state"] = {{"encoding", state.encoding}, {"data", state.data}};
+    }
     return j.dump(1);
 }
 
@@ -260,14 +285,12 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
         s.boundary = *bd;
 
         const json& init = j.at("initial");
-        if (init.at("encoding").get<std::string>() != "rle" && init.at("encoding").get<std::string>() != "raw") {
-            return SessionError{"unsupported initial encoding"};
-        }
-        if (init.at("encoding") == "rle") {
-            auto cells = decodeCells(init.at("data").get<std::string>(), s.spec.cellCount());
+        const auto initialEncoding = init.at("encoding").get<std::string>();
+        if (initialEncoding != "raw") {   // raw: filled in by loadSession from the sidecar
+            auto cells = decodeCells(initialEncoding, init.at("data").get<std::string>(), s.spec.bytesPerBuffer());
             if (const auto* e = std::get_if<SessionError>(&cells)) return *e;
             s.initial = std::move(std::get<std::vector<uint8_t>>(cells));
-        }   // raw: filled in by loadSession from the sidecar
+        }
 
         auto ir = rule::irFromJson(j.at("rule").at("ir"));
         if (const auto* e = std::get_if<std::string>(&ir)) return SessionError{"rule: " + *e};
@@ -308,8 +331,9 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.ruleMutationsApplied = j["counters"].value("rule_mutations", uint64_t{0});
             s.ruleMutationsSkipped = j["counters"].value("rule_mutations_skipped", uint64_t{0});
         }
-        if (j.contains("state") && j["state"].at("encoding") == "rle") {
-            auto cells = decodeCells(j["state"].at("data").get<std::string>(), s.spec.cellCount());
+        if (j.contains("state") && j["state"].at("encoding") != "raw") {
+            auto cells = decodeCells(j["state"].at("encoding").get<std::string>(),
+                                     j["state"].at("data").get<std::string>(), s.spec.bytesPerBuffer());
             if (const auto* e = std::get_if<SessionError>(&cells)) return *e;
             s.current = std::move(std::get<std::vector<uint8_t>>(cells));
         }
@@ -341,7 +365,7 @@ std::variant<std::vector<uint8_t>, SessionError> readFile(const std::string& pat
 }  // namespace
 
 std::optional<SessionError> saveSession(const std::string& path, const Session& s) {
-    if (s.spec.cellCount() > kInlineCellLimit) {
+    if (s.spec.bytesPerBuffer() > kInlineByteLimit) {
         // Sidecar for big grids: initial then current, raw bytes.
         Session copy = s;
         std::vector<uint8_t> raw = s.initial;
@@ -378,7 +402,7 @@ std::variant<Session, SessionError> loadSession(const std::string& path) {
             auto raw = readFile(sidecar);
             if (const auto* e = std::get_if<SessionError>(&raw)) return *e;
             const auto& r = std::get<std::vector<uint8_t>>(raw);
-            const size_t n = s.spec.cellCount();
+            const size_t n = s.spec.bytesPerBuffer();
             if (r.size() < n) return SessionError{"sidecar is shorter than the grid"};
             s.initial.assign(r.begin(), r.begin() + static_cast<std::ptrdiff_t>(n));
             if (j.contains("state") && r.size() >= 2 * n) {

@@ -430,14 +430,14 @@ where `gen_lo/hi` and `seed_lo/hi` are the low and high 32 bits of the 64-bit `g
 
 ## 11. Session format
 
-Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid` for grids over 4M cells (2026-09-12: the sidecar holds the initial cells followed by the current cells).
+Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid` for grids whose buffer exceeds 4 MB (2026-09-12: the sidecar holds the initial cells followed by the current cells). The threshold is bytes rather than cells (2026-09-16), so an `f32` grid reaches the sidecar at a quarter of the extent a `u8` grid does — which is what you want, since float bytes hardly run-length encode at all.
 
 ```
 {
   "format_version": 1,
   "grid":      { "dimensions": 2, "w": 1024, "h": 1024, "d": 1,
                  "cell_type": "u8", "boundary": "wrap" },
-  "initial":   { "encoding": "rle" | "raw", "data": "..." },   // cells at generation 0, before any event
+  "initial":   { "encoding": "rle" | "bytes" | "raw", "data": "..." },   // cells at generation 0, before any event
   "rule":      { "ir": { ... }, "ir_hash": "0x...", "source_notation": "B3/S23" },   // the current rule
   "rng":       { "seed_a": 12345, "seed_b": 67890,
                  "stream_a_state": ["0x...", "0x..."] },       // convenience: stream A at `generation`
@@ -454,7 +454,7 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
                    "pinned": false, "delta": [[17, 1]], "metadata": { "name": "B3/S23*" } },
                  ... ],
   "generation": 4210,
-  "state":     { "encoding": "rle", "data": "..." },           // convenience: cells at `generation`
+  "state":     { "encoding": "rle" | "bytes" | "raw", "data": "..." },   // convenience: cells at `generation`
   "counters":  { "rule_mutations": 16, "rule_mutations_skipped": 0 }
 }
 ```
@@ -467,7 +467,9 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
 
 **Lineage entries** carry `origin` (`initial` | `user` | `mutation` | `rewind`) and `journal_index`, the journal length when the entry was made. The initial and pinned entries store the full IR; other table-form entries store a `delta` of `[index, value]` pairs against the previous entry plus their `metadata`. Every entry stores its `ir_hash` and the loader verifies it after reconstruction.
 
-**Cell encoding.** `rle` is byte run-length pairs `(count ≤ 255, value)`, base64. `raw` names the sidecar.
+**Cell encoding.** Two inline forms: `rle` is byte run-length pairs `(count ≤ 255, value)`, base64; `bytes` is the buffer itself, base64 (2026-09-16). `raw` names the sidecar. All three work on the grid's raw bytes rather than its cells, so an `f32` grid encodes its float bytes through the same path with no separate case; the decoded length is checked against `bytesPerBuffer()`, which equals the cell count only for `u8` (2026-09-16).
+
+The writer emits whichever inline form is shorter, measured rather than assumed: a run-length pass spends two bytes per run, so it halves a quiescent `u8` grid and doubles a continuous `f32` one, whose adjacent cells differ in the mantissa and break every run. `bytes` is therefore the floor rather than a competing scheme, and `rle` is used only where it wins. A reader must accept both. Added within `format_version` 1: every file written before it says `rle` or `raw` and loads unchanged, and the decoded grid is identical either way, so nothing about replay depends on which was chosen (IMP-006, 2026-09-16).
 
 `mutation.cell.block` is the block shift of §9.2 and defaults to `0` when absent, so files written before it existed load and replay identically. It was added within `format_version` 1 rather than bumping the version because nothing has been released against version 1; a field whose default changes behaviour would need a bump (2026-09-14).
 

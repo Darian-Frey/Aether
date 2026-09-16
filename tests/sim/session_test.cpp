@@ -57,13 +57,72 @@ std::string tmpPath(const char* name) {
 TEST_CASE("cell codec round-trips and rejects bad sizes", "[session]") {
     std::vector<uint8_t> c;
     for (int i = 0; i < 1000; ++i) c.push_back(static_cast<uint8_t>(i < 600 ? 0 : (i / 7 % 3)));
-    const std::string text = sim::encodeCells(c);
-    CHECK(text.size() < 400);   // runs compress: 600 zeros are three pairs
-    const auto back = sim::decodeCells(text, c.size());
+    const auto enc = sim::encodeCells(c);
+    CHECK(enc.encoding == "rle");
+    CHECK(enc.data.size() < 400);   // runs compress: 600 zeros are three pairs
+    const auto back = sim::decodeCells(enc.encoding, enc.data, c.size());
     REQUIRE(std::holds_alternative<std::vector<uint8_t>>(back));
     CHECK(std::get<std::vector<uint8_t>>(back) == c);
-    CHECK(std::holds_alternative<sim::SessionError>(sim::decodeCells(text, c.size() + 1)));
-    CHECK(std::holds_alternative<std::vector<uint8_t>>(sim::decodeCells(sim::encodeCells({}), 0)));
+    CHECK(std::holds_alternative<sim::SessionError>(sim::decodeCells(enc.encoding, enc.data, c.size() + 1)));
+    const auto empty = sim::encodeCells({});
+    CHECK(std::holds_alternative<std::vector<uint8_t>>(sim::decodeCells(empty.encoding, empty.data, 0)));
+    CHECK(std::holds_alternative<sim::SessionError>(sim::decodeCells("gzip", enc.data, c.size())));
+}
+
+TEST_CASE("the writer takes the shorter of the two inline encodings (IMP-006)", "[session]") {
+    // Runs: the pass earns its keep and the encoding says so.
+    const std::vector<uint8_t> runs(4096, 0);
+    const auto a = sim::encodeCells(runs);
+    CHECK(a.encoding == "rle");
+    CHECK(a.data.size() < 100);
+
+    // No runs: two bytes a run would double it, so the bytes go as they are.
+    std::vector<uint8_t> noruns;
+    for (int i = 0; i < 4096; ++i) noruns.push_back(static_cast<uint8_t>((i * 37 + (i >> 3)) & 0xff));
+    const auto b = sim::encodeCells(noruns);
+    CHECK(b.encoding == "bytes");
+    CHECK(b.data.size() < 4 * noruns.size() / 2);   // comfortably inside the 2.67x it used to cost
+
+    const auto back = sim::decodeCells(b.encoding, b.data, noruns.size());
+    REQUIRE(std::holds_alternative<std::vector<uint8_t>>(back));
+    CHECK(std::get<std::vector<uint8_t>>(back) == noruns);
+}
+
+TEST_CASE("the cell codec works in bytes, so an f32 grid needs no separate path", "[session]") {
+    const aether::core::GridSpec spec{2, 8, 8, 1, aether::core::CellType::F32};
+    CHECK(spec.bytesPerBuffer() == 4 * spec.cellCount());
+
+    aether::core::HostGrid g(spec);
+    auto f = g.currentFloats();
+    for (size_t i = 0; i < f.size(); ++i) f[i] = static_cast<float>(i % 8) / 8.0f;
+    const std::vector<uint8_t> cells(g.current().begin(), g.current().end());
+
+    const auto enc = sim::encodeCells(cells);
+    const auto back = sim::decodeCells(enc.encoding, enc.data, spec.bytesPerBuffer());
+    REQUIRE(std::holds_alternative<std::vector<uint8_t>>(back));
+    CHECK(std::get<std::vector<uint8_t>>(back) == cells);
+
+    // The field above is eight values repeating, which still run-length
+    // encodes. A continuous field is the case IMP-006 was about: adjacent
+    // cells differ in the mantissa, so runs break and the bytes go as bytes.
+    aether::core::HostGrid noisy(spec);
+    auto nf = noisy.currentFloats();
+    for (size_t i = 0; i < nf.size(); ++i) {
+        nf[i] = static_cast<float>((i * 2654435761u) % 1000003u) / 1000003.0f;
+    }
+    const std::vector<uint8_t> noisyCells(noisy.current().begin(), noisy.current().end());
+    const auto ne = sim::encodeCells(noisyCells);
+    CHECK(ne.encoding == "bytes");
+    // Run-length encoding this would have cost about two bytes per byte before
+    // base64 took its third on top; the floor is base64 of the buffer itself.
+    CHECK(ne.data.size() < 1.4 * noisyCells.size());
+    const auto nback = sim::decodeCells(ne.encoding, ne.data, spec.bytesPerBuffer());
+    REQUIRE(std::holds_alternative<std::vector<uint8_t>>(nback));
+    CHECK(std::get<std::vector<uint8_t>>(nback) == noisyCells);
+
+    // The expected size is the buffer, not the cell count: passing the latter
+    // is the mistake the byte/cell conflation used to make for us.
+    CHECK(std::holds_alternative<sim::SessionError>(sim::decodeCells(enc.encoding, enc.data, spec.cellCount())));
 }
 
 TEST_CASE("a session round-trips through JSON text", "[gpu][session]") {

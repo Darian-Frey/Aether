@@ -34,6 +34,13 @@ Simulation::Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64
 std::variant<Simulation, core::Error> Simulation::create(const core::GridSpec& spec, const rule::RuleIR& ir,
                                                          Path path, uint64_t seedA, uint64_t seedB) {
     if (const auto problems = spec.problems(); !problems.empty()) return core::Error{problems.front()};
+    // The grid's storage and the rule's cell type must agree: a u8 texture
+    // stepped by a float rule is silent garbage, not an error, because the
+    // formats are decided independently on either side.
+    if (spec.cell_type != ir.cell_type) {
+        return core::Error{std::format("grid holds {} cells but the rule is {}",
+                                       core::toString(spec.cell_type), core::toString(ir.cell_type))};
+    }
     auto gpu = core::GpuGrid::create(spec, core::queryVram());
     if (const auto* e = std::get_if<core::Error>(&gpu)) return *e;
 
@@ -217,7 +224,7 @@ void Simulation::applyEvent(const Event& ev) {
 
 std::variant<Simulation, core::Error> Simulation::replay(const Session& s, ReplayTarget target, Path path) {
     if (s.lineage.empty()) return core::Error{"session has no lineage; no initial rule"};
-    if (s.initial.size() != s.spec.cellCount()) return core::Error{"session initial cells do not match the grid"};
+    if (s.initial.size() != s.spec.bytesPerBuffer()) return core::Error{"session initial cells do not match the grid"};
     auto made = create(s.spec, s.lineage.front().ir, path, s.seedA, s.seedB);
     if (const auto* e = std::get_if<core::Error>(&made)) return *e;
     Simulation sim = std::get<Simulation>(std::move(made));
@@ -249,7 +256,7 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
         return replay(s, ReplayTarget{s.generation}, path);
     }
     if (s.lineage.empty()) return core::Error{"session has no lineage; no initial rule"};
-    if (s.current.size() != s.spec.cellCount() || s.initial.size() != s.spec.cellCount()) {
+    if (s.current.size() != s.spec.bytesPerBuffer() || s.initial.size() != s.spec.bytesPerBuffer()) {
         return core::Error{"session cells do not match the grid"};
     }
     auto made = create(s.spec, s.lineage.front().ir, path, s.seedA, s.seedB);

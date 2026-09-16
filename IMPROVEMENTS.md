@@ -7,7 +7,7 @@ This is the dual of [BUGS.md](BUGS.md): bugs are broken; improvements work but c
 Status vocabulary: suggested | applied | declined | deferred.
 Effort vocabulary: trivial | small | medium | large.
 
-Entry format:
+Entries are kept in ID order within each section. Entry format:
 
 ```markdown
 ### IMP-NNN: {short title}
@@ -85,6 +85,18 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 
 **As built (2026-09-14).** Done as part of D-016, which made it worth doing: routing `/C` through `applyDecay` means a Generations rule of any length compiles to a counted table, where before `B2/S/C25` lowered to an expression no backend could run. The oversized-lowering interaction that deferred this no longer arises.
 
+### IMP-006: the session cell codec expands float data rather than compressing it
+**Status:** applied
+**Found:** 2026-09-16 (Phase 5 step 1, taking the codec to bytes)
+**Applied:** 2026-09-16
+**Location:** `src/sim/session.cpp` (`encodeCells`)
+**Effort:** small
+**Description.** `encodeCells` emits two bytes per run, so data with no runs costs two bytes per input byte, and base64 adds a third on top: 2.67x the input at worst. For `u8` grids this never bites, because a cellular automaton grid is mostly quiescent and runs are long. An `f32` grid is the opposite case. The encoder walks the interleaved float bytes, where the sign and exponent bytes repeat but the mantissa bytes do not, so runs break every few bytes and a field that is visually smooth still encodes as near-incompressible. A 512-square float grid is 1 MB and would inline at roughly 2.7 MB of base64 if it were under the threshold.
+**Proposal.** Either pick the encoding per buffer — emit `raw` inline as base64 when the run-length pass comes out longer than the input, which is one comparison and a second encoding name the reader already understands — or make the codec stride-aware so it run-length encodes each byte lane of a float separately, where the exponent lane does compress.
+**Trade-offs.** The first is barely any work but leaves float grids larger in the file than they need to be. The second complicates a codec whose present virtue is that it is eight lines and obviously correct, and it would need the stride in the file so a reader knows how to undo it, which is a format change. Doing nothing is also defensible: the byte-based sidecar threshold added the same day already routes any `f32` grid above 1M cells to a raw file, so the expansion only ever applies to small grids where 2.7x of very little is still very little.
+**Notes.** Found while making the codec work in bytes for Phase 5 rather than in cells. Nothing is wrong today; this is the encoder meeting data it was not designed for, and the threshold change limits the blast radius on its own.
+
+**As built (2026-09-16).** The first proposal, and it needed one change: `raw` already names the sidecar, so the inline uncompressed form is a third encoding, `bytes`. `encodeCells` returns the encoding alongside the data and picks whichever is shorter by measuring, rather than by guessing from the cell type — which is better than the proposal, since a quiescent float grid still compresses and a noisy `u8` one still does not. The stride-aware alternative was not built: it would have been a format change for a case the byte-based sidecar threshold already handles. Reading is now stricter in one respect the entry did not anticipate — a `state` block with an unrecognised encoding used to be skipped in silence, leaving a session loaded with no current grid, and is now an error.
 
 ## Declined
 

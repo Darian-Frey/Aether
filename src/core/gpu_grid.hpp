@@ -58,11 +58,14 @@ public:
 
     // Host <-> current texture, whole grid. Both are synchronous and exist
     // for seeding, save/load and the equivalence tests, never for the step
-    // loop (AV-002).
+    // loop (AV-002). `cells` is spec().bytesPerBuffer() long, which is the
+    // cell count only for u8; a short span is an out-of-bounds read inside
+    // the driver, so both assert on it.
     void upload(std::span<const uint8_t> cells);
     void download(std::span<uint8_t> cells) const;
 
-    // A box within the current texture. `cells` is w*h*d bytes, x fastest.
+    // A box within the current texture, x fastest. `cells` is w*h*d cells,
+    // so w*h*d*cellBytes(spec().cell_type) bytes long.
     // For painting: small, targeted, and no readback.
     void uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
                       std::span<const uint8_t> cells);

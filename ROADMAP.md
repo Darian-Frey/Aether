@@ -85,10 +85,10 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 5 — Continuous states
 **Goal:** Float-state automata sharing the existing pipeline.
-**Status:** Not started
+**Status:** In progress
 **Features delivered:** F-006
 **Deliverables:**
-- [ ] Float texture grid path
+- [x] Float texture grid path (2026-09-16): `HostGrid` keeps byte storage with float views over it, the session codec and sidecar work in bytes rather than cells, and `Simulation::create` refuses a grid whose cell type disagrees with its rule's
 - [ ] Convolution kernel authoring, radial and explicit
 - [ ] Growth function in the IR expression tree
 - [ ] Documented precision expectations across GPU vendors

@@ -62,6 +62,38 @@ TEST_CASE("HostGrid edits go to current and survive a swap as next", "[core]") {
     CHECK(g.get(1, 2) == 0);
 }
 
+TEST_CASE("HostGrid holds f32 cells as bytes behind a float view", "[core]") {
+    HostGrid g({2, 4, 3, 1, CellType::F32});
+    CHECK(g.current().size() == 48);            // bytes: twelve cells of four
+    CHECK(g.currentFloats().size() == 12);      // cells
+    CHECK(g.index(1, 2) == 9);                  // indexing still counts cells
+
+    g.setFloat(1, 2, 0, 0.25f);
+    CHECK(g.getFloat(1, 2) == 0.25f);
+    CHECK(g.currentFloats()[9] == 0.25f);
+    CHECK(g.nextFloats()[9] == 0.0f);           // writes land on current only
+
+    g.swap();
+    CHECK(g.getFloat(1, 2) == 0.0f);
+    CHECK(g.nextFloats()[9] == 0.25f);
+
+    g.clear();                                  // all-zero bits is +0.0
+    CHECK(g.getFloat(1, 2) == 0.0f);
+    CHECK(g.nextFloats()[9] == 0.0f);
+}
+
+TEST_CASE("the float view round-trips the values written through it", "[core]") {
+    HostGrid g({1, 5, 1, 1, CellType::F32});
+    const float vs[] = {0.0f, 1.0f, 0.5f, 0.25f, 0.125f};   // exact in binary
+    auto f = g.currentFloats();
+    for (size_t i = 0; i < 5; ++i) f[i] = vs[i];
+    for (uint32_t i = 0; i < 5; ++i) CHECK(g.getFloat(i) == vs[i]);
+
+    // The same storage read as bytes is what the session codec will encode.
+    CHECK(g.current().size() == 20);
+    CHECK(g.current()[0] == 0);                 // 0.0f is four zero bytes
+}
+
 TEST_CASE("VRAM guard applies 25% headroom and passes when unknown", "[core]") {
     const GridSpec s{3, 256, 256, 256};   // 32 MiB pair, 40 MiB with headroom
     VramInfo v;

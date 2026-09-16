@@ -3,6 +3,7 @@
 #include "core/gl.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <format>
 #include <string_view>
 
@@ -157,6 +158,7 @@ unsigned int GpuGrid::format() const {
 }
 
 void GpuGrid::upload(std::span<const uint8_t> cells) {
+    assert(cells.size() == spec_.bytesPerBuffer());
     glBindTexture(target_, pair_.current());
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (target_ == GL_TEXTURE_3D) {
@@ -174,6 +176,7 @@ void GpuGrid::upload(std::span<const uint8_t> cells) {
 
 void GpuGrid::uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
                            std::span<const uint8_t> cells) {
+    assert(cells.size() == uint64_t{w} * h * d * cellBytes(spec_.cell_type));
     glBindTexture(target_, pair_.current());
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (target_ == GL_TEXTURE_3D) {
@@ -189,6 +192,7 @@ void GpuGrid::uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint3
 }
 
 void GpuGrid::download(std::span<uint8_t> cells) const {
+    assert(cells.size() == spec_.bytesPerBuffer());
     glBindTexture(target_, pair_.current());
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glGetTexImage(target_, 0, transferFormat(spec_.cell_type), transferType(spec_.cell_type), cells.data());

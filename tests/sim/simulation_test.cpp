@@ -147,6 +147,12 @@ TEST_CASE("Simulation refuses a grid the VRAM guard or spec check rejects", "[gp
     auto mismatch = Simulation::create(core::GridSpec{3, 8, 8, 8}, life());
     REQUIRE(std::holds_alternative<core::Error>(mismatch));
     CHECK(std::get<core::Error>(mismatch).message.find("3D") != std::string::npos);
+
+    // A float grid under a u8 rule would step a u8 texture with a float image
+    // format and produce silent nonsense, since the two are decided apart.
+    auto cells = Simulation::create(core::GridSpec{2, 8, 8, 1, core::CellType::F32}, life());
+    REQUIRE(std::holds_alternative<core::Error>(cells));
+    CHECK(std::get<core::Error>(cells).message.find("f32") != std::string::npos);
 }
 
 TEST_CASE("a Simulation returned by value keeps mutating on the GPU path (moved stepper)", "[gpu][simulation]") {
