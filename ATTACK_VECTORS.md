@@ -82,6 +82,12 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 **Detection.** Not implemented (feature not yet built). Planned: structural — the inspector calls the per-cell entry point the stepper itself is a loop over (IMP-005), so there is one implementation rather than two. Test: over every equivalence fixture and every boundary mode, the inspector's predicted next state equals the state `cpuStep` writes, for every cell of the grid including edges and corners.
 **Related decisions.** D-018 (the inspector is the oracle), D-011 (CPU reference as oracle), AV-005, AV-007.
 
+### AV-018 Energy or resource created where nothing should create it
+**Severity:** Major
+**Description.** *(Post Phase 5.)* Once a field carries a quantity that is meant to be conserved — the resource of F-032, or any energy budget built on it — every arithmetic path that touches it is a place the quantity can be created from nothing. A clamp applied in the wrong order, a regeneration step that runs before consumption instead of after, a share that rounds up: each is a leak. What makes this worse than an ordinary numerical bug is that the grid is under selection. A rule lineage that happens to exploit the leak outbreeds every lineage that does not, so the defect does not sit quietly producing slightly wrong totals — it takes over the grid, and the first symptom is a population that thrives for no visible reason.
+**Detection.** Not implemented (feature not yet built). Planned: the resource field's only sources are regeneration and its only sinks are consumption and decay, each counted; F-036's reduction reports the total against what entered and left, and a test runs a fixture for a thousand generations asserting the books balance to within float tolerance. A sudden divergence between the counted total and the measured one localises the leak to the step that opened it.
+**Related decisions.** D-019 (gather boundary), F-032, F-036.
+
 ---
 
 ## Rule authoring

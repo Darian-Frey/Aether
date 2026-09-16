@@ -483,3 +483,35 @@ The front ends choose the form, since nothing downstream can infer it:
 - Its contents are a pattern as SPEC §14 defines one. No new format.
 
 **Reversal conditions.** If the inspector turns out to be wanted more on a running grid than on the scratch pad, promote option C. The inspector itself does not change — it is already the oracle — and the work is the region readback plus a policy for when to take it.
+
+---
+
+### D-019 Cells may read the world but may not write to each other
+**Decided:** 2026-09-16
+**Recorded:** 2026-09-16
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-16)
+**Related:** F-031, F-032, F-033, F-034, F-035, F-036, AV-018, D-001, D-008, SPEC.md §1, §4, §11, `docs/ecosystem-design-note.md`
+
+**Context.** The ecosystem design note proposes turning the grid into an evolving ecosystem: per-cell genomes under inheritance and selection, an energy budget, a resource layer with plants, movement, herding, cooperation between clans, and predation. Taken whole it asks for a cell record in place of a state index, which would change the IR schema, the session format and the `GL_R8UI` storage all at once. Taken apart, most of it does not.
+
+**Context — where the line actually falls.** The engine's step is a gather: every invocation reads a neighbourhood and writes exactly one cell, its own. That is what makes it one dispatch with no atomics, order-independent, and reproducible from a seed. Almost everything in the note respects it. Three things do not, and they are not the three the note flags: `feed(n, fraction)` has a cell reduce *another* cell's energy, the swap phase has a cell vacate a site and occupy a neighbour's, and clan energy sharing moves a quantity between two sites. Each is a write to somewhere other than self. The division is not ecosystem against cellular automaton — it runs across the note's own sections, admitting predation as a source of selection pressure while refusing predation as a transaction.
+
+**Options.**
+- **A. Take the note whole: cell records, per-cell genomes, a swap phase.** Rejected for this engine. Movement between sites is agent-based lattice modelling, which FEATURES §Out of scope has excluded since the document was written and D-008 placed behind a second engine. The note says as much itself in §2.3. Accepting it here would not be a widening but a reversal, and it would take the IR schema, the session format and the storage layout with it.
+- **B. The gather-compatible subset.** Chosen. Everything a cell can decide about itself from what it can see: a resource field it reads and draws down at its own site, a genome inherited at birth and mutated, an age and a lifespan, births biased toward genetic similarity, and the readouts needed to watch any of it. This is the greater part of the note by section count and very nearly all of its payoff, because selection needs variation, heredity and differential survival — and none of those three requires a cell to write to its neighbour.
+- **C. The subset plus scatter re-expressed as redundant gather.** Deferred, and worth recording because it is not obvious. A cell can discover what its neighbours did to it by evaluating their decisions itself under the same deterministic rule: B computes what was taken from it rather than being told, and a cell works out whether anything moved into it by running the same tie-break its neighbours ran. That keeps one invocation per cell, needs no atomics and stays reproducible, at roughly N times the work per step and a considerable complication of the rule form. It is the route to feeding and movement inside this engine if they are ever wanted.
+- **D. A second engine.** Deferred on the same terms D-008 set for agent-based automata. It would share the IR, the front ends, the renderer and the session machinery, and differ in the step model. Option C should be priced before this one is taken, since C is a mode and D is a project.
+
+**Decision.** Option B. Six features enter the registers: F-031 multi-field grids as the substrate, F-032 the abiotic resource field, F-033 per-cell genomes with inheritance, F-034 hard cell lifespan, F-035 similarity-biased birth, F-036 population and field readouts. Feeding, swap movement and clan energy sharing do not enter, and FEATURES §Out of scope gains a line naming cell-to-cell writes so the boundary is findable without reading this entry. All six sit after Phase 5, which is a genuine prerequisite and not merely a queue position: the resource field is a second `f32` field and inherits that work wholesale.
+
+**Consequences.**
+- The cell stays one value. SPEC §1 is unchanged. What changes is that a *site* may carry more than one field, each stored as its own texture — which is additive where a fattened cell record would have been a rewrite, and leaves every existing rule reading exactly what it read before.
+- SPEC §4 gains field declarations in the IR and SPEC §11 gains the extra fields in the session format. Both are additive: a session naming one field loads unchanged, so `format_version` stays at 1.
+- A per-cell genome is an expression over a field — `(genome >> count) & 1` for a Life-like bitmask — so it runs on the existing codegen backend and needs no third execution form. The table backend cannot serve one at any size, because there is no longer a single table for the grid; `selectBackend` must route a rule that reads a genome field to codegen regardless of its size, which is the one place D-004's size rule stops being the whole story.
+- The genome is deliberately bounded to what a shader can interpret cheaply. "The genome is the rule" is unimplementable in the general case, since a grid of a million cells would be a million rules to compile; a Life-like bitmask is 18 bits and one shift.
+- Inheritance, crossover and per-gene mutation all draw randomness, and every draw comes from stream B, hashed on coordinate and generation (SPEC §10). A tie-break or a parent choice taken from anything else voids the session format for every file, which is AV-006.
+- Energy and resource can be created by any arithmetic slip, and a system under selection will find the leak and exploit it long before a person notices. AV-018 records it with a conservation counter as the detection.
+- The readouts of F-036 are GPU reductions, never a per-step host read. A population graph implemented as a readback would reintroduce AV-002 at the worst possible place — once per generation, forever.
+
+**Reversal conditions.** Revisit option C if selection without predation proves to produce less interesting dynamics than the note expects; the subset is designed so that adding it later changes the rule form and nothing beneath it. Revisit option D only as a deliberate second engine with its own decision, as D-008 already requires.

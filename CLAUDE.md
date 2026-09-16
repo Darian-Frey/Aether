@@ -22,7 +22,7 @@ Phases 1–4 complete (2026-09-11 to 2026-09-15). The discrete core runs interac
 - `tests/`: Catch2, one file per module, 217 cases plus the five cross-process `replay.*` cases under `ctest` (222). `tests/support/table.hpp` reads a table entry without caring which indexing scheme the kind uses — use it rather than calling an index function directly. One of them compiles every bundled rule, so a broken rule file fails the suite. `[gpu]` cases open a hidden window and SKIP without a display. `tests/sim/equivalence_test.cpp` is the CPU/GPU oracle comparison; run it on the T1200 as well as the iGPU before trusting a shader change.
 - The window is three regions, laid out by `App::layOut()` every frame: a transport strip across the top, a fixed left panel, and the viewport. `viewport_` and `panelRect_` are what everything else measures against.
 - `rules/`: fourteen bundled rules (`.rule` = DSL, `.lua` = Lua). Searched at run time as `$AETHER_RULES`, `./rules`, `<exe>/rules`, `<exe>/../rules`; the first directory with rules wins.
-- `patterns/`, `docs/`: empty apart from `.gitkeep`. `patterns/` is reserved for F-027's bundled pattern library, a Phase 6 item.
+- `patterns/`: empty apart from `.gitkeep`, reserved for F-027's bundled pattern library, a Phase 6 item. `docs/`: `ecosystem-design-note.md`, the provenance D-019 cites; its internal F- and D- numbers are local to that document and are not register IDs.
 
 Authority rule in `Simulation`: GPU path → GPU pair is truth, host stale until `syncToHost()`; CPU path → host is truth, mirrored to GPU after each step. Painting goes through `paintSpan`, which writes both.
 
@@ -38,6 +38,8 @@ Phase 5 — continuous states (F-006, D-010). The IR has carried `cell_type` and
 4. `rule/glsl`: `aether_rule_f(float self, float conv)` per SPEC §6, and the float half of the expression interpreter — it exists but is untested, because nothing produces float expressions yet.
 5. Rendering: `f32` cells through the palette. The 2D shader samples `usampler2D` and will need a float variant.
 6. AV-015: cross-machine float determinism. Expect to narrow the determinism claim for `f32` rather than to guarantee it — SPEC §11 anticipates that, and the honest outcome may be that `f32` sessions replay on one machine only.
+
+Phase 7 (ecosystem) was added 2026-09-16 by D-019: multi-field grids, a resource field, per-cell genomes under inheritance, and the readouts to watch them. It sits after the release phase and depends on Phase 5, because the resource field is a second `f32` field. The boundary it draws is worth knowing before touching `sim/`: a cell reads its neighbourhood and writes only itself, so feeding, movement between sites and energy transfer are refused — D-019 has the reasoning.
 
 Open: IMP-004 (the Seed button sits below the density sliders it is the point of — trivial, and worth doing with F-028 so the widgets move once) and IMP-005 (extract a per-cell entry point from `cpuStep`, which F-030's inspector depends on and a failing equivalence case would already benefit from). Nothing open in BUGS. F-024 screensaver mode is a Should in Phase 6, along with the 1D space-time view the elementary rules are waiting for. Langton's loops is still untranscribed. IMP-001, IMP-002 and IMP-003 are applied.
 

@@ -17,6 +17,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Reaction-diffusion PDE solvers. Adjacent, genuinely different numerics.
 - Hashlife or any acceleration structure exploiting pattern periodicity — see D-008.
 - Editing rules while a run is in flight without a recompile. Rule changes always go through the compiler.
+- Cells writing to one another: feeding as an energy transfer, movement between sites, and energy shared between cells. The step is a gather — every invocation writes only its own cell — and these are scatters. Recorded 2026-09-16 by D-019, which also records the two routes back if they are ever wanted.
 
 ## Engine
 
@@ -251,6 +252,72 @@ People who want to explore cellular automata rather than run one specific automa
 **Progress:** 2026-09-12. Append on every rule change, pin by name, rule-only rewind (appends) and grid rewind (replay, truncates), survives save/load with delta-encoded entries.
 **Notes:** Without this, F-015 produces interesting rules and immediately loses them. Treated as part of the mutation feature, not an extra.
 
+## Ecosystem
+
+Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Every feature here keeps the engine's gather model: a cell reads its neighbourhood and the fields at its own site, and writes only itself. Feeding, movement between sites and energy transfer between cells are not here, and D-019 records why.
+
+### F-031 Multi-field grids
+**Priority:** Should
+**Acceptance:**
+- A grid may carry more than one field per site — the state plus any number of declared auxiliary fields, each with its own cell type
+- Each field is stored as its own texture, so the state field keeps the layout and the storage it has today
+- A rule reads any field at its own site and at its neighbours, and writes only fields at its own site
+- Field declarations live in the IR; a session records every field, and a session naming one field loads unchanged
+- Both execution paths, with a multi-field fixture in the equivalence suite
+**Status:** Not started
+**Notes:** Added 2026-09-16 by D-019 as the substrate the rest of this section rests on. Chosen over widening the cell into a record because it is additive: SPEC §1 still says a cell holds one value, and what gained a dimension is the site rather than the cell.
+
+### F-032 Abiotic resource field
+**Priority:** Should
+**Acceptance:**
+- A scalar `f32` field seeded as a patchy noise field rather than uniformly, since uniform resources produce uniform populations
+- Each step, regeneration toward a per-site carrying capacity at a settable rate, with optional diffusion
+- A rule may read the resource at its own site and its neighbours', and draw down the resource at its own site
+- The regeneration rate is exposed as the primary harshness control, with a minimum seed rate available as damping
+- Conservation is observable: what enters by regeneration and leaves by consumption is counted and reconcilable (AV-018)
+**Status:** Not started
+**Notes:** Added 2026-09-16 by D-019. Depends on F-031 and on Phase 5's `f32` grid path, which is where the float field machinery comes from. Sessile resource-feeding rules — the design note's plants — need nothing beyond this and F-031, because a plant drawing on the resource at its own site is an ordinary gather; what plants cannot do is be grazed, which would be a write to another cell.
+
+### F-033 Per-cell genome with inheritance
+**Priority:** Should
+**Acceptance:**
+- A genome field holding a rule the cell runs — bounded to what a shader can interpret cheaply, a Life-like B/S bitmask being the reference case
+- At birth the child's genome is derived from its live neighbours by majority vote per gene, by random parent, or by crossover, with a per-gene mutation probability applied afterwards
+- Every draw comes from stream B, hashed on coordinate and generation, so a run replays bit-identically
+- Grouped and per-cell modes, as F-026 provides for cell mutation
+- Cells are colourable by genome hash, so lineages are visible spreading and dying out
+- `selectBackend` routes a rule reading a genome field to codegen whatever its size, since no single table can serve a grid of differing rules
+**Status:** Not started
+**Notes:** Added 2026-09-16 by D-019. The design note's "the genome is the rule" is unimplementable in general — a million cells would be a million rules to compile — but a Life-like genome is eighteen bits and the rule that reads it is one shift and one mask, which the codegen backend already emits. This is the third mutation control, after F-015 over time and F-016 over space: variation that is inherited, and therefore selected rather than merely applied.
+
+### F-034 Hard cell lifespan
+**Priority:** Could
+**Acceptance:**
+- An optional maximum age after which a cell dies regardless of its neighbours, alongside the soft decay of F-025 rather than instead of it
+- Expressed by the same desugaring route as F-025, so nothing downstream sees a new concept
+- Genome-tunable where F-033 is in use
+**Status:** Not started
+**Notes:** Promoted from a candidate on 2026-09-16 by D-019, having been set aside on 2026-09-14 by D-014 in favour of soft decay. The design note asks for it directly, and the two are not alternatives: a tail gives a cell somewhere to fade to, a lifespan gives it a deadline. Fertility windows and juvenile periods need no feature at all — a cell's age is already its state index within the tail, so they are ordinary conditions over those states.
+
+### F-035 Similarity-biased birth
+**Priority:** Could
+**Acceptance:**
+- Where several parents could produce a birth, the outcome is weighted by the genetic similarity of the candidate site's live neighbours
+- Decided entirely by the cell being born, from what it can see, so the rule remains a gather
+- Reproducible from stream B like every other stochastic element
+**Status:** Not started
+**Notes:** Added 2026-09-16 by D-019, from §5.1 of the design note, which is careful to note that it stays a strict cellular automaton. Clustering by genome emerges from where births land rather than from anything moving, which is what makes it expressible here at all; the movement-based form in §5.2 is what D-019 refuses.
+
+### F-036 Population and field readouts
+**Priority:** Should
+**Acceptance:**
+- Population over time per state, per genome or per clan tag, plotted as the run proceeds
+- Totals per field, including the conservation figure AV-018 needs
+- Computed as GPU reductions; no per-step host readback of the grid at any point
+- Present on both execution paths and recorded in the session where they are parameters rather than observations
+**Status:** Not started
+**Notes:** Added 2026-09-16 by D-019. The design note wants these to watch predator–prey oscillation; they are just as necessary for watching a genome sweep a grid under F-033. The readback constraint is not an optimisation — a population graph fed by a per-generation `glGetTexImage` would reintroduce AV-002 permanently, in the one place it would never be noticed as a cause.
+
 ## Presentation
 
 ### F-018 2D rendering
@@ -339,7 +406,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Triangular lattice: representable on the square storage with two offset lists selected by the parity of x + y. Bounded but bends the uniform-lattice assumption both steppers and the table index rely on (D-012).
 - Penrose or other aperiodic lattices: no integer coordinates, so cells become a graph with explicit adjacency, the step a gather by index, rendering a polygon list, and cell mutation hashed by cell index. A separate graph-lattice engine, not an extension of this one (D-012).
 - Structurally grouped mutation: a connected cluster of live cells mutating as a unit, rather than the spatial blocks of F-026. Needs connected-component labelling every generation, which is not a function of a cell's neighbourhood — it would take multi-pass label propagation on the GPU and would break the one-invocation-per-cell step model (D-015, 2026-09-14).
-- Hard cell lifespan: every cell dies at age L whatever its neighbours do, so still lifes and oscillators die and only patterns that keep producing new cells persist. Expressible by the same desugaring route as F-025 with no engine change, and set aside in favour of soft decay on 2026-09-14 (D-014).
+- ~~Hard cell lifespan.~~ Promoted to F-034 (2026-09-16, D-019). Set aside on 2026-09-14 in favour of soft decay (D-014); the ecosystem design note asks for it directly, and the two turn out to be complementary rather than alternatives.
 - Mutation patches: discs at a hashed centre instead of aligned blocks, for a less grid-aligned look (D-015 option B).
 - Rule diffing: show what changed between two lineage entries.
 - Audio-reactive parameter modulation.

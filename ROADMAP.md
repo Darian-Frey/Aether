@@ -110,3 +110,17 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [ ] Headless mode
 - [ ] `BENCHMARKS.md` with baseline numbers for each acceptance target
 **Acceptance:** A first tagged release with a populated rule library, a populated pattern library and reproducible benchmark figures.
+
+## Phase 7 — Ecosystem
+**Goal:** Cells that inherit a rule, compete for a resource and are selected rather than merely mutated.
+**Status:** Not started
+**Features delivered:** F-031, F-032, F-033, F-034, F-035, F-036
+**Deliverables:**
+- [ ] Multi-field grids: a site carries the state plus declared auxiliary fields, each its own texture, additive in the IR and the session format (F-031)
+- [ ] Abiotic resource field: patchy noise seeding, regeneration toward a carrying capacity, optional diffusion, consumed at a cell's own site (F-032)
+- [ ] Per-cell genome with inheritance at birth — majority, random parent or crossover — with per-gene mutation, all drawn from stream B (F-033)
+- [ ] Hard cell lifespan alongside the soft decay of F-025 (F-034)
+- [ ] Similarity-biased birth, the gather-compatible half of herding (F-035)
+- [ ] Population and field readouts as GPU reductions, never a per-step readback (F-036, AV-018)
+**Acceptance:** A genome sweeps a grid under selection and the sweep is visible in the population graph; a resource field's books balance over 1000 generations; and the whole run replays bit-identically from its seed, inheritance and all.
+**Notes:** Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Placed after the release phase rather than inside it, and after Phase 5 because the resource field is a second `f32` field and inherits that work. The design note's feeding, movement and clan energy sharing are not here; D-019 records the boundary and the two routes back.
