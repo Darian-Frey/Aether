@@ -24,7 +24,27 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-*None.*
+### BUG-011: a continuous rule goes wrong at 512², differently on each driver
+**Status:** open
+**Found:** 2026-09-17 (Phase 5 step 5, running the bundled Lenia rule at the size SPEC §12 asks for)
+**Location:** `shaders/continuous_step.comp`, `src/sim/gpu_step.cpp`; not reproduced on the CPU path
+**Severity:** high
+**Description.** The bundled `lenia.lua` is stable at 128² and 256²: the CPU path holds 28% mass from generation 250 to at least 5000, and both GPUs agree with it bitwise. At 512² both GPUs go wrong, and not in the same way.
+
+- **NVIDIA (T1200)** stays alive at the right mass but grows four cells of `0xFFFFFFFF` — a quiet NaN, all bits set — at coordinates (0,0), (1,0), (2,0) and (3,0), plus one wildly out-of-range value at (8,0). They appear between generation 4000 and 5000, at the same coordinates for every seed tried. A value the arithmetic cannot produce: the growth function is multiplies, subtractions and a select over finite inputs, with no division since 2026-09-17, and the step ends in a `clamp` to [0, 1].
+- **NVIDIA is also not deterministic with itself.** The same binary, the same seed, two runs of 5000 generations: 5 of 1,048,576 bytes differ. That is a straight breach of D-006, and it is the finding that matters most here.
+- **Intel (Mesa)** does the opposite: the grid is empty by generation 1000, where NVIDIA and the CPU path both hold 28%.
+
+**Reproduction.**
+```
+aether headless --lua rules/lenia.lua --size 512x512 --generations 5000 --seed 3 --save a.aether
+aether headless --lua rules/lenia.lua --size 512x512 --generations 5000 --seed 3 --save b.aether
+aether compare a.aether b.aether          # differs on NVIDIA, identical on Intel
+```
+At `--size 256x256 --generations 200` the same rule is identical across the CPU path, Mesa and NVIDIA, so the size is the trigger rather than the rule.
+**Notes.** Not reproduced below 512²; 256² is clean under every combination tried, so it is not simply grid size in the arithmetic sense — 256 and 512 are both exact multiples of the 8×8 local size. The suspects in order: a barrier that is sufficient for a small dispatch and not a large one (`step()` issues `GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT` between generations); the `glGetTexImage` download racing the last dispatch; and something specific to `r32f` image load/store that the `r8ui` path never exercised, since the discrete path has never been compared run-to-run at 1024². The coordinates being the first cells of row 0 — the start of the buffer — points at the transfer rather than at the automaton.
+
+This does not affect the discrete path, which has its own equivalence coverage, and does not affect continuous rules at the sizes the test suite exercises. It does mean Phase 5's acceptance (`512² without state divergence over 10,000 generations`) is **not met**, and that the determinism contract does not currently hold for `f32` on NVIDIA at that size.
 
 ## Fixed
 

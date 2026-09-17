@@ -1,10 +1,15 @@
 #include "sim/fill.hpp"
 
+#include <algorithm>
 #include <vector>
 
 namespace aether::sim {
 
 std::vector<double> defaultDensity(const rule::RuleIR& ir) {
+    // A continuous rule has no states to share out: the one weight is the
+    // fraction of cells seeded at all (SPEC §1).
+    if (ir.cell_type == core::CellType::F32) return {0.3};
+
     // Tail states take no share: the weights are indexed by state - 1, so
     // entries from decay_from onward stay zero.
     const uint16_t live = ir.metadata.decay_from.value_or(ir.states);
@@ -20,6 +25,19 @@ std::vector<double> defaultDensity(const rule::RuleIR& ir) {
 }
 
 void fillRandom(core::HostGrid& grid, std::span<const double> density, Pcg32& streamA) {
+    if (grid.spec().cell_type == core::CellType::F32) {
+        // The first weight is the fraction of cells seeded; a seeded cell
+        // takes a uniform value. Two draws a cell either way, so the stream
+        // advances by the same amount whatever the density.
+        const double p = density.empty() ? 0.0 : std::clamp(density[0], 0.0, 1.0);
+        for (float& cell : grid.currentFloats()) {
+            const double u = streamA.unit();
+            const double v = streamA.unit();
+            cell = u < p ? static_cast<float>(v) : 0.0f;
+        }
+        return;
+    }
+
     // Cumulative thresholds so one draw decides the state.
     std::vector<double> cumulative(density.size());
     double acc = 0.0;

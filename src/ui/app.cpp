@@ -148,8 +148,12 @@ int App::run() {
                 renderer3d_->draw(sim_->texture(), sim_->spec(), orbit_, volumeSettings(), viewport_,
                                   GetRenderWidth(), GetRenderHeight());
             } else if (sim_ && renderer_) {
+                // A continuous rule has no state count; the palette is read as a
+                // ramp of its full width instead (SPEC §13).
+                const unsigned int ramp = sim_->spec().cell_type == core::CellType::F32
+                                              ? 256u : sim_->rule().states;
                 renderer_->draw(sim_->texture(), sim_->spec(), view_, viewport_,
-                                GetRenderWidth(), GetRenderHeight(), sim_->rule().states);
+                                GetRenderWidth(), GetRenderHeight(), ramp);
             }
             rlImGuiBegin();
             drawPanels();
@@ -184,12 +188,17 @@ void App::refreshRuleSummary() {
     // then wraps. It is a tooltip.
     ruleHash_ = std::format("{:#018x}", compiled.ir_hash);
     ruleName_ = ir.metadata.name.value_or(ir.metadata.source_notation.value_or(std::string(rule::toString(ir.kind))));
-    ruleSummary_ = std::format("{} · {} states{} · N={} · {} · {}",
-                               rule::toString(ir.kind), ir.states,
-                               ir.metadata.decay_from
-                                   ? std::format(" ({} live, decay {})", *ir.metadata.decay_from,
-                                                 ir.states - *ir.metadata.decay_from)
-                                   : std::string{},
+    // A continuous rule has no states to count, so it says what it does have.
+    const std::string subject =
+        ir.cell_type == core::CellType::F32
+            ? std::format("f32 · kernel r{}", ir.neighbourhood.radius)
+            : std::format("{} states{}", ir.states,
+                          ir.metadata.decay_from
+                              ? std::format(" ({} live, decay {})", *ir.metadata.decay_from,
+                                            ir.states - *ir.metadata.decay_from)
+                              : std::string{});
+    ruleSummary_ = std::format("{} · {} · N={} · {} · {}",
+                               rule::toString(ir.kind), subject,
                                compiled.neighbourCount(), rule::toString(ir.boundary),
                                compiled.backend == rule::Backend::Codegen
                                    ? std::string("codegen")
@@ -248,7 +257,9 @@ render::VolumeSettings App::volumeSettings() const {
 }
 
 bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path) {
-    core::GridSpec spec{static_cast<uint8_t>(depth > 1 ? 3 : 2), width, height, depth, core::CellType::U8};
+    // The grid's storage follows the rule: a continuous rule needs float
+    // cells, and Simulation refuses the pair if they disagree.
+    core::GridSpec spec{static_cast<uint8_t>(depth > 1 ? 3 : 2), width, height, depth, ir.cell_type};
     auto made = sim::Simulation::create(spec, ir, path, opts_.seed, opts_.seedB);
     if (const auto* e = std::get_if<core::Error>(&made)) {
         log_.error(std::format("grid {}x{}: {}", width, height, e->message));
@@ -349,7 +360,9 @@ void App::applyPaletteForStates() {
 // A rule's own palette, laid over the default for its state count (SPEC §13).
 void App::applyPaletteOverrides(const rule::RuleIR& ir) {
     if (!renderer_) return;
-    render::Palette pal = render::Palette::defaultFor(ir.states, ir.metadata.decay_from);
+    render::Palette pal = ir.cell_type == core::CellType::F32
+                              ? render::Palette::continuousRamp()
+                              : render::Palette::defaultFor(ir.states, ir.metadata.decay_from);
     for (const rule::PaletteOverride& o : paletteOverrides_) {
         if (o.state < 256) pal.entries[o.state] = {o.rgba[0], o.rgba[1], o.rgba[2], o.rgba[3]};
     }

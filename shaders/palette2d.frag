@@ -1,13 +1,23 @@
-#version 430
 // 2D palette pass (SPEC §13). Maps each framebuffer pixel to a cell through
 // the view transform, fetches the state, and looks it up in the palette.
 // Reads only; the simulation textures are never written from here.
+//
+// Compiled twice, the renderer prepending #version and optionally
+// AETHER_F32: a u8 grid is a usampler2D of state indices, a float grid a
+// sampler2D of values in [0, 1]. One source, because everything except the
+// fetch and the palette lookup is the same — and a sampler of the wrong type
+// bound to a live texture unit is undefined even when it goes unread, so the
+// two cannot be branches of one program.
 
 in vec2 fragTexCoord;
 in vec4 fragColor;
 out vec4 finalColor;
 
+#ifdef AETHER_F32
+uniform sampler2D  stateTex;
+#else
 uniform usampler2D stateTex;
+#endif
 uniform sampler2D  paletteTex;
 uniform vec2  frameSize;    // framebuffer size in pixels
 uniform vec4  viewport;     // x, y (top-left, y down), w, h in pixels
@@ -53,6 +63,19 @@ void main() {
         finalColor = background;
         return;
     }
+#ifdef AETHER_F32
+    // A continuous cell holds a value, not an index, so the palette is read as
+    // a ramp across the states it was built for and interpolated between
+    // entries. `states` is the width of that ramp (SPEC §1, D-020).
+    float v = clamp(texelFetch(stateTex, idx, 0).r, 0.0, 1.0);
+    float pos = v * float(states - 1);
+    int lo = int(floor(pos));
+    int hi = min(lo + 1, states - 1);
+    vec4 c = mix(texelFetch(paletteTex, ivec2(lo, 0), 0),
+                 texelFetch(paletteTex, ivec2(hi, 0), 0), pos - float(lo));
+    finalColor = vec4(c.rgb, 1.0);
+    return;
+#else
     uint s = texelFetch(stateTex, idx, 0).r;
     vec4 c = texelFetch(paletteTex, ivec2(int(s), 0), 0);
     if (ageShade == 1) {
@@ -67,4 +90,5 @@ void main() {
         }
     }
     finalColor = vec4(c.rgb, 1.0);   // palette alpha is the 3D opacity; 2D is opaque
+#endif
 }

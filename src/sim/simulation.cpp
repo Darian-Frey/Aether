@@ -114,6 +114,11 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
 }
 
 void Simulation::resetOutOfRangeStates(uint16_t states) {
+    // A continuous cell holds a value, not an index, so there is no such
+    // thing as out of range for it: every float in [0, 1] stays valid under
+    // any kernel. Walking the buffer as bytes here would shred it.
+    if (spec().cell_type == core::CellType::F32) return;
+
     if (path_ == Path::Gpu) syncToHost();
     bool changed = false;
     for (uint8_t& c : host_.current()) {
@@ -176,8 +181,18 @@ void Simulation::paintSpan(uint32_t x0, uint32_t x1, uint32_t y, uint32_t z, uin
     auto cells = host_.current();
     const size_t start = host_.index(x0, y, z);
     const size_t n = x1 - x0 + 1;
-    std::fill_n(cells.begin() + static_cast<std::ptrdiff_t>(start), n, state);
-    gpu_.uploadRegion(x0, y, z, static_cast<uint32_t>(n), 1, 1, cells.subspan(start, n));
+    if (spec().cell_type == core::CellType::F32) {
+        // The brush carries a state index, which a continuous grid reads as
+        // full or empty: anything but the quiescent state paints 1.0. A finer
+        // brush would need a value in the event, and the journal format with
+        // it (SPEC §11).
+        auto values = host_.currentFloats();
+        std::fill_n(values.begin() + static_cast<std::ptrdiff_t>(start), n, state == 0 ? 0.0f : 1.0f);
+    } else {
+        std::fill_n(cells.begin() + static_cast<std::ptrdiff_t>(start), n, state);
+    }
+    const uint32_t bytes = core::cellBytes(spec().cell_type);
+    gpu_.uploadRegion(x0, y, z, static_cast<uint32_t>(n), 1, 1, cells.subspan(start * bytes, n * bytes));
     journal(generation_, EvPaint{x0, x1, y, z, state});
 }
 

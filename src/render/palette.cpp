@@ -23,6 +23,23 @@ Rgba hsv(double h, double s, double v) {
 
 }  // namespace
 
+Palette Palette::continuousRamp() {
+    Palette p;
+    // Empty is the quiescent colour the rest of the interface uses; full is
+    // the live one. Between them the ramp lifts through a cool mid-tone, so
+    // that a thin field is visible without a dense one washing out.
+    for (uint16_t i = 0; i < 256; ++i) {
+        const double t = static_cast<double>(i) / 255.0;
+        const double h = 215.0 - 55.0 * t;            // deep blue toward cyan
+        const double sat = 0.70 * (1.0 - t * t);      // desaturating as it brightens
+        const double val = 0.08 + 0.92 * std::pow(t, 0.75);
+        Rgba c = hsv(h, sat, val);
+        c.a = static_cast<uint8_t>(std::lround(255.0 * t));   // opacity for the 3D view
+        p.entries[i] = c;
+    }
+    return p;
+}
+
 Palette Palette::defaultFor(uint16_t states, std::optional<uint16_t> decayFrom) {
     Palette p;
     p.entries[0] = {14, 16, 20, 0};   // alpha is opacity in the 3D view: quiescent is invisible

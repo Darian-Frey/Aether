@@ -5,58 +5,81 @@
 #include <raylib.h>
 #include <rlgl.h>
 
+#include <format>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace aether::render {
 
+namespace {
+
+// The fragment source is compiled twice; the version line and the variant
+// define are prepended here rather than living in the file, so one source
+// serves both (SPEC §13).
+std::string fragmentSource(bool f32) {
+    std::string src = "#version 430\n";
+    if (f32) src += "#define AETHER_F32 1\n";
+    src += shaders::kPalette2dFrag;
+    return src;
+}
+
+}  // namespace
+
 std::variant<Renderer2D, core::Error> Renderer2D::create() {
     Renderer2D r;
-    const Shader sh = LoadShaderFromMemory(shaders::kPalette2dVert, shaders::kPalette2dFrag);
-    if (sh.id == 0 || sh.id == rlGetShaderIdDefault()) {
-        return core::Error{"palette2d shader failed to compile (see raylib log)"};
+    auto compile = [](bool f32, Renderer2D::Program& out) -> std::optional<core::Error> {
+        const std::string frag = fragmentSource(f32);
+        const Shader sh = LoadShaderFromMemory(shaders::kPalette2dVert, frag.c_str());
+        if (sh.id == 0 || sh.id == rlGetShaderIdDefault()) {
+            return core::Error{std::format("palette2d{} shader failed to compile (see raylib log)",
+                                           f32 ? " (f32)" : "")};
+        }
+        out.id         = sh.id;
+        out.state      = GetShaderLocation(sh, "stateTex");
+        out.palette    = GetShaderLocation(sh, "paletteTex");
+        out.frame      = GetShaderLocation(sh, "frameSize");
+        out.viewport   = GetShaderLocation(sh, "viewport");
+        out.origin     = GetShaderLocation(sh, "origin");
+        out.zoom       = GetShaderLocation(sh, "zoom");
+        out.grid       = GetShaderLocation(sh, "gridSize");
+        out.states     = GetShaderLocation(sh, "states");
+        out.age        = GetShaderLocation(sh, "ageShade");
+        out.background = GetShaderLocation(sh, "background");
+        out.lattice    = GetShaderLocation(sh, "lattice");
+        out.decayFrom  = GetShaderLocation(sh, "decayFrom");
+        // raylib allocated locs[]; we keep only the id and free its table.
+        RL_FREE(sh.locs);
+        return std::nullopt;
+    };
+    if (auto e = compile(false, r.owned_.discrete)) return *e;
+    if (auto e = compile(true, r.owned_.continuous)) {
+        rlUnloadShaderProgram(r.owned_.discrete.id);
+        return *e;
     }
-    r.shaderId_      = sh.id;
-    r.locState_      = GetShaderLocation(sh, "stateTex");
-    r.locPalette_    = GetShaderLocation(sh, "paletteTex");
-    r.locFrame_      = GetShaderLocation(sh, "frameSize");
-    r.locViewport_   = GetShaderLocation(sh, "viewport");
-    r.locOrigin_     = GetShaderLocation(sh, "origin");
-    r.locZoom_       = GetShaderLocation(sh, "zoom");
-    r.locGrid_       = GetShaderLocation(sh, "gridSize");
-    r.locStates_     = GetShaderLocation(sh, "states");
-    r.locAge_        = GetShaderLocation(sh, "ageShade");
-    r.locBackground_ = GetShaderLocation(sh, "background");
-    r.locLattice_    = GetShaderLocation(sh, "lattice");
-    r.locDecayFrom_  = GetShaderLocation(sh, "decayFrom");
-    // raylib allocated locs[]; we keep only the id and free its table.
-    RL_FREE(sh.locs);
 
-    r.paletteTex_ = rlLoadTexture(nullptr, 256, 1, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
-    if (r.paletteTex_ == 0) {
-        rlUnloadShaderProgram(r.shaderId_);
+    r.owned_.paletteTex = rlLoadTexture(nullptr, 256, 1, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
+    if (r.owned_.paletteTex == 0) {
+        rlUnloadShaderProgram(r.owned_.discrete.id);
+        rlUnloadShaderProgram(r.owned_.continuous.id);
         return core::Error{"palette texture allocation failed"};
     }
-    rlTextureParameters(r.paletteTex_, RL_TEXTURE_MIN_FILTER, RL_TEXTURE_FILTER_NEAREST);
-    rlTextureParameters(r.paletteTex_, RL_TEXTURE_MAG_FILTER, RL_TEXTURE_FILTER_NEAREST);
+    rlTextureParameters(r.owned_.paletteTex, RL_TEXTURE_MIN_FILTER, RL_TEXTURE_FILTER_NEAREST);
+    rlTextureParameters(r.owned_.paletteTex, RL_TEXTURE_MAG_FILTER, RL_TEXTURE_FILTER_NEAREST);
     r.setPalette(Palette::defaultFor(2));
     return r;
 }
 
+// Handles move, plain state copies. Nothing is listed member by member, which
+// is the whole point: a field added later cannot be dropped here (IMP-007).
 Renderer2D::Renderer2D(Renderer2D&& o) noexcept
-    : shaderId_(o.shaderId_), locState_(o.locState_), locPalette_(o.locPalette_), locFrame_(o.locFrame_),
-      locViewport_(o.locViewport_), locOrigin_(o.locOrigin_), locZoom_(o.locZoom_), locGrid_(o.locGrid_),
-      locStates_(o.locStates_), locAge_(o.locAge_), locBackground_(o.locBackground_), locLattice_(o.locLattice_),
-      locDecayFrom_(o.locDecayFrom_),
-      paletteTex_(o.paletteTex_), palette_(o.palette_), background_(o.background_), ageShade_(o.ageShade_),
-      decayFrom_(o.decayFrom_) {
-    o.shaderId_ = 0;
-    o.paletteTex_ = 0;
-}
+    : owned_(std::exchange(o.owned_, Owned{})), cfg_(o.cfg_) {}
 
 Renderer2D& Renderer2D::operator=(Renderer2D&& o) noexcept {
     if (this != &o) {
         release();
-        new (this) Renderer2D(std::move(o));
+        owned_ = std::exchange(o.owned_, Owned{});
+        cfg_ = o.cfg_;
     }
     return *this;
 }
@@ -66,15 +89,16 @@ Renderer2D::~Renderer2D() {
 }
 
 void Renderer2D::release() {
-    if (shaderId_ != 0) rlUnloadShaderProgram(shaderId_);
-    if (paletteTex_ != 0) rlUnloadTexture(paletteTex_);
-    shaderId_ = 0;
-    paletteTex_ = 0;
+    if (owned_.discrete.id != 0) rlUnloadShaderProgram(owned_.discrete.id);
+    if (owned_.continuous.id != 0) rlUnloadShaderProgram(owned_.continuous.id);
+    if (owned_.paletteTex != 0) rlUnloadTexture(owned_.paletteTex);
+    owned_ = Owned{};
 }
 
 void Renderer2D::setPalette(const Palette& p) {
-    palette_ = p;
-    rlUpdateTexture(paletteTex_, 0, 0, 256, 1, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, palette_.entries.data());
+    cfg_.palette = p;
+    rlUpdateTexture(owned_.paletteTex, 0, 0, 256, 1, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+                    cfg_.palette.entries.data());
 }
 
 void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
@@ -86,39 +110,43 @@ void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, con
     const float zoom        = static_cast<float>(view.zoom);
     const float grid[2]     = {static_cast<float>(spec.width), static_cast<float>(spec.height)};
     const int   nStates     = static_cast<int>(states);
-    const int   age         = ageShade_ ? 1 : 0;
+    const int   age         = cfg_.ageShade ? 1 : 0;
     const int   lattice     = view.lattice == Lattice::Hex ? 1 : 0;
-    const int   decayFrom   = decayFrom_ ? static_cast<int>(*decayFrom_) : -1;
-    const float bg[4]       = {background_.r / 255.0f, background_.g / 255.0f, background_.b / 255.0f, background_.a / 255.0f};
+    const int   decayFrom   = cfg_.decayFrom ? static_cast<int>(*cfg_.decayFrom) : -1;
+    const float bg[4]       = {cfg_.background.r / 255.0f, cfg_.background.g / 255.0f,
+                               cfg_.background.b / 255.0f, cfg_.background.a / 255.0f};
+
+    // A float grid is a different sampler type, so it is a different program.
+    const Program& prog = spec.cell_type == core::CellType::F32 ? owned_.continuous : owned_.discrete;
 
     // rlSetShader (inside BeginShaderMode) flushes the batch, and a flush
     // clears the registered sampler textures, so the shader switch must
     // come before the samplers are set, not after.
     Shader sh{};
-    sh.id = shaderId_;
+    sh.id = prog.id;
     int locs[RL_MAX_SHADER_LOCATIONS];
     for (int& l : locs) l = -1;
-    locs[SHADER_LOC_MATRIX_MVP]        = rlGetLocationUniform(shaderId_, "mvp");
-    locs[SHADER_LOC_VERTEX_POSITION]   = rlGetLocationAttrib(shaderId_, "vertexPosition");
-    locs[SHADER_LOC_VERTEX_TEXCOORD01] = rlGetLocationAttrib(shaderId_, "vertexTexCoord");
-    locs[SHADER_LOC_VERTEX_COLOR]      = rlGetLocationAttrib(shaderId_, "vertexColor");
+    locs[SHADER_LOC_MATRIX_MVP]        = rlGetLocationUniform(prog.id, "mvp");
+    locs[SHADER_LOC_VERTEX_POSITION]   = rlGetLocationAttrib(prog.id, "vertexPosition");
+    locs[SHADER_LOC_VERTEX_TEXCOORD01] = rlGetLocationAttrib(prog.id, "vertexTexCoord");
+    locs[SHADER_LOC_VERTEX_COLOR]      = rlGetLocationAttrib(prog.id, "vertexColor");
     sh.locs = locs;
 
     rlDrawRenderBatchActive();
     BeginShaderMode(sh);
-    rlEnableShader(shaderId_);
-    rlSetUniform(locFrame_, frame, RL_SHADER_UNIFORM_VEC2, 1);
-    rlSetUniform(locViewport_, viewport, RL_SHADER_UNIFORM_VEC4, 1);
-    rlSetUniform(locOrigin_, origin, RL_SHADER_UNIFORM_VEC2, 1);
-    rlSetUniform(locZoom_, &zoom, RL_SHADER_UNIFORM_FLOAT, 1);
-    rlSetUniform(locGrid_, grid, RL_SHADER_UNIFORM_VEC2, 1);
-    rlSetUniform(locStates_, &nStates, RL_SHADER_UNIFORM_INT, 1);
-    rlSetUniform(locAge_, &age, RL_SHADER_UNIFORM_INT, 1);
-    rlSetUniform(locBackground_, bg, RL_SHADER_UNIFORM_VEC4, 1);
-    rlSetUniform(locLattice_, &lattice, RL_SHADER_UNIFORM_INT, 1);
-    rlSetUniform(locDecayFrom_, &decayFrom, RL_SHADER_UNIFORM_INT, 1);
-    rlSetUniformSampler(locState_, stateTexture);
-    rlSetUniformSampler(locPalette_, paletteTex_);
+    rlEnableShader(prog.id);
+    rlSetUniform(prog.frame, frame, RL_SHADER_UNIFORM_VEC2, 1);
+    rlSetUniform(prog.viewport, viewport, RL_SHADER_UNIFORM_VEC4, 1);
+    rlSetUniform(prog.origin, origin, RL_SHADER_UNIFORM_VEC2, 1);
+    rlSetUniform(prog.zoom, &zoom, RL_SHADER_UNIFORM_FLOAT, 1);
+    rlSetUniform(prog.grid, grid, RL_SHADER_UNIFORM_VEC2, 1);
+    rlSetUniform(prog.states, &nStates, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(prog.age, &age, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(prog.background, bg, RL_SHADER_UNIFORM_VEC4, 1);
+    rlSetUniform(prog.lattice, &lattice, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(prog.decayFrom, &decayFrom, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniformSampler(prog.state, stateTexture);
+    rlSetUniformSampler(prog.palette, owned_.paletteTex);
 
     // A quad over the viewport; the fragment shader does the rest. The
     // batch flushes inside EndShaderMode, while `locs` is still alive.

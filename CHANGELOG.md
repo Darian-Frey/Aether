@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- `f32` cells through the palette (Phase 5 step 5, F-006, F-018): a float variant of the palette pass compiled from the same source, and `Palette::continuousRamp` — monotone dark to bright, where the hue cycling of a state count reads as a rainbow on a smooth field (2026-09-17).
+- `rules/lenia.lua`, the first continuous rule in the library: a Gaussian shell worked out in Lua and a polynomial growth band (2026-09-17).
 - The continuous step on the GPU path (Phase 5 step 4, F-006): `generateGlsl` emits `aether_rule_f(float self, float conv)` from a growth expression, and `shaders/continuous_step.comp` does the convolution against the resolved weights — the same arithmetic for every kernel, so only the growth is generated (2026-09-17).
 - CPU/GPU equivalence for continuous rules: 1000 generations under every boundary and both growth forms with cell mutation on, bitwise, on Mesa and NVIDIA. A 128² configuration run to 10,000 generations on each path compares identical (AV-015) (2026-09-17).
 - `aetherMutatedValue`, the shader twin of `sim::mutatedValue` (2026-09-17).
@@ -90,6 +92,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- `fillRandom`, `paintSpan` and `resetOutOfRangeStates` know what a float cell is. All three walked the grid as bytes, which on an f32 grid writes into the middle of values — `resetOutOfRangeStates` ran on every continuous rule install, since it fires whenever the table is empty (2026-09-17).
+- The rule summary and the cell readout say what a continuous rule has rather than what it has not: a kernel radius instead of a state count, and a value instead of an index (2026-09-17).
+- `Renderer2D` keeps its GL handles in a struct exchanged on move and its plain state in one copied, as `GpuStepper` and `GpuGrid` already did and as the pitfall list wrongly said it did (IMP-007) (2026-09-17).
 - Generated float code is `precise` and never divides: GLSL may contract `a*b+c` into an fma and permits division 2.5 ULP of error, either of which puts the shader out of step with the oracle. The polynomial growth multiplies by a host-computed reciprocal instead (SPEC §6, AV-015) (2026-09-17).
 - The CPU oracle accumulates a convolution in `float` rather than `double`. The wider type was more accurate and therefore disagreed with the shader, which is the worse of the two (2026-09-17).
 - `aether headless` gives the grid the cell type its rule asks for, and `aether compare` reports cells rather than bytes, which for an f32 grid were four times apart (2026-09-17).

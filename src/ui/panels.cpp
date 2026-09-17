@@ -150,8 +150,15 @@ void App::drawViewportOverlay() {
                       m.x < viewport_.x + viewport_.w && m.y < viewport_.y + viewport_.h;
     if (over && !is3D()) {
         if (const auto cell = view_.cellAt(m.x, m.y, viewport_, spec.width, spec.height)) {
-            ImGui::Text("(%d, %d) = %u", cell->first, cell->second,
-                        sim_->host().get(static_cast<uint32_t>(cell->first), static_cast<uint32_t>(cell->second)));
+            const auto cx = static_cast<uint32_t>(cell->first);
+            const auto cy = static_cast<uint32_t>(cell->second);
+            // A continuous cell holds a value, and the u8 accessor would read
+            // one byte of its four.
+            if (spec.cell_type == core::CellType::F32) {
+                ImGui::Text("(%d, %d) = %.3f", cell->first, cell->second, sim_->host().getFloat(cx, cy));
+            } else {
+                ImGui::Text("(%d, %d) = %u", cell->first, cell->second, sim_->host().get(cx, cy));
+            }
         } else {
             ImGui::TextDisabled("outside the grid");
         }
@@ -474,7 +481,9 @@ void App::drawPalettePanel() {
         }
     }
     if (ImGui::Button("Reset palette")) {
-        pal = render::Palette::defaultFor(sim_->rule().states, sim_->rule().metadata.decay_from);
+        pal = sim_->rule().cell_type == core::CellType::F32
+                  ? render::Palette::continuousRamp()
+                  : render::Palette::defaultFor(sim_->rule().states, sim_->rule().metadata.decay_from);
         changed = true;
     }
     if (sim_->rule().metadata.decay_from) {

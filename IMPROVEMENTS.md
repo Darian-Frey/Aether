@@ -103,6 +103,19 @@ Two things came out of it beyond the refactor. The equivalence failure message n
 
 **As built (2026-09-16).** The first proposal, and it needed one change: `raw` already names the sidecar, so the inline uncompressed form is a third encoding, `bytes`. `encodeCells` returns the encoding alongside the data and picks whichever is shorter by measuring, rather than by guessing from the cell type — which is better than the proposal, since a quiescent float grid still compresses and a noisy `u8` one still does not. The stride-aware alternative was not built: it would have been a format change for a case the byte-based sidecar threshold already handles. Reading is now stricter in one respect the entry did not anticipate — a `state` block with an unrecognised encoding used to be skipped in silence, leaving a session loaded with no current grid, and is now an error.
 
+### IMP-007: Renderer2D does not have the move protection the pitfall list credits it with
+**Status:** applied
+**Found:** 2026-09-17 (Phase 5 step 5, before adding a second shader to it)
+**Applied:** 2026-09-17
+**Location:** `src/render/renderer2d.hpp`, `src/render/renderer2d.cpp`
+**Effort:** small
+**Description.** CLAUDE.md's pitfall list names `GpuStepper`, `GpuGrid` and `Renderer2D` as the classes that keep GL handles in a struct exchanged on move and plain state in a struct copied wholesale, so that a member added later cannot be silently dropped. `GpuStepper` and `GpuGrid` do. `Renderer2D` does not: its move constructor is a hand-written initialiser list naming seventeen members one at a time, and its move assignment is `release()` followed by a placement-new of that constructor, so everything rests on the list being complete. This is precisely the shape BUG-007 was, where a hand-listed move constructor dropped fields added after it was written and the GPU path of every simulation silently ran without cell mutation. Nothing is wrong today — the list is currently complete — but the document says the protection exists when it does not, which is worse than saying nothing, because it invites exactly the addition that breaks it.
+**Proposal.** Split as the other two are: an `Owned` struct holding the shader programs, their uniform locations and the palette texture, exchanged on move; a `Config` struct holding the palette, background, age-shading flag and decay hint, copied. The uniform locations belong with the program id rather than beside it, since they are meaningless without it.
+**Trade-offs.** It touches every member access in the file, which is churn in a class that works. Done carelessly it is the very defect it prevents, so the move must be mechanical rather than retyped. Against that: this is a class the renderer path depends on entirely, and a dropped handle there is a black viewport rather than a crash.
+**Notes.** Found while adding a second shader program for the float variant of the palette pass, which is the addition the pitfall warns about. The count of hand-listed members had already reached seventeen.
+
+**As built (2026-09-17).** As proposed, with the uniform locations moved inside a `Program` struct alongside the id they belong to, so the class holds two programs and a palette texture rather than a shader id and twelve loose ints. The move constructor is now `owned_(std::exchange(o.owned_, Owned{})), cfg_(o.cfg_)` and names no member at all. Applied rather than left for later because the same commit added the second shader program — the addition the entry was written about — and a hand-listed constructor with eighteen members in it was not a thing to hand on.
+
 ## Declined
 
 *None.*
