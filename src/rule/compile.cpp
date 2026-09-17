@@ -26,6 +26,8 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
         auto resolved = resolveKernel(ir);
         if (const auto* e = std::get_if<std::string>(&resolved)) return CompileError{*e};
         auto& rk = std::get<ResolvedKernel>(resolved);
+        auto glsl = generateGlsl(ir);
+        if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
         const uint32_t nbrs = neighbourCount(ir.dimensions, ir.neighbourhood);
         return CompiledRule{
             .backend       = Backend::Codegen,
@@ -42,7 +44,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .aux           = {},
             .expression    = kernel->growth,
             .expressionTypes = expressionTypes(kernel->growth, 0, 0, /*selfIsFloat=*/true),
-            .glsl          = {},   // the GPU half of the continuous path is Phase 5 step 4
+            .glsl          = std::get<std::string>(std::move(glsl)),
             .weights       = std::move(rk.weights),
             .selfWeight    = rk.self,
         };

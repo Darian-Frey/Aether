@@ -134,5 +134,13 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-015 Float precision divergence in continuous automata
 **Severity:** Major
 **Description.** *(Phase 5.)* Continuous automata accumulate float error over thousands of generations. Different GPUs, drivers, and optimisation levels may reassociate arithmetic or contract multiply-add differently, so identical sessions diverge across machines — breaking the SPEC §11 determinism contract specifically for `f32` rules.
-**Detection.** Not implemented (feature not yet built). Planned: generated GLSL for the continuous path forbids reliance on driver-dependent contraction (SPEC §6); a cross-machine replay comparison at 10,000 generations establishes whether the contract holds in practice. If it does not, the honest response is to narrow the determinism claim for `f32` rather than to claim a guarantee the hardware does not provide.
-**Related decisions.** D-006 (determinism contract), D-010 (continuous states in IR from v1).
+**Detection.** Implemented 2026-09-17. `tests/sim/continuous_test.cpp` steps a kernel rule 1000 generations on both paths under every boundary and both growth forms, with cell mutation on, and requires bitwise equality. It was red when first written and three separate causes had to be removed:
+
+1. The oracle accumulated the convolution in `double` while the shader could only manage `float`. More accurate, and therefore wrong: the two must agree before either is precise. The CPU now accumulates in `float`, in offset order.
+2. The shader contracted `a*b+c` into an fma, which is a different result from a multiply followed by an add. `precise` on the convolution and on every float temporary of a generated growth function forbids the contraction and the reassociation that goes with it.
+3. The polynomial growth divided by `9σ²`. GLSL permits float division 2.5 ULP of error where C++ is correctly rounded, so a divide is a guaranteed disagreement. `rule/growth` now computes the reciprocal on the host and emits a multiply, which both sides round identically.
+
+The third is the general lesson: **generated float code must not divide.** The first is the general trap: the safe-looking instinct to accumulate in a wider type is what broke it.
+
+With all three fixed the paths agree bitwise over 1000 generations on both the Intel iGPU (Mesa) and the T1200 (NVIDIA), and a 128² configuration run to 10,000 generations on each path and compared with `aether compare` is identical. That is two drivers on one machine, not a cross-machine result: the contract is *not yet* narrowed for `f32`, and the remaining risk is a third driver reassociating something these two do not.
+**Related decisions.** D-006 (determinism contract), D-010 (continuous states in IR from v1), D-020 (what a continuous rule means).

@@ -118,7 +118,11 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
 
         CellTransition t;
         t.ownValue = valueAt(x, y, z);
-        double conv = double{rule.selfWeight} * t.ownValue;
+        // Accumulated in float, in offset order, because that is all the GPU
+        // can do and the two paths must agree bit for bit (AV-007). A double
+        // here would be more accurate and would disagree with the shader,
+        // which is the worse of the two.
+        float conv = rule.selfWeight * t.ownValue;
         for (uint32_t i = 0; i < N; ++i) {
             const rule::Offset& o = rule.offsets[i];
             const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
@@ -127,9 +131,9 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
             // Outside a zero boundary the cell is empty, which contributes
             // nothing, exactly as state 0 does on the discrete path.
             const float v = (nx && ny && nz) ? valueAt(*nx, *ny, *nz) : 0.0f;
-            conv += double{rule.weights[i]} * v;
+            conv += rule.weights[i] * v;
         }
-        t.convolution = static_cast<float>(conv);
+        t.convolution = conv;
         t.increment = evalGrowth(rule.expression, rule.expressionTypes, t.convolution, scratch.expr);
         const float raw = t.ownValue + t.increment;
         t.nextValue = raw < 0.0f ? 0.0f : (raw > 1.0f ? 1.0f : raw);   // SPEC §1

@@ -79,8 +79,12 @@ Expression growthExpression(const GrowthSpec& g) {
     const uint32_t mu     = a.lit(g.mu);
     const uint32_t d      = a.op(ExprOp::Sub, u, mu);
     const uint32_t dd     = a.op(ExprOp::Mul, d, d);
-    const uint32_t spread = a.lit(9.0f * g.sigma * g.sigma);
-    const uint32_t ratio  = a.op(ExprOp::Div, dd, spread);
+    // The reciprocal is computed here and multiplied, rather than dividing in
+    // the expression: GLSL allows float division 2.5 ULP of error where C++ is
+    // correctly rounded, so a divide is a guaranteed disagreement between the
+    // paths. Multiplication is correctly rounded in both (AV-015).
+    const uint32_t spread = a.lit(static_cast<float>(1.0 / (9.0 * double{g.sigma} * double{g.sigma})));
+    const uint32_t ratio  = a.op(ExprOp::Mul, dd, spread);
     const uint32_t one    = a.lit(1.0f);
     const uint32_t q      = a.op(ExprOp::Sub, one, ratio);
     const uint32_t zero   = a.lit(0.0f);

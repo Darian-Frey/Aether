@@ -1,0 +1,109 @@
+// Continuous step (SPEC §4 Kernel, D-020): convolve, grow, clamp. One
+// generation, one invocation per cell.
+//
+// Compiled with these definitions prepended by sim/gpu_step:
+//   AETHER_3D        present for 3D grids
+//   AETHER_N         neighbour count
+//   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
+//
+// shaders/hash.glsl and the generated aether_rule_f are prepended before this
+// file. The convolution lives here rather than in the generated function: the
+// weights are the same arithmetic for every rule, only the growth differs.
+//
+// The accumulation order is the offset order, and the CPU oracle accumulates
+// in float in that same order for the same reason — a double there would be
+// more accurate and would disagree with this, which is worse (AV-007).
+
+#ifdef AETHER_3D
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+layout(r32f, binding = 0) uniform readonly  image3D srcImg;
+layout(r32f, binding = 1) uniform writeonly image3D dstImg;
+#else
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(r32f, binding = 0) uniform readonly  image2D srcImg;
+layout(r32f, binding = 1) uniform writeonly image2D dstImg;
+#endif
+
+layout(std430, binding = 0) readonly buffer Params {
+    uint width;
+    uint height;
+    uint depth;
+};
+uniform uint generationLo;
+uniform uint generationHi;
+uniform uint mutationThreshold;   // 0 disables cell mutation
+uniform uint seedBLo;
+uniform uint seedBHi;
+uniform uint mutationBlockShift;
+uniform float selfWeight;         // the centre, which is not an offset (SPEC §3)
+layout(std430, binding = 1) readonly buffer Offsets { int   off[]; };      // 4 ints per neighbour
+layout(std430, binding = 3) readonly buffer Weights { float weight[]; };   // one per neighbour
+
+// Mirrors sim::resolve(), as in lut_step.comp. Returns -1 for "reads as
+// empty", which for a continuous cell is 0.0 exactly as state 0 is for a
+// discrete one.
+int resolveCoord(int c, int extent) {
+    if (c >= 0 && c < extent) return c;
+#if AETHER_BOUNDARY == 1
+    return -1;
+#elif AETHER_BOUNDARY == 0
+    if (c < 0) c += extent * ((-c + extent - 1) / extent);
+    return c % extent;
+#else
+    if (extent == 1) return 0;
+    int period = 2 * (extent - 1);
+    if (c < 0) c += period * ((-c + period - 1) / period);
+    int m = c % period;
+    if (m >= extent) m = period - m;
+    return m;
+#endif
+}
+
+float readCell(ivec3 p) {
+#ifdef AETHER_3D
+    return imageLoad(srcImg, p).r;
+#else
+    return imageLoad(srcImg, p.xy).r;
+#endif
+}
+
+void writeCell(ivec3 p, float v) {
+#ifdef AETHER_3D
+    imageStore(dstImg, p, vec4(v, 0.0, 0.0, 0.0));
+#else
+    imageStore(dstImg, p.xy, vec4(v, 0.0, 0.0, 0.0));
+#endif
+}
+
+void main() {
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    if (gid.x >= int(width) || gid.y >= int(height) || gid.z >= int(depth)) return;
+
+    float own = readCell(gid);
+    // `precise` forbids the compiler contracting a*b+c into an fma and
+    // reassociating the sum. Without it the shader is *more* accurate than the
+    // oracle and therefore disagrees with it, which is the worse outcome
+    // (SPEC §6, AV-007).
+    precise float conv = selfWeight * own;
+    for (uint i = 0u; i < uint(AETHER_N); ++i) {
+        int nx = resolveCoord(gid.x + off[4u * i + 0u], int(width));
+        int ny = resolveCoord(gid.y + off[4u * i + 1u], int(height));
+        int nz = resolveCoord(gid.z + off[4u * i + 2u], int(depth));
+        float v = (nx < 0 || ny < 0 || nz < 0) ? 0.0 : readCell(ivec3(nx, ny, nz));
+        conv += weight[i] * v;
+    }
+
+    // Generated from the growth expression: the increment, applied and
+    // clamped to [0, 1] (SPEC §6).
+    float next = aether_rule_f(own, conv);
+
+    if (mutationThreshold != 0u) {
+        uint hb = aetherBlockHash(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi,
+                                  seedBLo, seedBHi, mutationBlockShift);
+        if (aetherMutates(hb, mutationThreshold)) {
+            uint hc = aetherHash32(uint(gid.x), uint(gid.y), uint(gid.z), generationLo, generationHi, seedBLo, seedBHi);
+            next = aetherMutatedValue(hc);
+        }
+    }
+    writeCell(gid, next);
+}

@@ -54,7 +54,10 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
             if (!parsed) return fail(std::format("rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
             ir = *parsed.ir;
         }
-        auto made = sim::Simulation::create(core::GridSpec{ctx.dimensions, opts.width, opts.height, opts.depth}, ir,
+        // The grid's storage follows the rule: a continuous rule needs float
+        // cells, and Simulation refuses the pair if they disagree.
+        const core::GridSpec spec{ctx.dimensions, opts.width, opts.height, opts.depth, ir.cell_type};
+        auto made = sim::Simulation::create(spec, ir,
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);
         auto sim = std::get<sim::Simulation>(std::move(made));
@@ -101,13 +104,21 @@ int runCompare(const std::string& a, const std::string& b) {
     for (size_t i = 0; i < sa.current.size(); ++i) {
         if (sa.current[i] != sb.current[i]) { if (diff == 0) first = i; ++diff; }
     }
-    if (diff != 0) return fail(std::format("{} of {} cells differ, first at index {}", diff, sa.current.size(), first));
+    // Counted in bytes, which is the cell count only for u8: an f32 grid is
+    // four bytes a cell and would otherwise report four times its size.
+    const uint32_t cellBytes = core::cellBytes(sa.spec.cell_type);
+    if (diff != 0) {
+        return fail(std::format("{} of {} bytes differ, first at cell {}",
+                                diff, sa.current.size(), first / cellBytes));
+    }
     if (sa.lineage.size() != sb.lineage.size()) return fail("lineage lengths differ");
     for (size_t i = 0; i < sa.lineage.size(); ++i) {
         if (sa.lineage[i].ir_hash != sb.lineage[i].ir_hash) return fail(std::format("lineage entry {} differs", i));
     }
-    std::printf("identical: %zu cells at generation %llu, %zu lineage entries\n",
-                sa.current.size(), static_cast<unsigned long long>(sa.generation), sa.lineage.size());
+    std::printf("identical: %llu %s cells at generation %llu, %zu lineage entries\n",
+                static_cast<unsigned long long>(sa.spec.cellCount()),
+                std::string(core::toString(sa.spec.cell_type)).c_str(),
+                static_cast<unsigned long long>(sa.generation), sa.lineage.size());
     return 0;
 }
 

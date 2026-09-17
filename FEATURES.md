@@ -72,7 +72,7 @@ People who want to explore cellular automata rather than run one specific automa
 - Float cell states with a convolution kernel and a growth function (SmoothLife, Lenia)
 - Kernel authored as a radial profile or as an explicit matrix
 **Status:** In progress
-**Progress:** 2026-09-17 (Phase 5). The `f32` grid path holds, saves and loads a float grid; Lua authors a continuous rule — a kernel as samples the script works out with `math`, and a named growth function lowered by `rule/growth` as `decay` lowers an ageing tail; and the CPU path steps one: convolve, grow, clamp, with the profile resolved onto the offsets and normalised by `rule/kernel` (D-020). A continuous rule sustains a self-limiting structure over hundreds of generations. The GPU path waits on the generator.
+**Progress:** 2026-09-17 (Phase 5). The `f32` grid path holds, saves and loads a float grid; Lua authors a continuous rule — a kernel as samples the script works out with `math`, and a named growth function lowered by `rule/growth` as `decay` lowers an ageing tail; and the CPU path steps one: convolve, grow, clamp, with the profile resolved onto the offsets and normalised by `rule/kernel` (D-020). A continuous rule sustains a self-limiting structure over hundreds of generations. 2026-09-17: the GPU path too — `aether_rule_f` from the growth expression and `continuous_step.comp` for the convolution — with the two paths bitwise identical over 1000 generations under every boundary, and a 128² configuration identical after 10,000. Rendering is what remains.
 **Notes:** Phase 5. The IR must accommodate float states from day one even though this feature is late — see D-010.
 
 ### F-023 Hexagonal lattice

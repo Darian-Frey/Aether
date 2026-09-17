@@ -92,8 +92,9 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Convolution kernel authoring, radial and explicit (2026-09-16): Lua returns a profile it computes itself, so the shell arrives sampled
 - [x] Growth function in the IR expression tree (2026-09-16): named forms — rectangular and polynomial — lowered by `rule/growth`; the Gaussian is deliberately absent, needing `exp`, which SPEC §6 forbids relying on
 - [x] The continuous step on the CPU path (2026-09-17): convolve, grow, clamp; `rule/kernel` resolves a profile onto the offsets and normalises it (D-020)
-- [ ] The continuous step on the GPU path, which needs the generator below
-- [ ] Documented precision expectations across GPU vendors
+- [x] The continuous step on the GPU path (2026-09-17): `aether_rule_f` generated from the growth expression, `continuous_step.comp` doing the convolution, and CPU/GPU equivalence bitwise over 1000 generations under every boundary
+- [x] Documented precision expectations across GPU vendors (2026-09-17, AV-015): `precise` float temporaries, no division in generated float code, and the oracle accumulating in `float` rather than `double`. Bitwise agreement on Mesa and NVIDIA; cross-*machine* is still untested
+- [ ] `f32` cells through the palette, so a continuous rule can be watched rather than only measured
 **Acceptance:** SmoothLife and a basic Lenia configuration run stably at 512² without state divergence over 10,000 generations.
 
 ## Phase 6 — Presentation and release

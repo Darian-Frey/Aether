@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- The continuous step on the GPU path (Phase 5 step 4, F-006): `generateGlsl` emits `aether_rule_f(float self, float conv)` from a growth expression, and `shaders/continuous_step.comp` does the convolution against the resolved weights — the same arithmetic for every kernel, so only the growth is generated (2026-09-17).
+- CPU/GPU equivalence for continuous rules: 1000 generations under every boundary and both growth forms with cell mutation on, bitwise, on Mesa and NVIDIA. A 128² configuration run to 10,000 generations on each path compares identical (AV-015) (2026-09-17).
+- `aetherMutatedValue`, the shader twin of `sim::mutatedValue` (2026-09-17).
 - The continuous step on the CPU path (Phase 5 step 3, F-006, D-020): convolve, grow, clamp. `rule/kernel` resolves a profile onto the neighbourhood's offsets — sampled by distance, interpolated, normalised to sum to 1 — and `sim::stepCell` gained the branch that walks it (2026-09-17).
 - `dt` on a growth function, multiplied into the lowered expression rather than stored in the IR: the growth expression is the increment, so a backend needs to know nothing about time steps (2026-09-17).
 - `sim::mutatedValue`: the continuous counterpart of `mutatedState`, a float in [0, 1) from the same second mixing of the stream-B hash (2026-09-17).
@@ -87,6 +90,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- Generated float code is `precise` and never divides: GLSL may contract `a*b+c` into an fma and permits division 2.5 ULP of error, either of which puts the shader out of step with the oracle. The polynomial growth multiplies by a host-computed reciprocal instead (SPEC §6, AV-015) (2026-09-17).
+- The CPU oracle accumulates a convolution in `float` rather than `double`. The wider type was more accurate and therefore disagreed with the shader, which is the worse of the two (2026-09-17).
+- `aether headless` gives the grid the cell type its rule asks for, and `aether compare` reports cells rather than bytes, which for an f32 grid were four times apart (2026-09-17).
 - `Simulation::installRule` checks the rule's cell type against the grid's. It had only ever checked dimensions, so a u8 grid would have accepted an f32 rule; the check moved out of `create`, which delegates to it anyway (2026-09-17).
 - Panel sections are ordered by when a session needs them and closed past the first two, so the column fits one screen; widgets stop short of the right edge so their labels are no longer cut off ("Max steps/fram", "edits per even"); controls carry tooltips (2026-09-15).
 - A rule takes its name from its file header, so the library's names reach the summary, the transport bar and the window title rather than being dropped at load (2026-09-15).

@@ -103,7 +103,7 @@ TEST_CASE("a continuous rule compiles to resolved weights and a growth tree", "[
     CHECK(r.weights.size() == 8);
     CHECK(r.table.empty());
     CHECK(r.expression == k.growth);          // the growth is the tree the step walks
-    CHECK(r.glsl.empty());                    // the GPU half is step 4
+    CHECK(r.glsl.find("float aether_rule_f(float self, float conv)") != std::string::npos);
     // A flat profile over nine sites normalises to a ninth each.
     float total = r.selfWeight;
     for (float w : r.weights) total += w;

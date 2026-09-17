@@ -35,3 +35,7 @@ uint aetherBlockHash(uint x, uint y, uint z, uint genLo, uint genHi, uint seedLo
 }
 bool aetherMutates(uint h, uint threshold) { return h < threshold; }
 uint aetherMutatedState(uint h, uint states) { return aetherUniformState(aetherMix32(h ^ 0xa5a5a5a5u), states); }
+
+// The continuous counterpart: a value in [0, 1). Twin of sim::mutatedValue,
+// including the second mixing, which is there for the BUG-005 reason.
+float aetherMutatedValue(uint h) { return float(aetherMix32(h ^ 0xa5a5a5a5u)) * 2.3283064365386963e-10; }

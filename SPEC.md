@@ -221,7 +221,7 @@ Requirements on generated code:
 
 1. No loops with data-dependent bounds. Loops over the fixed neighbourhood are unrolled or statically bounded by `N`.
 2. No side effects, no global writes, no texture access. Neighbours arrive as parameters.
-3. Deterministic across drivers: no `fma` reassociation assumptions, no reliance on undefined-precision built-ins.
+3. Deterministic across drivers: no `fma` reassociation assumptions, no reliance on undefined-precision built-ins. For float code this is enforced rather than hoped for (2026-09-17): every float temporary of a generated growth function is declared `precise`, which forbids the compiler both contracting `a*b+c` into an fma and reassociating a sum. **Generated float code must not divide**, either: GLSL permits float division 2.5 ULP of error where C++ is correctly rounded, so a front end lowering a division must compute the reciprocal on the host and emit a multiply (AV-015).
 4. Integer arithmetic only for `u8` rules. Float appears only in the `f32` path.
 
 Three rules settle cases where C++ and GLSL would otherwise differ, and the CPU interpreter obeys all three so the two paths agree (2026-09-15):
@@ -518,6 +518,8 @@ These are acceptance thresholds, not aspirations. Baselines go in `BENCHMARKS.md
 
 ---
 
+
+**Continuous (measured 2026-09-17, T1200).** A kernel rule at 512² runs 231 generations per second at radius 13 (728 neighbours) and 2,174 at radius 4 (80 neighbours) — very nearly linear in the neighbour count, since the convolution is the whole cost. A 10,000-generation run at 512² therefore takes about 43 seconds at the larger radius.
 ## 13. Rendering
 
 **2D.** The state texture is sampled directly by a fragment shader and mapped through a 256-entry palette texture. Pan and zoom are a transform on texture coordinates; at 1:1 zoom the mapping is pixel-exact with nearest sampling. Optional age shading darkens by state index for generations rules.

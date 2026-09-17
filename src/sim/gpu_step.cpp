@@ -72,16 +72,19 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key, const
     src += std::format("#define AETHER_N {}\n#define AETHER_S {}\n#define AETHER_KIND {}\n#define AETHER_BOUNDARY {}\n",
                        N, S, static_cast<int>(kind), static_cast<int>(boundary));
     src += shaders::kHashGlsl;
-    // A generated rule arrives as the function the step calls (SPEC §6).
+    // A generated rule arrives as the function the step calls (SPEC §6):
+    // aether_rule for a table-less discrete rule, aether_rule_f for a kernel.
     if (rule.backend == rule::Backend::Codegen) src += rule.glsl;
     src += "#line 1\n";
-    src += shaders::kLutStepComp;
+    const bool continuous = kind == rule::Kind::Continuous;
+    src += continuous ? shaders::kContinuousStepComp : shaders::kLutStepComp;
+    const char* name = continuous ? "continuous_step.comp" : "lut_step.comp";
 
     const unsigned int shader = rlLoadShader(src.c_str(), RL_COMPUTE_SHADER);
-    if (shader == 0) return core::Error{"lut_step.comp failed to compile (see raylib log)"};
+    if (shader == 0) return core::Error{std::format("{} failed to compile (see raylib log)", name)};
     const unsigned int program = rlLoadShaderProgramCompute(shader);
     rlUnloadShader(shader);
-    if (program == 0) return core::Error{"lut_step.comp failed to link (see raylib log)"};
+    if (program == 0) return core::Error{std::format("{} failed to link (see raylib log)", name)};
 
     owned_.programs[key] = program;
     return std::nullopt;
@@ -91,8 +94,10 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     if (rule.dimensions != spec.dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", rule.dimensions, spec.dimensions)};
     }
-    if (spec.cell_type != core::CellType::U8) {
-        return core::Error{"the table backend steps u8 grids only"};
+    const bool continuous = rule.kind == rule::Kind::Continuous;
+    if ((spec.cell_type == core::CellType::F32) != continuous) {
+        return core::Error{std::format("a {} grid cannot run a {} rule",
+                                       core::toString(spec.cell_type), rule::toString(rule.kind))};
     }
     const uint32_t N = rule.neighbourCount();
     const ShapeKey key{rule.dimensions, N, rule.states, rule.kind, rule.boundary,
@@ -114,7 +119,10 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     owned_.paramsSsbo  = makeSsbo(params, sizeof(params));
     owned_.offsetsSsbo = makeSsbo(offsets.data(), offsets.size() * sizeof(int32_t));
     owned_.compsSsbo   = makeSsbo(rule.aux.data(), rule.aux.size() * sizeof(uint32_t));
-    owned_.tableSsbo   = makeSsbo(table.data(), table.size() * sizeof(uint32_t));
+    // Binding 3 carries the table for a discrete rule and the kernel weights
+    // for a continuous one; the two shaders never share a program.
+    owned_.tableSsbo   = continuous ? makeSsbo(rule.weights.data(), rule.weights.size() * sizeof(float))
+                                    : makeSsbo(table.data(), table.size() * sizeof(uint32_t));
 
     cfg_.program = owned_.programs[key];
     cfg_.locGenLo     = rlGetLocationUniform(cfg_.program, "generationLo");
@@ -123,6 +131,9 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     cfg_.locSeedLo    = rlGetLocationUniform(cfg_.program, "seedBLo");
     cfg_.locSeedHi    = rlGetLocationUniform(cfg_.program, "seedBHi");
     cfg_.locBlockShift = rlGetLocationUniform(cfg_.program, "mutationBlockShift");
+    cfg_.locSelfWeight = continuous ? rlGetLocationUniform(cfg_.program, "selfWeight") : -1;
+    cfg_.selfWeight = rule.selfWeight;
+    cfg_.continuous = continuous;
     cfg_.target = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     cfg_.width = spec.width; cfg_.height = spec.height; cfg_.depth = spec.depth;
     const uint32_t* local = spec.dimensions == 3 ? kLocal3D : kLocal2D;
@@ -147,8 +158,10 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     rlSetUniform(cfg_.locSeedHi, &seedHi, RL_SHADER_UNIFORM_UINT, 1);
     const uint32_t blockShift = cfg_.mutation.blockShift;
     rlSetUniform(cfg_.locBlockShift, &blockShift, RL_SHADER_UNIFORM_UINT, 1);
-    glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  GL_R8UI);
-    glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
+    if (cfg_.continuous) rlSetUniform(cfg_.locSelfWeight, &cfg_.selfWeight, RL_SHADER_UNIFORM_FLOAT, 1);
+    const unsigned int format = cfg_.continuous ? GL_R32F : GL_R8UI;
+    glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  format);
+    glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, format);
     rlBindShaderBuffer(owned_.paramsSsbo, 0);
     rlBindShaderBuffer(owned_.offsetsSsbo, 1);
     rlBindShaderBuffer(owned_.compsSsbo, 2);

@@ -2,6 +2,13 @@
 // then growth, then a clamp. The GPU half arrives with the generator.
 
 #include "core/grid.hpp"
+#include <span>
+#include <format>
+#include <cmath>
+#include <catch2/generators/catch_generators.hpp>
+#include "support/gl_context.hpp"
+#include "sim/gpu_step.hpp"
+#include "core/gpu_grid.hpp"
 #include "rule/compile.hpp"
 #include "rule/growth.hpp"
 #include "rule/lua.hpp"
@@ -185,4 +192,83 @@ TEST_CASE("a continuous rule from Lua sustains a structure of its own size", "[c
     CHECK(settled > 0.05f * cellCount);        // it did not die
     CHECK(settled < 0.60f * cellCount);        // nor fill the grid
     CHECK(later == Approx(settled).epsilon(0.05));   // and it is holding its size
+}
+
+// --- CPU/GPU equivalence for the continuous path (AV-007, AV-015) ----------
+
+TEST_CASE("the continuous step agrees between the two paths", "[gpu][continuous]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    const auto form = GENERATE(rule::GrowthForm::Polynomial, rule::GrowthForm::Rectangular);
+
+    rule::RuleIR ir;
+    ir.dimensions = 2;
+    ir.cell_type = core::CellType::F32;
+    ir.kind = rule::Kind::Continuous;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 4};
+    ir.boundary = boundary;
+    rule::Kernel k;
+    k.shape = rule::Kernel::Shape::Radial;
+    for (int i = 0; i <= 4; ++i) {
+        const float x = static_cast<float>(i) / 4.0f;
+        k.profile.push_back(std::exp(-(x - 0.5f) * (x - 0.5f) / (2.0f * 0.15f * 0.15f)));
+    }
+    k.growth = rule::growthExpression({form, 0.20f, 0.05f, 0.05f});
+    ir.transition = k;
+
+    auto made = rule::compileRule(ir);
+    if (const auto* e = std::get_if<rule::CompileError>(&made)) FAIL(e->message);
+    const rule::CompiledRule r = std::get<rule::CompiledRule>(std::move(made));
+
+    // Activity everywhere, edges and corners included, so boundary handling
+    // is under test rather than incidental.
+    const core::GridSpec spec{2, 37, 29, 1, core::CellType::F32};
+    core::HostGrid host(spec);
+    {
+        auto cells = host.currentFloats();
+        for (size_t i = 0; i < cells.size(); ++i) {
+            cells[i] = static_cast<float>((i * 2654435761u) % 997u) / 997.0f;
+        }
+    }
+
+    auto gpuMade = core::GpuGrid::create(spec, core::queryVram());
+    REQUIRE(std::holds_alternative<core::GpuGrid>(gpuMade));
+    core::GpuGrid& gpu = std::get<core::GpuGrid>(gpuMade);
+    gpu.upload(host.current());
+
+    sim::GpuStepper stepper;
+    if (const auto e = stepper.setRule(r, spec)) FAIL(e->message);
+    const sim::CellMutation mutation{sim::mutationThreshold(0.02), 0xf10a7ull, 0};
+    stepper.setCellMutation(mutation);
+
+    for (int i = 0; i < 1000; ++i) {
+        sim::cpuStep(r, host, static_cast<uint64_t>(i), mutation);
+        stepper.step(gpu);
+    }
+
+    std::vector<uint8_t> fromGpu(spec.bytesPerBuffer());
+    gpu.download(fromGpu);
+    const std::span<const float> gpuCells{reinterpret_cast<const float*>(fromGpu.data()), spec.cellCount()};
+    const auto cpuCells = host.currentFloats();
+
+    size_t differing = 0;
+    float worst = 0.0f;
+    size_t firstDiff = cpuCells.size();
+    for (size_t i = 0; i < cpuCells.size(); ++i) {
+        if (cpuCells[i] != gpuCells[i]) {
+            if (differing == 0) firstDiff = i;
+            ++differing;
+            worst = std::max(worst, std::abs(cpuCells[i] - gpuCells[i]));
+        }
+    }
+    INFO(std::format("{} / {}: {} of {} cells differ after 1000 generations, worst by {}",
+                     rule::toString(boundary), rule::toString(form), differing, cpuCells.size(),
+                     worst));
+    if (firstDiff != cpuCells.size()) {
+        INFO(std::format("first at cell {}: cpu {} vs gpu {}", firstDiff,
+                         cpuCells[firstDiff], gpuCells[firstDiff]));
+    }
+    CHECK(differing == 0);
 }
