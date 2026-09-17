@@ -202,6 +202,9 @@ bool readKernel(lua_State* L, int rule, RuleIR& ir, std::string& err) {
     if (!err.empty()) return false;
     if (!sigma) { err = "growth needs a 'sigma', the width of the band it grows in"; return false; }
     g.sigma = static_cast<float>(*sigma);
+    const auto dt = numberField(L, gt, "dt", err);
+    if (!err.empty()) return false;
+    if (dt) g.dt = static_cast<float>(*dt);
     lua_pop(L, 1);
 
     if (const auto bad = problems(g); !bad.empty()) { err = bad.front(); return false; }

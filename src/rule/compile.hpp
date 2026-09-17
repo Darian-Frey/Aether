@@ -9,6 +9,7 @@
 #pragma once
 
 #include "rule/ir.hpp"
+#include "rule/kernel.hpp"
 #include "rule/table_layout.hpp"
 
 #include <cstdint>
@@ -46,10 +47,19 @@ struct CompiledRule {
     std::vector<uint32_t> aux;
 
     // Codegen only: the tree the CPU path walks, the types the validator
-    // inferred for it, and the GLSL the GPU path compiles.
+    // inferred for it, and the GLSL the GPU path compiles. For a continuous
+    // rule the tree is the growth function, whose Self is the convolution
+    // result, so its types are inferred accordingly (BUG-010).
     Expression            expression;
     std::vector<ExprType> expressionTypes;
     std::string           glsl;
+
+    // Continuous only: the kernel resolved onto the offsets above, one weight
+    // each, and the weight of the cell itself, which is never an offset
+    // (SPEC §3). Normalised to sum to 1 at compile time, so both steppers are
+    // handed the same numbers rather than each deriving them (AV-005).
+    std::vector<float>    weights;
+    float                 selfWeight = 0.0f;
 
     uint32_t neighbourCount() const { return static_cast<uint32_t>(offsets.size()); }
 };

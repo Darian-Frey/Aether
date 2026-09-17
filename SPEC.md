@@ -109,6 +109,15 @@ RuleIR {
 
 **Kernel** *(Phase 5)* is a convolution kernel — either a radial profile sampled to a matrix, or an explicit matrix — plus a growth function expressed as an `Expression` over the convolution result.
 
+What a kernel *means* is fixed by D-020 (2026-09-17) and resolved once at compile time, so both execution paths are handed the same numbers rather than each deriving them (AV-005):
+
+- A **radial** profile is sampled at each neighbour's distance from the centre, normalised to the radius and linearly interpolated between samples; the sample count is resolution, not meaning. Distance is Euclidean on square lattices and the cube distance on hexagonal ones, where axial storage makes Euclidean length in stored coordinates meaningless. Past the rim — a Moore corner sits at `r√2` — the rim's value applies.
+- An **explicit** profile is the `(2r+1)^d` box, row-major with x fastest. It is refused on a hexagonal lattice, which is not box-shaped; a radial profile works there.
+- The cell's **own weight** is the centre of the profile: `profile[0]` radially, the middle of the box explicitly. §3's neighbourhood never contains the cell, but a convolution kernel has a centre.
+- Weights are **normalised to sum to 1**, so a convolution of cells in `[0, 1]` lands in `[0, 1]` and a growth function's `mu` means the same against any kernel. A profile summing to zero is refused. The IR stores the profile as authored, so `ir_hash` is over what was written.
+
+One generation of a continuous rule is `next = clamp(self + G(conv), 0, 1)`, the clamp being §1's range for an `f32` cell. Outside a zero boundary a cell contributes nothing, exactly as state 0 does on the discrete path. `G` returns the increment rather than a normalised growth: the time step is lowered into the expression by the front end (§8), so the IR carries no notion of time.
+
 ### Validation
 
 An IR is valid only if all of the following hold. Validation runs on every IR regardless of origin, including IRs produced by rule mutation (AV-012).
@@ -338,7 +347,7 @@ The function form is what makes a large hand-specified automaton practical to wr
 **Continuous rules** (2026-09-16). A script with `cell_type = "f32"` takes the `continuous` kind and returns a `kernel` and a `growth` instead of a `transition`; it has no `states`, an `f32` cell holding a value rather than an index into a state set (§1).
 
 - `kernel = {shape = "radial" | "explicit", profile = {...}}`. `profile` is a list of numbers: samples from the centre outward for `radial`, `(2r+1)^d` row-major weights for `explicit`. The shell is computed by the script — `math` is in the sandbox — so a Gaussian or polynomial kernel arrives already sampled and nothing in the engine has to know which it was.
-- `growth = {form, mu, sigma}`, a named function rather than an expression. `rectangular` is `1` inside `[mu - sigma, mu + sigma]` and `-1` outside; `polynomial` is `2·max(0, 1 − (u − mu)² / 9sigma²)⁴ − 1`. Both lower to the expression form of §6 in the front end, so backends see an ordinary `Kernel` and know nothing about the names, as they know nothing about `decay`. `sigma` must be positive and `mu` must lie in `0 … 1`, the range a normalised kernel over cells in `[0, 1]` can convolve to.
+- `growth = {form, mu, sigma, dt}`, a named function rather than an expression. `dt` defaults to 1 and is the fraction of a step's growth applied per generation — Lenia's `1/T`. It is multiplied into the lowered expression rather than stored, so the IR keeps the shape it has had since v1 (D-020); at `dt = 1` the automaton is a hard threshold, every cell reaching an extreme in one generation. `rectangular` is `1` inside `[mu - sigma, mu + sigma]` and `-1` outside; `polynomial` is `2·max(0, 1 − (u − mu)² / 9sigma²)⁴ − 1`. Both lower to the expression form of §6 in the front end, so backends see an ordinary `Kernel` and know nothing about the names, as they know nothing about `decay`. `sigma` must be positive and `mu` must lie in `0 … 1`, the range a normalised kernel over cells in `[0, 1]` can convolve to.
 
 The set of forms is closed deliberately. Lenia's third growth function is a Gaussian, which needs `exp`, and §6 forbids relying on built-ins whose precision the driver decides; adding one would work directly against AV-015 in the phase that already expects to narrow the determinism claim for `f32`.
 

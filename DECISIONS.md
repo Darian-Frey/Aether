@@ -515,3 +515,32 @@ The front ends choose the form, since nothing downstream can infer it:
 - The readouts of F-036 are GPU reductions, never a per-step host read. A population graph implemented as a readback would reintroduce AV-002 at the worst possible place — once per generation, forever.
 
 **Reversal conditions.** Revisit option C if selection without predation proves to produce less interesting dynamics than the note expects; the subset is designed so that adding it later changes the rule form and nothing beneath it. Revisit option D only as a deliberate second engine with its own decision, as D-008 already requires.
+
+---
+
+### D-020 What a continuous rule means: normalised weights, a sampled profile, and a time step inside the growth function
+**Decided:** 2026-09-17
+**Recorded:** 2026-09-17
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, Phase 5 session 2026-09-17)
+**Related:** F-006, D-010, AV-005, AV-015, BUG-010, SPEC.md §1, §4, §8
+
+**Context.** The IR has carried `Kernel` since v1 and SPEC described it as "a radial profile sampled to a matrix, or an explicit matrix, plus a growth function". That says what a kernel *is* and not what it *means*: nothing fixed how a profile maps onto the neighbourhood's offsets, whether weights are normalised, what the cell's own weight is when the neighbourhood excludes it, or what a generation does with the growth value. Each had to be settled before the step could be written, and each has to be settled *once*, because both execution paths must agree on all of it (AV-005).
+
+**Decision — the profile maps onto offsets by distance, and the mapping is resolved at compile time.** A radial profile is sampled at the neighbour's distance from the centre, normalised to the radius and linearly interpolated between samples, so a profile of any length describes the same shell and the sample count is a matter of resolution rather than of meaning. Distance is Euclidean on square lattices and the cube distance on hexagonal ones, where axial storage makes Euclidean length in stored coordinates meaningless. Anything past the rim — a Moore corner sits at `r√2` — takes the rim's value. An explicit profile is the `(2r+1)^d` box, row-major with x fastest, and is refused on hexagonal lattices: a hex neighbourhood is not box-shaped and there is no honest way to line the two up. The resolution happens once in `rule/kernel` and both steppers are handed the resulting numbers, rather than each deriving them from the profile.
+
+**Decision — the cell's own weight is the centre of the profile.** SPEC §3 has always said the neighbourhood never contains the cell itself, but a convolution kernel does have a centre. It is `profile[0]` for a radial shape and the middle of the box for an explicit one, carried beside the per-offset weights.
+
+**Decision — weights are normalised to sum to 1 at compile time.** A convolution of cells in `[0, 1]` then lands in `[0, 1]`, so a growth function's `mu` means the same thing against any kernel and can be validated against that range. The author writes a profile in whatever units suit the maths — an unnormalised Gaussian, say — and the engine scales it. A profile summing to zero is refused rather than scaled. The IR stores the profile as authored, so `ir_hash` is over what was written and normalisation never changes a rule's identity.
+
+**Decision — the time step lives inside the growth expression.** The growth functions run from −1 to 1, so applying one whole each generation drives every cell to an extreme immediately: that is a hard-threshold automaton, not a smooth one. Lenia quotes a time resolution `T` and applies `1/T` of the growth per step. Rather than add a field to `Kernel` — an IR schema change, which is out of scope without a decision of its own — `dt` is a front-end parameter and the lowering emits `dt · G(u)`. The growth expression is therefore the *increment*, and the IR keeps exactly the shape it has had since v1. A backend needs to know nothing about time steps.
+
+**Decision — the step is convolve, grow, clamp.** `next = clamp(self + G(conv), 0, 1)`, with the clamp the range SPEC §1 already gives `f32` cells. Outside a zero boundary a cell contributes nothing, exactly as state 0 does on the discrete path.
+
+**Consequences.**
+- `rule/kernel` is a new front-of-backend resolution step, the kernel counterpart of `table_layout`. `CompiledRule` grows `weights` and `selfWeight`.
+- Cell mutation needed a continuous counterpart: `mutatedValue` draws a float in `[0, 1)` from the same second mixing of the stream-B hash that `mutatedState` uses, for the same BUG-005 reason.
+- `Simulation::installRule` now checks the rule's cell type against the grid's. It had only ever checked dimensions, so a `u8` grid would have accepted an `f32` rule and stepped a byte texture with a float rule — silent nonsense rather than a diagnostic, since the two formats are decided independently on either side. The check moved out of `create`, which delegates to `installRule` anyway.
+- Reproducing a published Lenia glider needs its seed pattern as data. A uniform blob is not one: with the orbium numbers (`sigma` 0.015, `dt` 0.1) the growth band is narrower than a single step, so every interior cell moves together and overshoots it, and the blob drains. This is correct behaviour and not a defect; the patterns belong in F-027's library.
+
+**Reversal conditions.** If a rule ever wants unnormalised weights — a kernel meant to amplify rather than average — the normalisation becomes a flag on the `Kernel` and that is an IR change with its own decision. If `dt` turns out to want to vary during a run, it becomes a uniform rather than a literal baked into the expression, and the growth expression stops being self-contained.

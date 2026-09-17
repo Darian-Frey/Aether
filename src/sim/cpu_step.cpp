@@ -107,6 +107,39 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
         return current[(size_t{cz} * H + cy) * W + cx];
     };
 
+    // A continuous rule reads floats out of the same bytes, convolves rather
+    // than indexes, and produces an increment rather than a state.
+    if (rule.kind == rule::Kind::Continuous) {
+        const std::span<const float> cells{reinterpret_cast<const float*>(current.data()),
+                                           current.size() / sizeof(float)};
+        auto valueAt = [&](uint32_t cx, uint32_t cy, uint32_t cz) -> float {
+            return cells[(size_t{cz} * H + cy) * W + cx];
+        };
+
+        CellTransition t;
+        t.ownValue = valueAt(x, y, z);
+        double conv = double{rule.selfWeight} * t.ownValue;
+        for (uint32_t i = 0; i < N; ++i) {
+            const rule::Offset& o = rule.offsets[i];
+            const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
+            const auto ny = resolve(int64_t{y} + o.dy, H, rule.boundary);
+            const auto nz = resolve(int64_t{z} + o.dz, D, rule.boundary);
+            // Outside a zero boundary the cell is empty, which contributes
+            // nothing, exactly as state 0 does on the discrete path.
+            const float v = (nx && ny && nz) ? valueAt(*nx, *ny, *nz) : 0.0f;
+            conv += double{rule.weights[i]} * v;
+        }
+        t.convolution = static_cast<float>(conv);
+        t.increment = evalGrowth(rule.expression, rule.expressionTypes, t.convolution, scratch.expr);
+        const float raw = t.ownValue + t.increment;
+        t.nextValue = raw < 0.0f ? 0.0f : (raw > 1.0f ? 1.0f : raw);   // SPEC §1
+        if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
+            t.nextValue = mutatedValue(hash32(x, y, z, generation, mutation.seedB));
+            t.mutated = true;
+        }
+        return t;
+    }
+
     // Gather in canonical order.
     std::vector<uint8_t>& nbr = scratch.neighbours;
     for (uint32_t i = 0; i < N; ++i) {
@@ -183,11 +216,18 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
     // itself allocates nothing.
     StepScratch scratch(rule);
 
+    const bool continuous = rule.kind == rule::Kind::Continuous;
+    const std::span<float> out{reinterpret_cast<float*>(next.data()),
+                               continuous ? next.size() / sizeof(float) : 0};
+
     for (uint32_t z = 0; z < D; ++z) {
         for (uint32_t y = 0; y < H; ++y) {
             for (uint32_t x = 0; x < W; ++x) {
-                next[(size_t{z} * H + y) * W + x] =
-                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch).next;
+                const CellTransition t =
+                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch);
+                const size_t i = (size_t{z} * H + y) * W + x;
+                if (continuous) out[i] = t.nextValue;
+                else            next[i] = t.next;
             }
         }
     }

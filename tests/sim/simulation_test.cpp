@@ -103,7 +103,7 @@ TEST_CASE("a failed rule change leaves the running rule and grid untouched", "[g
         return k;
     }());
     REQUIRE(err2.has_value());
-    CHECK(err2->message.find("Phase 5") != std::string::npos);
+    CHECK(err2->message.find("the rule is f32") != std::string::npos);
     CHECK(rule::irHash(s.rule()) == hash);
 }
 

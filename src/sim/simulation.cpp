@@ -34,13 +34,6 @@ Simulation::Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64
 std::variant<Simulation, core::Error> Simulation::create(const core::GridSpec& spec, const rule::RuleIR& ir,
                                                          Path path, uint64_t seedA, uint64_t seedB) {
     if (const auto problems = spec.problems(); !problems.empty()) return core::Error{problems.front()};
-    // The grid's storage and the rule's cell type must agree: a u8 texture
-    // stepped by a float rule is silent garbage, not an error, because the
-    // formats are decided independently on either side.
-    if (spec.cell_type != ir.cell_type) {
-        return core::Error{std::format("grid holds {} cells but the rule is {}",
-                                       core::toString(spec.cell_type), core::toString(ir.cell_type))};
-    }
     auto gpu = core::GpuGrid::create(spec, core::queryVram());
     if (const auto* e = std::get_if<core::Error>(&gpu)) return *e;
 
@@ -90,6 +83,15 @@ void Simulation::maybeMutateRule() {
 std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, LineageOrigin origin, std::optional<size_t> rewoundFrom) {
     if (ir.dimensions != spec().dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", ir.dimensions, spec().dimensions)};
+    }
+    // The grid's storage and the rule's cell type must agree: a u8 texture
+    // stepped by a float rule is silent garbage, not an error, because the
+    // formats are decided independently on either side. Checked here rather
+    // than in create() alone, so that swapping the rule under a running grid
+    // is guarded by the same test that guards building one.
+    if (ir.cell_type != spec().cell_type) {
+        return core::Error{std::format("grid holds {} cells but the rule is {}",
+                                       core::toString(spec().cell_type), core::toString(ir.cell_type))};
     }
     auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};

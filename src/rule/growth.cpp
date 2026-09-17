@@ -23,6 +23,9 @@ std::vector<std::string> problems(const GrowthSpec& g) {
     if (!(g.sigma > 0.0f)) {
         out.push_back(std::format("growth sigma must be positive (got {})", g.sigma));
     }
+    if (!(g.dt > 0.0f) || !(g.dt <= 1.0f)) {
+        out.push_back(std::format("growth dt must be in (0, 1] (got {})", g.dt));
+    }
     if (!(g.mu >= 0.0f) || !(g.mu <= 1.0f)) {
         // The convolution of a normalised kernel over cells in [0, 1] lands in
         // [0, 1], so a peak outside it can never be reached.
@@ -66,7 +69,9 @@ Expression growthExpression(const GrowthSpec& g) {
         const uint32_t in    = a.op(ExprOp::And, above, below);
         const uint32_t one   = a.lit(1.0f);
         const uint32_t minus = a.lit(-1.0f);
-        a.op(ExprOp::Select, in, one, minus);
+        const uint32_t g01   = a.op(ExprOp::Select, in, one, minus);
+        const uint32_t step  = a.lit(g.dt);
+        a.op(ExprOp::Mul, step, g01);
         return a.take();
     }
 
@@ -86,7 +91,9 @@ Expression growthExpression(const GrowthSpec& g) {
     const uint32_t two    = a.lit(2.0f);
     const uint32_t scaled = a.op(ExprOp::Mul, two, q4);
     const uint32_t one2   = a.lit(1.0f);
-    a.op(ExprOp::Sub, scaled, one2);
+    const uint32_t g01    = a.op(ExprOp::Sub, scaled, one2);
+    const uint32_t step   = a.lit(g.dt);
+    a.op(ExprOp::Mul, step, g01);
     return a.take();
 }
 

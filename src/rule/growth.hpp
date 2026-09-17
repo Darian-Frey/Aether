@@ -33,6 +33,13 @@ struct GrowthSpec {
     GrowthForm form  = GrowthForm::Polynomial;
     float      mu    = 0.15f;    // where growth peaks
     float      sigma = 0.015f;   // how wide the peak is
+    // How much of a step's growth is applied per generation. The growth
+    // functions run from -1 to 1, so at dt = 1 every cell is driven to an
+    // extreme in a single generation and the automaton is a hard threshold
+    // rather than a smooth one; Lenia is usually quoted as a time resolution
+    // T, of which this is the reciprocal. Lowered into the expression, so the
+    // IR keeps the shape it has always had.
+    float      dt    = 1.0f;
 
     bool operator==(const GrowthSpec&) const = default;
 };
@@ -42,7 +49,8 @@ struct GrowthSpec {
 // turn a growth function into the constant 1 rather than failing.
 std::vector<std::string> problems(const GrowthSpec&);
 
-// Self is the convolution result. The value is in [-1, 1] for every input.
+// Self is the convolution result. The value is the increment to apply to the
+// cell this generation, so it lies in [-dt, dt] for every input.
 Expression growthExpression(const GrowthSpec&);
 
 }  // namespace aether::rule

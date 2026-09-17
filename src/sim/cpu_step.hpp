@@ -45,7 +45,15 @@ struct StepScratch {
 };
 
 // What one cell's transition produced. Plain data, returned by value.
+// A continuous rule fills the float members and leaves the state members at
+// zero; a discrete one does the reverse.
 struct CellTransition {
+    // Continuous only (Phase 5).
+    float    ownValue    = 0.0f;   // the value that was read
+    float    convolution = 0.0f;   // the kernel's response at this cell
+    float    increment   = 0.0f;   // what the growth function returned
+    float    nextValue   = 0.0f;   // what is written, clamped to [0, 1]
+
     uint8_t  own        = 0;       // the state that was read
     uint8_t  fromRule   = 0;       // what the rule alone gives
     uint8_t  next       = 0;       // what is written: fromRule, unless mutated

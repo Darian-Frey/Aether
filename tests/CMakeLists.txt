@@ -15,9 +15,11 @@ add_executable(aether_tests
     rule/compile_test.cpp
     rule/glsl_test.cpp
     rule/growth_test.cpp
+    rule/kernel_test.cpp
     rule/ir_json_test.cpp
     sim/boundary_test.cpp
     sim/cpu_step_test.cpp
+    sim/continuous_test.cpp
     sim/equivalence_test.cpp
     sim/hash_test.cpp
     sim/rule_mutation_test.cpp

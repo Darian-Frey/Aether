@@ -73,4 +73,13 @@ constexpr uint32_t mutatedState(uint32_t h, uint32_t states) {
     return uniformState(mix32(h ^ 0xa5a5a5a5u), states);
 }
 
+// The continuous counterpart: a value in [0, 1). Mixed the same second time
+// and with the same constant as mutatedState, for the same reason (BUG-005) —
+// a hash that passed the threshold is small by construction, so its own bits
+// would cluster near zero. 2^-32 is exact in f32's exponent, so the scaling
+// itself introduces no rounding (Phase 5).
+inline float mutatedValue(uint32_t h) {
+    return static_cast<float>(mix32(h ^ 0xa5a5a5a5u)) * 2.3283064365386963e-10f;
+}
+
 }  // namespace aether::sim

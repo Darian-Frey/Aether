@@ -2,6 +2,7 @@
 #include "rule/compile.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 using namespace aether::rule;
 
@@ -85,17 +86,45 @@ TEST_CASE("an expression rule compiles through codegen", "[lut]") {
     CHECK(r.glsl.find("uint aether_rule(uint self, uint nbr[8])") != std::string::npos);
 }
 
-TEST_CASE("compileRule refuses what no backend can serve", "[lut]") {
+TEST_CASE("a continuous rule compiles to resolved weights and a growth tree", "[lut]") {
     RuleIR kernel;
     kernel.cell_type = aether::core::CellType::F32;
     kernel.kind = Kind::Continuous;
+    kernel.neighbourhood = {NeighbourhoodType::Moore, 1};
     Kernel k;
-    k.profile = {1.0f};
+    k.shape = Kernel::Shape::Radial;
+    k.profile = {1.0f, 1.0f};
     k.growth.nodes = {{ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f}};
     kernel.transition = k;
-    auto refused = compileRule(kernel);
+    auto made = compileRule(kernel);
+    REQUIRE(std::holds_alternative<CompiledRule>(made));
+    const CompiledRule& r = std::get<CompiledRule>(made);
+    CHECK(r.backend == Backend::Codegen);
+    CHECK(r.weights.size() == 8);
+    CHECK(r.table.empty());
+    CHECK(r.expression == k.growth);          // the growth is the tree the step walks
+    CHECK(r.glsl.empty());                    // the GPU half is step 4
+    // A flat profile over nine sites normalises to a ninth each.
+    float total = r.selfWeight;
+    for (float w : r.weights) total += w;
+    CHECK(total == Catch::Approx(1.0f));
+    CHECK(r.selfWeight == Catch::Approx(1.0f / 9.0f));
+}
+
+TEST_CASE("compileRule refuses what no backend can serve", "[lut]") {
+    // A kernel that cannot be normalised: every weight zero has no scale that
+    // makes the convolution mean anything.
+    RuleIR flat;
+    flat.cell_type = aether::core::CellType::F32;
+    flat.kind = Kind::Continuous;
+    flat.neighbourhood = {NeighbourhoodType::Moore, 1};
+    Kernel zero;
+    zero.profile = {0.0f};
+    zero.growth.nodes = {{ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f}};
+    flat.transition = zero;
+    auto refused = compileRule(flat);
     REQUIRE(std::holds_alternative<CompileError>(refused));
-    CHECK(std::get<CompileError>(refused).message.find("Phase 5") != std::string::npos);
+    CHECK(std::get<CompileError>(refused).message.find("sum to") != std::string::npos);
 
     auto ir = *parseDsl("B3/S23").ir;
     std::get<Table>(ir.transition).entries.pop_back();

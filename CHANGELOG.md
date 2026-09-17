@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- The continuous step on the CPU path (Phase 5 step 3, F-006, D-020): convolve, grow, clamp. `rule/kernel` resolves a profile onto the neighbourhood's offsets — sampled by distance, interpolated, normalised to sum to 1 — and `sim::stepCell` gained the branch that walks it (2026-09-17).
+- `dt` on a growth function, multiplied into the lowered expression rather than stored in the IR: the growth expression is the increment, so a backend needs to know nothing about time steps (2026-09-17).
+- `sim::mutatedValue`: the continuous counterpart of `mutatedState`, a float in [0, 1) from the same second mixing of the stream-B hash (2026-09-17).
 - Kernel authoring in Lua (Phase 5 step 2, F-006): a `cell_type = "f32"` script returns a `kernel` of samples it computes itself with `math`, and a named `growth` of `{form, mu, sigma}`. `rule/growth` lowers `rectangular` and `polynomial` to the expression form, so backends see an ordinary `Kernel` and know nothing about the names (2026-09-16).
 - `sim::evalGrowth`: a growth function at one convolution value, through the same arena walk the discrete path uses rather than a second one (2026-09-16).
 - `sim::stepCell` (IMP-005): one cell's transition, gathered and boundary-resolved exactly as the step does it, with `cpuStep` a loop over it. Returns what the cell did — the state read, what the rule alone gives, what is written, whether mutation overrode it, the entry that fired — with the buffers in a caller-owned `StepScratch` so the loop still allocates nothing. Measured no slower than the loop it replaced (2026-09-16).
@@ -84,6 +87,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- `Simulation::installRule` checks the rule's cell type against the grid's. It had only ever checked dimensions, so a u8 grid would have accepted an f32 rule; the check moved out of `create`, which delegates to it anyway (2026-09-17).
 - Panel sections are ordered by when a session needs them and closed past the first two, so the column fits one screen; widgets stop short of the right edge so their labels are no longer cut off ("Max steps/fram", "edits per even"); controls carry tooltips (2026-09-15).
 - A rule takes its name from its file header, so the library's names reach the summary, the transport bar and the window title rather than being dropped at load (2026-09-15).
 - The Grid panel shows what state 0 is left with, warns when hand-set densities total more than one, and offers an even spread (2026-09-15).
