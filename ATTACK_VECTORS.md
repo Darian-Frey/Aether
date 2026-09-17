@@ -134,7 +134,7 @@ Detection may be automated, manual, or explicitly not implemented — the requir
 ### AV-015 Float precision divergence in continuous automata
 **Severity:** Major
 **Description.** *(Phase 5.)* Continuous automata accumulate float error over thousands of generations. Different GPUs, drivers, and optimisation levels may reassociate arithmetic or contract multiply-add differently, so identical sessions diverge across machines — breaking the SPEC §11 determinism contract specifically for `f32` rules.
-**Detection.** Partly implemented 2026-09-17; see BUG-011 for what it does not yet cover. `tests/sim/continuous_test.cpp` steps a kernel rule 1000 generations on both paths under every boundary and both growth forms, with cell mutation on, and requires bitwise equality. It was red when first written and three separate causes had to be removed:
+**Detection.** Implemented 2026-09-17. `tests/sim/continuous_test.cpp` steps a kernel rule 1000 generations on both paths under every boundary and both growth forms, with cell mutation on, and requires bitwise equality. It was red when first written and three separate causes had to be removed:
 
 1. The oracle accumulated the convolution in `double` while the shader could only manage `float`. More accurate, and therefore wrong: the two must agree before either is precise. The CPU now accumulates in `float`, in offset order.
 2. The shader contracted `a*b+c` into an fma, which is a different result from a multiply followed by an add. `precise` on the convolution and on every float temporary of a generated growth function forbids the contraction and the reassociation that goes with it.
@@ -146,5 +146,7 @@ With all three fixed the paths agree bitwise over 1000 generations on both the I
 
 **Corrected 2026-09-17.** This entry first claimed a 128² configuration run to 10,000 generations on each path and compared identical. It did — but the rule used there dies out, so the comparison was of two empty grids and carried no evidence at all. A run that ends empty proves nothing, and the check should have been the mass before the comparison. The claim is withdrawn.
 
-What replaced it is worse news: at 512² a continuous rule goes wrong on both GPUs and differently on each, and NVIDIA is not even reproducible against itself. BUG-011 has the detail. So the determinism contract holds for `f32` at the sizes tested here and **not** at the size SPEC §12 asks for, and the arithmetic findings above stand while the conclusion drawn from them does not extend to 512².
+What that withdrawal exposed was not a precision problem at all. At 512² a continuous rule came back wrong from both drivers, and the cause turned out to be BUG-011 — a run that queues compute dispatches without ever synchronising — rather than anything arithmetic. With that fixed, the two drivers are bitwise identical at 512² over 1000 generations, the T1200 holds a stable field there over 10,000, and the CPU path agrees.
+
+So the arithmetic findings above stand on their own, and the lesson for this vector is a second one: a float divergence and a synchronisation fault look identical from the outside, and the way to tell them apart is that arithmetic divergence grows from one cell while a synchronisation fault arrives all at once. Mesa went from a healthy field to exactly zero in under fifty generations, which no accumulation of rounding does.
 **Related decisions.** D-006 (determinism contract), D-010 (continuous states in IR from v1), D-020 (what a continuous rule means).

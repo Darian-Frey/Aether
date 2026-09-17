@@ -80,6 +80,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-011: a run that queued compute dispatches without ever synchronising came back wrong — Mesa returned an all-zero grid after a few hundred generations at 512², the T1200 a collapsed field with `0xFFFFFFFF` in its first cells. `GpuStepper::step` drains every 64 generations and `GpuGrid::download` drains before reading back. The interactive path was never affected, because `App` already calls `glFinish` once a frame for the vsync throttle (2026-09-17).
 - BUG-010: `ExprOp::Self` typed as an integer even inside a growth expression, where it is the convolution result, so every growth function that read its own input was ill-typed and only constants validated. It now follows its context, and SPEC §6 says so (2026-09-16).
 - BUG-009: the interface state file is written to `$XDG_CONFIG_HOME/aether/` rather than beside whatever directory the binary was launched from, and is no longer tracked (2026-09-15).
 - BUG-008: the default random-fill densities summed past one above nine states, so a rule's last states were never seeded — the fourteen-state cyclic rule started with four of its states missing. `sim::defaultDensity` now spreads evenly over a rule's live states and leaves its ageing tail empty, replacing three copies of the arithmetic (2026-09-15).

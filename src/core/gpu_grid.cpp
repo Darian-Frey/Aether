@@ -193,6 +193,15 @@ void GpuGrid::uploadRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint3
 
 void GpuGrid::download(std::span<uint8_t> cells) const {
     assert(cells.size() == spec_.bytesPerBuffer());
+    // The readback must not race the dispatches still in flight. The step
+    // loop's glMemoryBarrier is not enough on its own and neither is
+    // GL_ALL_BARRIER_BITS issued here: on Mesa a download after a few hundred
+    // queued compute dispatches came back entirely zero, and on NVIDIA it came
+    // back with the first few cells of the buffer corrupt, which is a read
+    // that started before the writes landed. Only a full sync fixes it
+    // (BUG-011). Downloads happen on save and on a path switch, never in the
+    // step loop (AV-002), so the stall costs nothing that matters.
+    glFinish();
     glBindTexture(target_, pair_.current());
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glGetTexImage(target_, 0, transferFormat(spec_.cell_type), transferType(spec_.cell_type), cells.data());

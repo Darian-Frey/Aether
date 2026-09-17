@@ -24,27 +24,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-### BUG-011: a continuous rule goes wrong at 512², differently on each driver
-**Status:** open
-**Found:** 2026-09-17 (Phase 5 step 5, running the bundled Lenia rule at the size SPEC §12 asks for)
-**Location:** `shaders/continuous_step.comp`, `src/sim/gpu_step.cpp`; not reproduced on the CPU path
-**Severity:** high
-**Description.** The bundled `lenia.lua` is stable at 128² and 256²: the CPU path holds 28% mass from generation 250 to at least 5000, and both GPUs agree with it bitwise. At 512² both GPUs go wrong, and not in the same way.
-
-- **NVIDIA (T1200)** stays alive at the right mass but grows four cells of `0xFFFFFFFF` — a quiet NaN, all bits set — at coordinates (0,0), (1,0), (2,0) and (3,0), plus one wildly out-of-range value at (8,0). They appear between generation 4000 and 5000, at the same coordinates for every seed tried. A value the arithmetic cannot produce: the growth function is multiplies, subtractions and a select over finite inputs, with no division since 2026-09-17, and the step ends in a `clamp` to [0, 1].
-- **NVIDIA is also not deterministic with itself.** The same binary, the same seed, two runs of 5000 generations: 5 of 1,048,576 bytes differ. That is a straight breach of D-006, and it is the finding that matters most here.
-- **Intel (Mesa)** does the opposite: the grid is empty by generation 1000, where NVIDIA and the CPU path both hold 28%.
-
-**Reproduction.**
-```
-aether headless --lua rules/lenia.lua --size 512x512 --generations 5000 --seed 3 --save a.aether
-aether headless --lua rules/lenia.lua --size 512x512 --generations 5000 --seed 3 --save b.aether
-aether compare a.aether b.aether          # differs on NVIDIA, identical on Intel
-```
-At `--size 256x256 --generations 200` the same rule is identical across the CPU path, Mesa and NVIDIA, so the size is the trigger rather than the rule.
-**Notes.** Not reproduced below 512²; 256² is clean under every combination tried, so it is not simply grid size in the arithmetic sense — 256 and 512 are both exact multiples of the 8×8 local size. The suspects in order: a barrier that is sufficient for a small dispatch and not a large one (`step()` issues `GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT` between generations); the `glGetTexImage` download racing the last dispatch; and something specific to `r32f` image load/store that the `r8ui` path never exercised, since the discrete path has never been compared run-to-run at 1024². The coordinates being the first cells of row 0 — the start of the buffer — points at the transfer rather than at the automaton.
-
-This does not affect the discrete path, which has its own equivalence coverage, and does not affect continuous rules at the sizes the test suite exercises. It does mean Phase 5's acceptance (`512² without state divergence over 10,000 generations`) is **not met**, and that the determinism contract does not currently hold for `f32` on NVIDIA at that size.
+*None.*
 
 ## Fixed
 
@@ -150,6 +130,28 @@ This does not affect the discrete path, which has its own equivalence coverage, 
 **Reproduction.** Build a `Kernel` whose growth is `Sub(Mul(FloatLiteral 2, Self), FloatLiteral 1)` and call `validate`: it reports that the growth expression must produce a float, because the subtree containing `Self` typed as `Int`.
 **Notes.** Unreached until now because nothing constructed a `Kernel`: both backends refuse `f32` and neither front end could emit one. Phase 5 step 2 is the first thing to try. The fix is context-dependent typing — inside a growth expression `Self` is the convolution result and is `Float`, while everywhere else it stays the own state and is `Int` — which is a change to SPEC §6's typing rules rather than to the IR's data layout. It blocks kernel authoring completely, so it cannot be deferred past step 2 without leaving the step undeliverable.
 **Resolution (2026-09-16).** `ExprContext` gained a `selfIsFloat` flag, set only where a growth expression is checked, so `Self` types as the convolution result there and as the own state everywhere else. SPEC §6 states the rule. The fix is to the typing of an operator rather than to the IR's data layout, so no schema change and no `ir_version` bump. `tests/rule/ir_test.cpp` had asserted the defect as intended behaviour — a growth function of `Self` alone was expected to be refused — which is how it survived being written; it now checks that the identity growth function is accepted and uses a Bool-valued expression to exercise the diagnostic.
+
+### BUG-011: a long run without synchronisation comes back wrong
+**Status:** fixed
+**Found:** 2026-09-17 (Phase 5 step 5, running the bundled Lenia rule at the size SPEC §12 asks for)
+**Fixed:** 2026-09-17
+**Location:** `src/sim/gpu_step.cpp` (`GpuStepper::step`), `src/core/gpu_grid.cpp` (`GpuGrid::download`)
+**Severity:** high
+**Description.** A run that queues compute dispatches without ever synchronising eventually produces wrong results, on both drivers and in different ways. Running `rules/lenia.lua` at 512² through `aether headless`: Mesa returned a grid of exactly zero from generation 400 onward, having been healthy at 350; the T1200 stayed healthy far longer and then came back at generation 5000 with the field collapsed to four cells, four `0xFFFFFFFF` quiet NaNs at (0,0) through (3,0), and one wildly out-of-range value at (8,0) that varied between runs. Smaller grids failed the same way later — 256² on Mesa was healthy at generation 1000 and empty at 4000 — so it is cumulative rather than a function of size.
+**Reproduction.** Before the fix:
+```
+aether headless --lua rules/lenia.lua --size 512x512 --generations 400 --seed 3 --save a.aether
+```
+returned an empty grid on Mesa, where `--generations 350` returned a healthy one.
+**Notes.** The false leads are worth recording, because each looked convincing.
+
+- *It is continuous-specific.* It is not: a discrete rule with the same 440-neighbour kernel at 512² showed it too. Life at 1024² never did, which is why nothing had caught it — the discrete rules that get run at scale all have eight neighbours, and a light dispatch drains before the next arrives.
+- *The barrier bits are insufficient.* They are not. `GL_ALL_BARRIER_BITS` between dispatches changes nothing, and neither does a barrier at download time.
+- *It is a numerical blow-up in the automaton.* It is not. The CPU path holds 28.0% mass at 512² from generation 200 through 4600 without a wobble, and the NaNs never spread — a NaN in the grid would reach every cell within the kernel radius on the next generation, and after a thousand more the whole grid would be NaN. Four cells, unchanged. The corruption is therefore not in the simulation.
+- *A NaN cannot come from that arithmetic.* It cannot, which is the clue rather than a puzzle: the growth function is multiplies, subtractions and a select over finite inputs, with no division, ending in a clamp to [0, 1]. A value it cannot produce has to come from somewhere other than the step.
+
+What settled it was the interface. The same rule at 512² in the window is perfectly healthy at generation 7721 on the T1200 and 632 on Mesa, both well past where headless was ruined — and the difference is that `App` calls `glFinish()` once a frame for the vsync throttle (a line added on 2026-09-11 for a timing reason entirely unrelated to this). The interactive path had been immune by accident all along.
+**Resolution (2026-09-17).** `GpuStepper::step` drains the queue every 64 generations, and `GpuGrid::download` drains before reading back. Every 64 is as good as every one and the interval is not a tuning knob: without it the results are wrong rather than late. Downloads happen on save and on a path switch, never in the step loop (AV-002), so the second sync costs nothing. Mesa and the T1200 now agree with each other and with the CPU path at 512² where before they agreed with nobody.
 
 ## Won't Fix
 

@@ -16,6 +16,10 @@ namespace aether::sim {
 
 namespace {
 
+// How often the step loop drains the GPU queue. Not a tuning knob: without a
+// periodic sync the results are wrong, not merely late (BUG-011).
+constexpr uint64_t kSyncEvery = 64;
+
 // The shader's local_size, which must match the layout() in lut_step.comp.
 constexpr uint32_t kLocal2D[3] = {8, 8, 1};
 constexpr uint32_t kLocal3D[3] = {4, 4, 4};
@@ -173,6 +177,15 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     // glGetTexImage.
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT |
                     GL_TEXTURE_UPDATE_BARRIER_BIT);
+    // Drain the queue periodically. Left to itself, a run that never
+    // synchronises — headless, or a burst — queues thousands of dispatches and
+    // the results eventually come back wrong: Mesa returned an all-zero grid,
+    // NVIDIA a grid with its first cells corrupt and the field collapsed
+    // (BUG-011). The interactive path never showed it because `App` already
+    // calls glFinish once a frame for the vsync throttle, which is this by
+    // accident. Every 64 generations is as good as every one and costs a
+    // fraction of a percent of throughput.
+    if (cfg_.generation % kSyncEvery == 0) glFinish();
     ++cfg_.generation;
 }
 

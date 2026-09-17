@@ -272,3 +272,73 @@ TEST_CASE("the continuous step agrees between the two paths", "[gpu][continuous]
     }
     CHECK(differing == 0);
 }
+
+TEST_CASE("a long run without synchronisation still comes back right (BUG-011)", "[gpu][continuous]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    // The suite's other GPU cases are short or tiny, and a light dispatch
+    // drains before the next arrives, which is why nothing here caught the
+    // queue growing unbounded (BUG-011). This is the longest GPU/CPU
+    // comparison in the suite, and it is a guard for that class rather than a
+    // reproduction: with both fixes disabled it still passes. The original
+    // failure needed 512² over thousands of generations, which is four minutes
+    // on the slower of the two GPUs and too slow to live here — so the suite
+    // still cannot catch this one cheaply, and that is worth knowing.
+    rule::RuleIR ir;
+    ir.dimensions = 2;
+    ir.cell_type = core::CellType::F32;
+    ir.kind = rule::Kind::Continuous;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 6};
+    rule::Kernel k;
+    k.shape = rule::Kernel::Shape::Radial;
+    for (int i = 0; i <= 6; ++i) {
+        const float x = static_cast<float>(i) / 6.0f;
+        k.profile.push_back(std::exp(-(x - 0.5f) * (x - 0.5f) / (2.0f * 0.15f * 0.15f)));
+    }
+    k.growth = rule::growthExpression({rule::GrowthForm::Polynomial, 0.20f, 0.05f, 0.05f});
+    ir.transition = k;
+    auto made = rule::compileRule(ir);
+    if (const auto* e = std::get_if<rule::CompileError>(&made)) FAIL(e->message);
+    const rule::CompiledRule r = std::get<rule::CompiledRule>(std::move(made));
+
+    const core::GridSpec spec{2, 128, 128, 1, core::CellType::F32};
+    core::HostGrid host(spec);
+    {
+        auto cells = host.currentFloats();
+        for (size_t i = 0; i < cells.size(); ++i) {
+            cells[i] = ((i * 2654435761u) % 10u) < 3u
+                           ? static_cast<float>((i * 40503u) % 1000u) / 1000.0f : 0.0f;
+        }
+    }
+    auto gpuMade = core::GpuGrid::create(spec, core::queryVram());
+    REQUIRE(std::holds_alternative<core::GpuGrid>(gpuMade));
+    core::GpuGrid& gpu = std::get<core::GpuGrid>(gpuMade);
+    gpu.upload(host.current());
+
+    sim::GpuStepper stepper;
+    if (const auto e = stepper.setRule(r, spec)) FAIL(e->message);
+
+    constexpr int kGenerations = 2500;
+    for (int i = 0; i < kGenerations; ++i) {
+        sim::cpuStep(r, host, static_cast<uint64_t>(i));
+        stepper.step(gpu);
+    }
+
+    std::vector<uint8_t> fromGpu(spec.bytesPerBuffer());
+    gpu.download(fromGpu);
+    const std::span<const float> gpuCells{reinterpret_cast<const float*>(fromGpu.data()), spec.cellCount()};
+    const auto cpuCells = host.currentFloats();
+
+    float mass = 0.0f;
+    size_t differing = 0;
+    for (size_t i = 0; i < cpuCells.size(); ++i) {
+        mass += cpuCells[i];
+        if (cpuCells[i] != gpuCells[i]) ++differing;
+    }
+    // The field has to still be there, or the comparison proves nothing: two
+    // empty grids agree perfectly, which is how this was nearly missed once.
+    INFO("cpu mass " << mass << " of " << cpuCells.size() << ", " << differing << " cells differ");
+    CHECK(mass > 0.05f * static_cast<float>(cpuCells.size()));
+    CHECK(differing == 0);
+}
