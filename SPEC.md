@@ -479,7 +479,7 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
 }
 ```
 
-**The journal** (2026-09-12) is the record of every externally driven change, stamped with the generation at which it happened: `set_rule`, `rewind` (rule-only), `paint` (one row span), `fill` (draws from stream A), `clear`, `cell_mutation` (a change of `p`) and `rule_mutation` (a change of the parameters). Rule mutations themselves are *not* journaled; they regenerate from stream A. This is the "mutation schedule" of D-006 made concrete: without it, a brush stroke at generation 700 would make the run irreproducible.
+**The journal** (2026-09-12) is the record of every externally driven change, stamped with the generation at which it happened: `set_rule`, `rewind` (rule-only), `paint` (one row span), `place` (a pattern and where it went, §14), `fill` (draws from stream A), `clear`, `cell_mutation` (a change of `p`) and `rule_mutation` (a change of the parameters). A `place` carries the pattern itself, nested in the event, rather than a path to a file: a path could change under the session and the paste would replay as something different, which is the same reason `set_rule` carries a whole IR (2026-09-19). Rule mutations themselves are *not* journaled; they regenerate from stream A. This is the "mutation schedule" of D-006 made concrete: without it, a brush stroke at generation 700 would make the run irreproducible.
 
 **Replay.** Starting from `initial` with stream A seeded by `seed_a`, apply every journal event with generation `g` before the step from `g` to `g+1`, in journal order; rule mutation runs at the top of each step as §9.1 says. This reproduces the grid at any generation bit-for-bit on either execution path.
 

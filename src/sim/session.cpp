@@ -1,6 +1,7 @@
 #include "sim/session.hpp"
 
 #include "rule/ir_json.hpp"
+#include "sim/pattern.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -88,6 +89,12 @@ json eventToJson(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvPaint>)    { j["type"] = "paint"; j["x0"] = b.x0; j["x1"] = b.x1; j["y"] = b.y; j["z"] = b.z; j["state"] = b.state; }
         else if constexpr (std::is_same_v<T, EvFill>)     { j["type"] = "fill"; j["density"] = b.density; }
         else if constexpr (std::is_same_v<T, EvClear>)    { j["type"] = "clear"; }
+        else if constexpr (std::is_same_v<T, EvPlace>)    {
+            // The native form of §14, nested rather than stringified, so a
+            // session stays one readable document.
+            j["type"] = "place"; j["x"] = b.x; j["y"] = b.y; j["z"] = b.z;
+            j["pattern"] = json::parse(writeNative(b.pattern));
+        }
         else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
             j["type"] = "rule_mutation"; j["enabled"] = b.params.enabled;
@@ -114,6 +121,11 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
         ev.body = EvFill{j.at("density").get<std::vector<double>>()};
     } else if (type == "clear") {
         ev.body = EvClear{};
+    } else if (type == "place") {
+        auto pat = parseNative(j.at("pattern").dump());
+        if (const auto* e = std::get_if<PatternError>(&pat)) return SessionError{"journal place: " + e->message};
+        ev.body = EvPlace{std::get<Pattern>(std::move(pat)), j.at("x").get<uint32_t>(),
+                          j.at("y").get<uint32_t>(), j.at("z").get<uint32_t>()};
     } else if (type == "cell_mutation") {
         ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
     } else if (type == "rule_mutation") {

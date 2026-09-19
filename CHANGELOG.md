@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Pattern placement (F-012): `Simulation::placePattern` writes a pattern into a running grid on both copies and journals it as a `place` event, and `extractPattern` takes a region back out as a pattern. The event carries the pattern rather than a path, so a paste replays exactly (SPEC §11, §14) (2026-09-19).
 - Pattern formats (Phase 6, F-012, D-017, SPEC §14): `sim/pattern` reads and writes Golly's extended RLE and a native `.pattern` JSON, the latter carrying hexagonal lattices, 3D extents, any state count and `f32` cells through the session codec. Which format a pattern takes follows the pattern rather than the caller, and reading sniffs the content rather than the extension (2026-09-19).
 - `f32` cells through the palette (Phase 5 step 5, F-006, F-018): a float variant of the palette pass compiled from the same source, and `Palette::continuousRamp` — monotone dark to bright, where the hue cycling of a state count reads as a rainbow on a smooth field (2026-09-17).
 - `rules/lenia.lua`, the first continuous rule in the library: a Gaussian shell worked out in Lua and a polynomial growth band (2026-09-17).

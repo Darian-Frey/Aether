@@ -183,3 +183,133 @@ TEST_CASE("parsePattern picks the format from the content", "[pattern]") {
     CHECK(ok("\n\n  {\"format\":\"aether-pattern\",\"version\":1,\"extent\":{\"dimensions\":2,\"w\":1,\"h\":1},"
              "\"states\":2,\"cells\":{\"encoding\":\"bytes\",\"data\":\"AQ==\"}}").cells == std::vector<uint8_t>{1});
 }
+
+// --- Placement into a running grid (F-012) ---------------------------------
+
+#include "core/gpu_grid.hpp"
+#include "rule/dsl.hpp"
+#include "sim/simulation.hpp"
+#include "support/gl_context.hpp"
+
+namespace {
+
+Pattern glider() {
+    auto p = sim::parsePattern("x = 3, y = 3, rule = B3/S23\nbo$2bo$3o!\n");
+    return std::get<Pattern>(std::move(p));
+}
+
+rule::RuleIR life() {
+    auto r = rule::parseDsl("B3/S23");
+    REQUIRE(r);
+    return *r.ir;
+}
+
+sim::Simulation freshGrid(uint32_t w = 16, uint32_t h = 16) {
+    auto made = sim::Simulation::create(core::GridSpec{2, w, h, 1}, life(), sim::Path::Cpu, 1, 2);
+    if (const auto* e = std::get_if<core::Error>(&made)) FAIL(e->message);
+    return std::get<sim::Simulation>(std::move(made));
+}
+
+}  // namespace
+
+TEST_CASE("a pattern lands where it is put, on both copies of the grid", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    sim::Simulation s = freshGrid();
+    REQUIRE_FALSE(s.placePattern(glider(), 5, 4, 0).has_value());
+
+    // The glider's own (0,0) is at (5,4), so its cells are offset by that.
+    CHECK(s.host().get(6, 4) == 1);
+    CHECK(s.host().get(5, 4) == 0);
+    CHECK(s.host().get(7, 5) == 1);
+    CHECK(s.host().get(5, 6) == 1);
+    CHECK(s.host().get(6, 6) == 1);
+    CHECK(s.host().get(7, 6) == 1);
+    CHECK(s.host().get(0, 0) == 0);          // nothing else touched
+
+    // And the same cells come back out, which exercises the round trip rather
+    // than only the write.
+    const auto extracted = s.extractPattern(5, 4, 0, 3, 3, 1);
+    REQUIRE(std::holds_alternative<Pattern>(extracted));
+    CHECK(std::get<Pattern>(extracted).cells == glider().cells);
+}
+
+TEST_CASE("a pattern that does not belong is refused, not coerced", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+    sim::Simulation s = freshGrid(8, 8);
+
+    auto over = s.placePattern(glider(), 6, 6, 0);
+    REQUIRE(over.has_value());
+    CHECK(over->message.find("hangs over the edge") != std::string::npos);
+
+    Pattern hex = glider();
+    hex.lattice = Lattice::Hexagonal;
+    auto wrongLattice = s.placePattern(hex, 0, 0, 0);
+    REQUIRE(wrongLattice.has_value());
+    CHECK(wrongLattice->message.find("hexagonal") != std::string::npos);
+
+    Pattern manyStates = glider();
+    manyStates.states = 8;
+    manyStates.cells[0] = 7;
+    auto tooManyStates = s.placePattern(manyStates, 0, 0, 0);
+    REQUIRE(tooManyStates.has_value());
+    CHECK(tooManyStates->message.find("8 states but the rule has 2") != std::string::npos);
+
+    // Refused means untouched: not one cell of a rejected paste lands.
+    for (uint32_t y = 0; y < 8; ++y) {
+        for (uint32_t x = 0; x < 8; ++x) CHECK(s.host().get(x, y) == 0);
+    }
+}
+
+TEST_CASE("a placed pattern replays from the journal (D-013)", "[gpu][pattern][replay]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    sim::Simulation s = freshGrid(24, 24);
+    for (int i = 0; i < 5; ++i) s.step();
+    REQUIRE_FALSE(s.placePattern(glider(), 3, 3, 0).has_value());
+    for (int i = 0; i < 20; ++i) s.step();
+    const sim::Session snap = s.session();
+    CHECK(snap.journal.size() == 1);          // the paste, and nothing else
+
+    // Through the file, so the event's serialisation is under test too.
+    const std::string text = sim::sessionToJson(snap);
+    auto parsed = sim::sessionFromJson(text);
+    if (const auto* e = std::get_if<sim::SessionError>(&parsed)) FAIL(e->message);
+
+    auto replayed = sim::Simulation::replay(std::get<sim::Session>(parsed), {snap.generation}, sim::Path::Cpu);
+    if (const auto* e = std::get_if<core::Error>(&replayed)) FAIL(e->message);
+    auto& r = std::get<sim::Simulation>(replayed);
+    CHECK(r.generation() == snap.generation);
+    CHECK(std::vector<uint8_t>(r.host().current().begin(), r.host().current().end()) == snap.current);
+}
+
+TEST_CASE("a region of the grid comes back out as a pattern", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+    sim::Simulation s = freshGrid();
+    REQUIRE_FALSE(s.placePattern(glider(), 2, 2, 0).has_value());
+
+    auto got = s.extractPattern(2, 2, 0, 3, 3, 1);
+    REQUIRE(std::holds_alternative<Pattern>(got));
+    const Pattern& p = std::get<Pattern>(got);
+    CHECK(p.width == 3);
+    CHECK(p.height == 3);
+    CHECK(p.states == 2);                     // what the cells use, not the rule's count
+    CHECK(p.rule == "B3/S23");                // the rule travels as a hint
+    CHECK(p.cells == glider().cells);
+
+    // Round-trip: written out, read back, placed again, same grid.
+    auto text = sim::writePattern(p, sim::formatFor(p));
+    REQUIRE(std::holds_alternative<std::string>(text));
+    const Pattern back = ok(std::get<std::string>(text));
+    sim::Simulation other = freshGrid();
+    REQUIRE_FALSE(other.placePattern(back, 2, 2, 0).has_value());
+    CHECK(std::vector<uint8_t>(other.host().current().begin(), other.host().current().end()) ==
+          std::vector<uint8_t>(s.host().current().begin(), s.host().current().end()));
+
+    CHECK(std::holds_alternative<core::Error>(s.extractPattern(14, 14, 0, 8, 8, 1)));
+    CHECK(std::holds_alternative<core::Error>(s.extractPattern(0, 0, 0, 0, 1, 1)));
+}

@@ -128,6 +128,24 @@ public:
     // host copy and the GPU texture, with no readback. The canvas's one way
     // in. Coordinates must be in range; x0 <= x1.
     void paintSpan(uint32_t x0, uint32_t x1, uint32_t y, uint32_t z, uint8_t state);
+
+    // Writes a pattern into the grid with its own (0,0,0) at (x, y, z), on
+    // both the host copy and the GPU texture (F-012, SPEC §14). Journalled,
+    // so a session replays the paste; the pattern travels in the event
+    // because a path could change under the session.
+    //
+    // Refused rather than coerced when the pattern does not belong here: a
+    // different lattice means the same cells are a different shape, a
+    // different cell type is a different thing entirely, a state the rule
+    // does not have would index past its table, and a pattern hanging over
+    // the edge would have to be clipped or wrapped and neither is obviously
+    // what was meant.
+    std::optional<core::Error> placePattern(const Pattern& p, uint32_t x, uint32_t y, uint32_t z);
+
+    // The opposite: a region of the grid as a pattern, ready to write out.
+    // Syncs from the GPU first, so it is not for the step loop (AV-002).
+    std::variant<Pattern, core::Error> extractPattern(uint32_t x, uint32_t y, uint32_t z,
+                                                      uint32_t w, uint32_t h, uint32_t d);
     Pcg32& streamA() { return streamA_; }
 
     // The texture holding the current generation, for the renderer.

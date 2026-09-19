@@ -159,7 +159,8 @@ People who want to explore cellular automata rather than run one specific automa
 - A pattern whose lattice or state count does not fit the current grid is refused with a diagnostic, never coerced
 **Status:** In progress
 **Progress:** 2026-09-19. `sim/pattern` carries the two formats and SPEC §14 specifies them: Golly's extended RLE — the plain two-state body every Life tool writes and the multi-state `.A-X`/`pA-yO` alphabet — and the native `.pattern`, JSON with the cells through the session codec, for hexagonal lattices, 3D extents, any state count and `f32` cells. Which format a pattern goes into follows the pattern rather than the caller, and reading sniffs the content rather than trusting the extension. A malformed file is refused with a diagnostic.
-**Remaining:** placement — putting a pattern into a running grid, by cursor, journalled like any other grid mutation — and the export of a selected region, both of which need the interface rather than the format.
+**Progress:** 2026-09-19. `Simulation::placePattern` writes a pattern into a running grid on both copies and journals a `place` event carrying the pattern itself, so a session replays the paste; `extractPattern` takes a region back out, carrying the rule's notation as a hint and declaring the states the cells actually use. A pattern on a different lattice, of a different cell type, using states the rule has not, or hanging over an edge is refused with a diagnostic and lands not one cell.
+**Remaining:** the interface — opening a pattern file, positioning it by cursor before committing, and writing a selected region out.
 **Notes:** Widened 2026-09-15 by D-017 from import-only to import and export across two formats. As originally written the entry named standard RLE alone, which describes two states on a square lattice and so could not carry patterns for most of the bundled rules.
 
 ### F-013 Random seeding
