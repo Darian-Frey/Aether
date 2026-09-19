@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Pattern formats (Phase 6, F-012, D-017, SPEC §14): `sim/pattern` reads and writes Golly's extended RLE and a native `.pattern` JSON, the latter carrying hexagonal lattices, 3D extents, any state count and `f32` cells through the session codec. Which format a pattern takes follows the pattern rather than the caller, and reading sniffs the content rather than the extension (2026-09-19).
 - `f32` cells through the palette (Phase 5 step 5, F-006, F-018): a float variant of the palette pass compiled from the same source, and `Palette::continuousRamp` — monotone dark to bright, where the hue cycling of a state count reads as a rainbow on a smooth field (2026-09-17).
 - `rules/lenia.lua`, the first continuous rule in the library: a Gaussian shell worked out in Lua and a polynomial growth band (2026-09-17).
 - The continuous step on the GPU path (Phase 5 step 4, F-006): `generateGlsl` emits `aether_rule_f(float self, float conv)` from a growth expression, and `shaders/continuous_step.comp` does the convolution against the resolved weights — the same arithmetic for every kernel, so only the growth is generated (2026-09-17).

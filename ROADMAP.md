@@ -98,12 +98,12 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 6 — Presentation and release
 **Goal:** The things that make it pleasant rather than merely correct.
-**Status:** Not started
+**Status:** In progress
 **Features delivered:** F-005, F-012, F-021, F-022, F-024, F-027, F-028, F-029, F-030
 **Deliverables:**
 - [ ] Screensaver mode: fullscreen playlist of bundled rules with optional mutation, exits on input (F-024, added 2026-09-12)
 - [ ] 1D elementary automata with space-time rendering
-- [ ] Pattern import and export: extended RLE for 2D square grids, a native format for hexagonal, 3D and multi-state ones, with cursor placement and journalled commits (F-012, widened 2026-09-15 by D-017)
+- [~] Pattern import and export (F-012, widened 2026-09-15 by D-017). Formats done 2026-09-19: `sim/pattern` reads and writes Golly's extended RLE and the native `.pattern`, SPEC §14 specifies both, and the format follows the pattern rather than the caller. Cursor placement and journalled commits remain
 - [ ] Bundled pattern library in `patterns/`, listed and placeable the way the rule library is (F-027, added 2026-09-15)
 - [ ] Region seeding: seed a dragged rectangle at the fill densities (F-028, added 2026-09-15), and lift the whole-grid Seed control out from under the density sliders (IMP-004)
 - [ ] Pattern editor: a host-side scratch pad painted a cell at a time, stepping forward and back independently of the live run, saving to `patterns/` (F-029, added 2026-09-15 by D-018)

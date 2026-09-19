@@ -531,3 +531,48 @@ These are acceptance thresholds, not aspirations. Baselines go in `BENCHMARKS.md
 **Age colouring** *(2026-09-14)*. A rule with an ageing tail (§7 `decay`) carries `metadata.decay_from`, the first tail state. The default palette then ramps the tail from the colour of state 1 toward the background, with alpha falling to zero at the oldest state, so a cell visibly fades as it ages — in 2D through the colour ramp, in 3D through both colour and opacity. The age-shading toggle darkens only the tail when `decay_from` is known, rather than darkening by raw state index, which is meaningless for a rule whose states are not ages (Wireworld, cyclic).
 
 **Palette.** 256 RGBA entries, editable, saved with the rule rather than the session so that a rule carries its intended appearance into the library.
+
+---
+
+## 14. Pattern format
+
+*(Added 2026-09-19, D-017.)* A pattern is a fragment of a grid: an extent, a lattice, a state count and the cells. It carries no rule and no history — a rule name travels with it as a hint, not as a requirement.
+
+Two formats, and which one a pattern goes into is decided by what the pattern *is* rather than by the caller.
+
+**`.rle` — Golly's extended RLE.** 2D square lattices, `u8` cells only. That is what the format can express, not a limitation of this engine, and it is chosen wherever it reaches so that patterns pass both ways with every other Life tool.
+
+```
+#N Glider
+#C The smallest spaceship.
+x = 3, y = 3, rule = B3/S23
+bo$2bo$3o!
+```
+
+- `#N` names the pattern, `#r` gives a rule the old way, and any other `#` line is a comment. The `rule =` field of the header is kept as written and never interpreted: a pattern is cells, and matching it to a rule is the caller's business.
+- The body is runs of `(count, tag)`. `$` ends a row and may be counted — `3$` is three row breaks, ending the current row and skipping two. `!` ends the pattern.
+- State 0 is `.`, states 1–24 are `A`–`X`, and above that a prefix letter carries the rest: `pA` is 25, `qA` is 49, and the alphabet stops at `yO`, which is 255. A two-state pattern conventionally writes `b` and `o` instead, which is what every Life tool emits and what this writes back.
+- A row shorter than the declared width is dead cells to the end. A *trailing* dead run is therefore dropped on writing; a leading one is not, or every live cell in the row shifts left.
+
+**`.pattern` — native.** Everything RLE cannot say: hexagonal lattices, 3D extents, any state count, and `f32` cells. JSON, with the cells through §11's codec so the encoding choice and the base64 are shared rather than reimplemented.
+
+```json
+{
+  "format": "aether-pattern",
+  "version": 1,
+  "extent":  { "dimensions": 2, "w": 3, "h": 3, "d": 1 },
+  "lattice": "square" | "hexagonal",
+  "cell_type": "u8" | "f32",
+  "states": 2,
+  "cells":  { "encoding": "rle" | "bytes", "data": "..." },
+  "name": "...", "rule": "...", "comment": "..."
+}
+```
+
+A separate extension rather than a private RLE dialect (D-017): a file claiming to be RLE and failing to open in Golly would read as somebody else's defect. Reading sniffs the content rather than trusting the extension — native is JSON and RLE is not, so neither can be mistaken for the other however the file is named.
+
+**`states`** is the highest state the cells use plus one, not the rule's state count. A pattern drawn for a fourteen-state rule that happens to use three of them fits any rule with at least three, and refusing it would be pedantry.
+
+**Cells** are row-major, x fastest then y then z, as §2 stores a grid, and are bytes — an `f32` pattern holds four per cell (§1).
+
+**Refusal.** A pattern whose lattice or cell type does not match the grid is refused with a diagnostic and never coerced: the same cells on a hexagonal lattice are a different shape, since the offsets differ (§3). Placing a pattern into a running grid is a grid mutation and journals itself like any other, so a session that pastes one replays it (§11).
