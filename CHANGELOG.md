@@ -93,6 +93,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - BUG-002: SPEC §5 multi-state outer-totalistic index encoding contradicted its size formula; resolved as dense lexicographic ranking (2026-09-11).
 
 ### Changed
+- D-021: Phase 5's acceptance drops SmoothLife and closes on Lenia, which it meets. A `Kernel` carries one profile, so a growth function is a function of one convolution; SmoothLife is a function of two, which makes it a second shape of rule rather than a second example of this one. It joins the candidate features together with the multi-kernel generalisation that would carry it, and with the note that its sigmoids would additionally want `exp` (2026-09-19).
 - `fillRandom`, `paintSpan` and `resetOutOfRangeStates` know what a float cell is. All three walked the grid as bytes, which on an f32 grid writes into the middle of values — `resetOutOfRangeStates` ran on every continuous rule install, since it fires whenever the table is empty (2026-09-17).
 - The rule summary and the cell readout say what a continuous rule has rather than what it has not: a kernel radius instead of a state count, and a value instead of an index (2026-09-17).
 - `Renderer2D` keeps its GL handles in a struct exchanged on move and its plain state in one copied, as `GpuStepper` and `GpuGrid` already did and as the pitfall list wrongly said it did (IMP-007) (2026-09-17).

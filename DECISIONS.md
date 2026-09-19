@@ -544,3 +544,31 @@ The front ends choose the form, since nothing downstream can infer it:
 - Reproducing a published Lenia glider needs its seed pattern as data. A uniform blob is not one: with the orbium numbers (`sigma` 0.015, `dt` 0.1) the growth band is narrower than a single step, so every interior cell moves together and overshoots it, and the blob drains. This is correct behaviour and not a defect; the patterns belong in F-027's library.
 
 **Reversal conditions.** If a rule ever wants unnormalised weights — a kernel meant to amplify rather than average — the normalisation becomes a flag on the `Kernel` and that is an IR change with its own decision. If `dt` turns out to want to vary during a run, it becomes a uniform rather than a literal baked into the expression, and the growth expression stops being self-contained.
+
+---
+
+### D-021 A kernel carries one profile; SmoothLife leaves Phase 5's acceptance
+**Decided:** 2026-09-19
+**Recorded:** 2026-09-19
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, Phase 5 session 2026-09-19)
+**Related:** F-006, D-010, D-020, AV-015, SPEC.md §4, ROADMAP Phase 5
+
+**Context.** Phase 5's acceptance, written 2026-08-30, reads "SmoothLife and a basic Lenia configuration run stably at 512² without state divergence over 10,000 generations". Lenia does: `rules/lenia.lua` holds a 28% field at 512² over 10,000 generations, the two drivers are bitwise identical there over 1000, and the CPU path agrees. SmoothLife does not run at all, and the reason only became visible once the form was built.
+
+`Kernel` carries one profile, so a growth function is a function of one number — the convolution result, which is what `ExprOp::Self` means inside it (D-020, BUG-010). SmoothLife is a function of *two*: an inner disc and an outer annulus, integrated separately, with the thresholds applied to one filling interpolated by the other. The comparison between the two is the mechanism, so they cannot be folded into a single profile — one normalised profile collapses to one scalar. Lenia needed only one because its kernel is a single annulus. The acceptance names them together as though they were two examples of one thing, and they are two shapes of rule.
+
+**Options.**
+- **A. Generalise `Kernel` to a list of profiles.** `profiles` plural, with a `Conv(i)` operator so the growth expression can say which convolution it means. Barely more work than hardcoding two, and it buys the multi-kernel Lenia family as well. Rejected *for Phase 5*, not on merit: it changes the IR schema, the kernel resolution, the compiled rule's buffers, the shader's convolution loop and the set of named growth forms, which is a phase of work sitting behind a phase that is otherwise finished.
+- **B. Hardcode two profiles, inner and outer.** Rejected. Less machinery than A, but "two" is an arbitrary number that would read as arbitrary within a year, and it forecloses the generalisation rather than deferring it.
+- **C. Amend the acceptance and record SmoothLife as a candidate.** Chosen. Phase 5 set out to put float cells, convolution and a growth function through the whole pipeline on both paths, reproducibly. That is done and demonstrated. SmoothLife is a second rule *shape*, not a second example of the shape built.
+
+**Decision.** Option C. Phase 5's acceptance drops SmoothLife and closes on Lenia. SmoothLife joins FEATURES §Candidate features together with the multi-kernel generalisation that would carry it, so the cost is recorded rather than rediscovered. F-006's acceptance loses the parenthesised "(SmoothLife, Lenia)" that made a passing example read as a requirement.
+
+**Consequences.**
+- Phase 5 is complete as of 2026-09-19 and Phase 6 becomes the active phase.
+- `Kernel` keeps one profile. SPEC §4 says so deliberately now rather than by omission, which is what let this go unnoticed from 2026-08-30 until the form was implemented.
+- A second, independent blocker is recorded with the candidate: *smooth* SmoothLife needs `exp` for its sigmoid transition, and `exp` was excluded on 2026-09-16 because GLSL leaves its precision to the driver — which is exactly what AV-015 turned out to depend on. Two kernels would therefore deliver the hard-threshold variant, a legitimate SmoothLife but not the one people post pictures of. Anyone picking this up should know both halves before starting.
+- Nothing in the engine changes. This is a scope decision, and the code it declines to write is described rather than begun.
+
+**Reversal conditions.** Take option A when a rule family other than SmoothLife wants several kernels, or when Phase 7's multi-field grids are being designed — a resource field and a second convolution are neighbouring ideas and would be better decided together than apart. Revisiting for SmoothLife alone would be paying a schema change for one rule.

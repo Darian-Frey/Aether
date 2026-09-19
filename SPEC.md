@@ -107,7 +107,7 @@ RuleIR {
 
 **Expression** is a small tree over: the own-state value, indexed neighbour values, neighbour-state counts, integer and float literals, arithmetic (`+ - * / %`), comparison, boolean connectives, and a conditional. Deliberately restricted: no loops with data-dependent bounds, no function calls, no recursion. Every expression must be translatable to branch-free or statically-bounded GLSL (D-001).
 
-**Kernel** *(Phase 5)* is a convolution kernel — either a radial profile sampled to a matrix, or an explicit matrix — plus a growth function expressed as an `Expression` over the convolution result.
+**Kernel** *(Phase 5)* is a convolution kernel — either a radial profile sampled to a matrix, or an explicit matrix — plus a growth function expressed as an `Expression` over the convolution result. One profile, deliberately (D-021): a growth function is therefore a function of one number. A rule needing two convolutions — SmoothLife compares an inner disc against an outer annulus — is outside this form and is a candidate feature rather than an omission.
 
 What a kernel *means* is fixed by D-020 (2026-09-17) and resolved once at compile time, so both execution paths are handed the same numbers rather than each deriving them (AV-005):
 

@@ -65,7 +65,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 4 — Lua and codegen
 **Goal:** Rules too exotic for the DSL, and the GLSL backend that large rules need.
-**Status:** Not started
+**Status:** Complete 2026-09-15
 **Features delivered:** F-008, F-009, F-010, F-025, F-026
 **Deliverables:**
 - [x] Cell life cycle: `decay N;` as a front-end desugaring, tail palettes and tail-only age shading (F-025, D-014, 2026-09-14). Landed ahead of the rest of the phase because it needs neither Lua nor codegen; its tail length is capped until one of them arrives.
@@ -80,12 +80,11 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] Backend equivalence test: rules expressible both ways compiled through both, compared (AV-007, 2026-09-15)
 - [x] `Expression` interpreter on the CPU path, so the oracle covers every rule the GPU runs (2026-09-15)
 **Acceptance:** A non-totalistic 3D Moore rule that cannot fit a lookup table runs correctly via generated GLSL, and every rule expressible through both backends produces identical output.
-**Status:** Complete 2026-09-15.
 **Acceptance run (2026-09-15, T1200):** a 3D Moore rule reading individual neighbours — 2²⁶ entries per state as a table — runs through codegen and agrees with the CPU oracle bitwise over 1000 generations under all three boundaries; Life compiled as a table and as an expression gives identical grids on both paths. Generating and compiling a rule costs 61 ms cold and under 2 ms warm against a 250 ms budget, and a generated 16-state rule steps 1024² at ~2,900 gen/s.
 
 ## Phase 5 — Continuous states
 **Goal:** Float-state automata sharing the existing pipeline.
-**Status:** In progress
+**Status:** Complete 2026-09-19
 **Features delivered:** F-006
 **Deliverables:**
 - [x] Float texture grid path (2026-09-16): `HostGrid` keeps byte storage with float views over it, the session codec and sidecar work in bytes rather than cells, and `Simulation::create` refuses a grid whose cell type disagrees with its rule's
@@ -95,7 +94,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] The continuous step on the GPU path (2026-09-17): `aether_rule_f` generated from the growth expression, `continuous_step.comp` doing the convolution, and CPU/GPU equivalence bitwise over 1000 generations under every boundary
 - [x] Documented precision expectations across GPU vendors (2026-09-17, AV-015): `precise` float temporaries, no division in generated float code, and the oracle accumulating in `float` rather than `double`. Mesa and the T1200 are bitwise identical at 512² over 1000 generations
 - [x] `f32` cells through the palette (2026-09-17): a float variant of the palette pass, a monotone ramp rather than the hue cycle a state count gets, and `fill`, `paint` and the readouts taught what a float cell is
-**Acceptance:** SmoothLife and a basic Lenia configuration run stably at 512² without state divergence over 10,000 generations. **Half met** as of 2026-09-17 (BUG-011 fixed): `rules/lenia.lua` holds a 28% field at 512² over 10,000 generations on the T1200, the two drivers are bitwise identical there over 1000, and the CPU path agrees — bitwise at 128² over 2500 and by trajectory at 512² over 4600. SmoothLife is the half that is missing, and not for want of running it: it needs an inner disc *and* an outer annulus, where `Kernel` carries one profile. Two kernels per rule is an IR change and wants its own decision.
+**Acceptance:** A basic Lenia configuration runs stably at 512² without state divergence over 10,000 generations. **Met** 2026-09-19: `rules/lenia.lua` holds a 28% field at 512² over 10,000 generations on the T1200, the two drivers are bitwise identical there over 1000, and the CPU path agrees — bitwise at 128² over 2500 and by trajectory at 512² over 4600. SmoothLife was dropped from this acceptance by D-021: it is a function of two convolutions where a `Kernel` carries one profile, which makes it a second shape of rule rather than a second example of this one. It is a candidate, with its cost recorded.
 
 ## Phase 6 — Presentation and release
 **Goal:** The things that make it pleasant rather than merely correct.
