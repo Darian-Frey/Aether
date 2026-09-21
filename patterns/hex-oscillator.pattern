@@ -1,0 +1,20 @@
+{
+ "format": "aether-pattern",
+ "version": 1,
+ "extent": {
+  "dimensions": 2,
+  "w": 5,
+  "h": 5,
+  "d": 1
+ },
+ "lattice": "hexagonal",
+ "cell_type": "u8",
+ "states": 2,
+ "cells": {
+  "encoding": "bytes",
+  "data": "AAAAAQAAAQAAAQAAAAAAAQAAAQAAAQAAAA=="
+ },
+ "name": "Hex period-3 oscillator",
+ "rule": "Hex Life",
+ "comment": "Six cells on a hexagonal lattice returning to themselves every three generations. Native rather than RLE because RLE has no way to say which lattice it is drawn on, and the same cells on a square one are a different shape. Constructed for this library, found by searching random soups."
+}

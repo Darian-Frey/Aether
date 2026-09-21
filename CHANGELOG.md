@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Four more bundled patterns, completing F-027: a Brian's Brain glider, a cyclic spiral seed, a hex period-3 oscillator and a stable twelve-cell shell for 3D Life 4555. All four were found or built and then verified by running them; the hex one lives in the native format because RLE cannot say which lattice it is drawn on (2026-09-21).
 - A bundled pattern library (F-027): `sim/pattern_library` reads `patterns/` as `rule/library` reads `rules/`, the Patterns panel lists what it finds, and a click makes a pattern pending. Four bundled to start — glider, lightweight spaceship, Gosper glider gun and a Wireworld loop — each verified by running it rather than by recognising it, and each saying in its header whether it is transcribed or constructed (2026-09-21).
 - Region selection and export (F-012, complete): shift-drag the grid to select, and the Patterns panel writes the selection out. `sim::pathFor` decides the path — a bare name into `patterns/`, a separator meaning the path is already given, and the extension following the format rather than the name (2026-09-21).
 - A Patterns panel (F-012): opens a `.rle` or `.pattern` by path, holds it pending, and places it where it is clicked. The pending pattern follows the cursor as a preview drawn into ImGui's background list rather than written to the grid, outlined in red where it would not fit; Esc cancels. `--pattern FILE` opens one at start-up (2026-09-21).

@@ -1,0 +1,20 @@
+{
+ "cell_type": "u8",
+ "cells": {
+  "data": "AAEAAQABAAEAAQABAAAAAQABAAEAAQABAAEA",
+  "encoding": "bytes"
+ },
+ "comment": "Twelve cells in a stable shell: every face of a 3x3x3 cube carries a ring of four, and the whole thing holds its shape for ever. Bays chose his rules for admitting stable structures, and this is one. Constructed for this library, found by searching random soups.",
+ "extent": {
+  "d": 3,
+  "dimensions": 3,
+  "h": 3,
+  "w": 3
+ },
+ "format": "aether-pattern",
+ "lattice": "square",
+ "name": "Bays shell",
+ "rule": "3D Life 4555 (Bays)",
+ "states": 2,
+ "version": 1
+}

@@ -1,0 +1,8 @@
+#N Brian's Brain glider
+#C Four cells that travel one cell per generation, for ever: the firing pair
+#C leads and the refractory pair trails. Brian's Brain has no still lifes at
+#C all, so everything in it is either moving or dying.
+#C Constructed for this library, found by searching random soups. Twenty
+#C thousand of them turned up no oscillator, which is why this is a glider.
+x = 2, y = 2, rule = B2/S/C3
+2B$2A!

@@ -1,0 +1,8 @@
+#N Cyclic spiral seed
+#C Eight states laid in a ring around one cell, which is the smallest thing
+#C that nucleates a spiral: each state is adjacent to the one that eats it,
+#C so the cycle turns rather than settling. Seven cells fill a 64-square grid
+#C with spiral arms inside forty generations.
+#C Constructed for this library by putting the states in angular order.
+x = 3, y = 3, rule = Cyclic CA (8 states)
+.AB$G.C$FED!

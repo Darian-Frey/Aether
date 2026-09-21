@@ -2,6 +2,7 @@
 // test: every file in `patterns/` must parse, and must fit the rule it names.
 
 #include "rule/library.hpp"
+#include "rule/lua.hpp"
 #include <cstdlib>
 #include <optional>
 #include "rule/dsl.hpp"
@@ -70,13 +71,25 @@ TEST_CASE("every bundled pattern fits the rule it names", "[pattern][library]") 
         // The name in the header is either a rule in the library or a
         // notation the DSL understands; either way it has to exist, or the
         // pattern is for a rule nobody can load.
+        // Compiled the way the interface compiles a library rule: Lua through
+        // the Lua front end, and the header's dimensions handed to the DSL,
+        // which reads that line as a comment and would otherwise call a 3D
+        // rule two-dimensional.
         std::optional<rule::RuleIR> ir;
         for (const rule::LibraryRule& r : rules) {
-            if (r.name == *p.pattern.rule || r.id == *p.pattern.rule) {
-                auto parsed = rule::parseDsl(r.source.c_str());
+            if (r.name != *p.pattern.rule && r.id != *p.pattern.rule) continue;
+            if (r.isLua) {
+                rule::LuaContext lctx;
+                lctx.dimensions = r.dimensions;
+                auto made = rule::compileLua(r.source, lctx);
+                if (const auto* ir2 = std::get_if<rule::RuleIR>(&made)) ir = *ir2;
+            } else {
+                rule::DslContext ctx;
+                ctx.dimensions = r.dimensions;
+                auto parsed = rule::parseDsl(r.source.c_str(), ctx);
                 if (parsed) ir = *parsed.ir;
-                break;
             }
+            break;
         }
         if (!ir) {
             auto parsed = rule::parseDsl(p.pattern.rule->c_str());
