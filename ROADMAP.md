@@ -103,7 +103,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 **Deliverables:**
 - [ ] Screensaver mode: fullscreen playlist of bundled rules with optional mutation, exits on input (F-024, added 2026-09-12)
 - [ ] 1D elementary automata with space-time rendering
-- [~] Pattern import and export (F-012, widened 2026-09-15 by D-017). Formats and placement done 2026-09-19: `sim/pattern` reads and writes Golly's extended RLE and the native `.pattern` (SPEC §14), and `Simulation::placePattern`/`extractPattern` put one into a running grid and take a region back out, journalled as a `place` event so a session replays the paste. What remains is the interface: opening a file, positioning by cursor, and writing a selection out
+- [~] Pattern import and export (F-012, widened 2026-09-15 by D-017). Formats, placement and the placing interface done 2026-09-19/21: `sim/pattern` and SPEC §14 carry both formats, `Simulation::placePattern`/`extractPattern` move a pattern in and a region out as a journalled `place` event, and a Patterns panel opens a file and places it by cursor with a preview drawn rather than written. What remains is the other direction: selecting a region and writing it out
 - [ ] Bundled pattern library in `patterns/`, listed and placeable the way the rule library is (F-027, added 2026-09-15)
 - [ ] Region seeding: seed a dragged rectangle at the fill densities (F-028, added 2026-09-15), and lift the whole-grid Seed control out from under the density sliders (IMP-004)
 - [ ] Pattern editor: a host-side scratch pad painted a cell at a time, stepping forward and back independently of the live run, saving to `patterns/` (F-029, added 2026-09-15 by D-018)

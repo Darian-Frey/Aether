@@ -15,6 +15,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <format>
 
 namespace aether::ui {
@@ -83,6 +85,19 @@ int App::run() {
         const char* env = std::getenv("AETHER_RULES");
         library_ = rule::loadLibrary({env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"});
         if (!library_.empty()) log_.info(std::format("{} rules in the library", library_.size()));
+        if (exitCode == 0 && !opts_.pattern.empty()) {
+            std::strncpy(patternPath_.data(), opts_.pattern.c_str(), patternPath_.size() - 1);
+            std::ifstream in(opts_.pattern, std::ios::binary);
+            if (!in) {
+                log_.error(std::format("cannot read {}", opts_.pattern));
+            } else {
+                std::stringstream ss;
+                ss << in.rdbuf();
+                auto parsed = sim::parsePattern(ss.str());
+                if (const auto* e = std::get_if<sim::PatternError>(&parsed)) log_.error("pattern: " + e->message);
+                else pending_.emplace(std::get<sim::Pattern>(std::move(parsed)));
+            }
+        }
         if (exitCode == 0 && !opts_.load.empty()) {
             loadSessionFrom(opts_.load);
             if (!sim_) exitCode = 1;
@@ -156,6 +171,7 @@ int App::run() {
                                 GetRenderWidth(), GetRenderHeight(), ramp);
             }
             rlImGuiBegin();
+            drawPatternPreview();   // background draw list: behind the panels, over the grid
             drawPanels();
             rlImGuiEnd();
 

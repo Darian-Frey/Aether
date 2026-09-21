@@ -1,6 +1,7 @@
 // Aether entry point.
 //
-//   aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--load FILE] [--gl-check]
+//   aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--load FILE]
+//          [--pattern FILE] [--gl-check]
 //   aether headless ... --generations G --save FILE
 //   aether replay IN OUT [--to G] [--cpu]
 //   aether compare A B
@@ -52,6 +53,7 @@ void usage() {
               "  --cell-mutation P[:K]  mutation probability, optionally in blocks of 2^K cells\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --load FILE  resume a saved session\n"
+              "  --pattern F  open a pattern file, ready to place\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
               "  --screenshot F  write the final frame to F before exiting");
 }
@@ -126,6 +128,7 @@ int main(int argc, char** argv) {
         else if (a == "--generations") generations = std::strtoull(value("--generations"), nullptr, 10);
         else if (a == "--save") savePath = value("--save");
         else if (a == "--load") loadPath = value("--load");
+        else if (a == "--pattern") opts.pattern = value("--pattern");
         else if (a == "--frames") opts.exitAfterFrames = std::atoi(value("--frames"));
         else if (a == "--screenshot") opts.screenshot = value("--screenshot");
         else { std::printf("unknown option %s\n", argv[i]); usage(); return 2; }

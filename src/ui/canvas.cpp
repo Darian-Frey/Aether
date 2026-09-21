@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <tuple>
 
 namespace aether::ui {
@@ -60,7 +61,13 @@ void App::updateCanvas(double /*dt*/) {
             if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
             if (IsKeyPressed(KEY_C)) sim_->clear();
             if (IsKeyPressed(KEY_S)) sliceMode_ = !sliceMode_;
-            if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
+            // Above the mouse-capture return below, so a pattern can be cancelled
+        // with the cursor anywhere, including over the panel that opened it.
+        if (pending_ && IsKeyPressed(KEY_ESCAPE)) {
+            pending_.reset();
+            log_.info("pattern cancelled");
+        }
+        if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
             if (IsKeyPressed(KEY_RIGHT_BRACKET)) brush_.radius = std::min(64, brush_.radius + 1);
             const int ext = static_cast<int>(sliceAxis_ == 0 ? sim_->spec().width : sliceAxis_ == 1 ? sim_->spec().height : sim_->spec().depth);
             if (IsKeyPressed(KEY_COMMA))  sliceIndex_ = std::max(0, sliceIndex_ - 1);
@@ -122,6 +129,28 @@ void App::updateCanvas(double /*dt*/) {
         panning_ = true;
     } else {
         panning_ = false;
+    }
+
+    // --- A pending pattern takes the left button -----------------------------
+    // Placing and painting cannot share it: a click meant to put a pattern
+    // down would otherwise also daub the brush under it.
+    if (pending_) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && overViewport) {
+            if (const auto origin = pendingOrigin()) {
+                const auto [ox, oy] = *origin;
+                if (ox < 0 || oy < 0) {
+                    log_.error("the pattern would hang over the edge of the grid");
+                } else if (auto e = sim_->placePattern(*pending_, static_cast<uint32_t>(ox),
+                                                       static_cast<uint32_t>(oy), 0)) {
+                    log_.error(e->message);
+                } else {
+                    log_.info(std::format("placed {} at ({}, {})",
+                                          pending_->name.value_or("pattern"), ox, oy));
+                    pending_.reset();
+                }
+            }
+        }
+        return;
     }
 
     // --- Paint with the left button -----------------------------------------

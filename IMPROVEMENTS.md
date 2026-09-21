@@ -33,6 +33,16 @@ Entries are kept in ID order within each section. Entry format:
 **Trade-offs.** The densities become one click further away, and the relationship between the sliders and what Seed does gets less obvious when they are not adjacent — the button would want a tooltip naming the densities it is about to use. Moving a control the author has learned the position of is a cost paid once.
 **Notes.** Raised alongside F-028, which adds seeding of a dragged region; if both land, the action row carries two seed gestures and is worth laying out once rather than twice. Doing this before F-028 is fine and doing it after avoids moving the same widgets twice.
 
+### IMP-008: the pattern preview is ImGui rectangles, so a large pattern shows only its outline
+**Status:** suggested
+**Found:** 2026-09-21 (F-012, building the placement interface)
+**Location:** `src/ui/panels.cpp` (`App::drawPatternPreview`)
+**Effort:** medium
+**Description.** The pending pattern is previewed by drawing one filled rectangle per live cell into ImGui's background draw list. It costs nothing to build, needs no GL work and no change to `Renderer2D`, and it keeps the preview plainly outside the simulation, which is what invariant 6 wants. It does not scale: a rectangle per cell is fine for a glider and unreasonable for a 500-square pattern, so above 4096 cells the fill is skipped and only the footprint is outlined. A large pattern therefore shows where it will go but not what it is. The preview is also drawn in one colour rather than through the palette, so a multi-state pattern does not look like what it will become.
+**Proposal.** Upload the pending pattern to a small texture and draw it with the palette pass already used for the grid, positioned by adjusting the shader's `origin` and drawing a quad over the pattern's screen rectangle. The same shader, the same palette, the same view transform, at the cost of one more texture and a second draw call.
+**Trade-offs.** `Renderer2D` gains an overlay entry point and a texture that has to be reuploaded whenever the pending pattern changes, which is a GL handle in a class that has only just been given the move protection that makes such handles safe (IMP-007). Against that, the current version is honest about its limits and a preview is not correctness-critical: placing is exact whatever the preview shows, since both come from `pendingOrigin()`.
+**Notes.** The 4096-cell cap is a guess rather than a measurement. Worth doing with F-027, when the bundled library starts handing people patterns larger than a glider.
+
 ## Applied
 
 ### IMP-001: Outer-totalistic tables are oversized for rules that count a single state

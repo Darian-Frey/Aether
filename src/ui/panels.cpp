@@ -6,6 +6,9 @@
 #include "sim/fill.hpp"
 #include "sim/session.hpp"
 
+#include <fstream>
+#include <sstream>
+#include "sim/pattern.hpp"
 #include <imgui.h>
 #include <raylib.h>
 
@@ -113,6 +116,7 @@ void App::drawPanels() {
     // first two so that the column fits on one screen.
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (!library_.empty() && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) drawLibraryPanel();
+    if (!is3D() && ImGui::CollapsingHeader("Patterns", pending_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawPatternsPanel();
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
     if (ImGui::CollapsingHeader("Brush")) drawBrushPanel();
@@ -182,6 +186,8 @@ void App::drawHelpPanel() {
         {"[ / ]", "brush radius"},
         {"Ctrl+Enter", "compile the rule"},
         {"Left drag", "paint"},
+        {"Left click", "place a pending pattern"},
+        {"Esc", "cancel a pending pattern"},
         {"Right drag", "pan (2D) or orbit (3D)"},
         {"Wheel", "zoom"},
         {"S", "3D: slice mode"},
@@ -556,6 +562,110 @@ void App::drawLogPanel() {
     for (const auto& line : log_.lines()) ImGui::TextUnformatted(line.c_str());
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f) ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
+    ImGui::PopID();
+}
+
+
+// Where a pending pattern would land: centred on the cursor, in cells. Empty
+// when the cursor is outside the viewport or there is nothing pending.
+std::optional<std::pair<int, int>> App::pendingOrigin() const {
+    if (!pending_ || !sim_ || is3D()) return std::nullopt;
+    const Vector2 m = GetMousePosition();
+    if (m.x < viewport_.x || m.y < viewport_.y ||
+        m.x >= viewport_.x + viewport_.w || m.y >= viewport_.y + viewport_.h) {
+        return std::nullopt;
+    }
+    const auto [u, v] = view_.screenToCell(m.x, m.y, viewport_);
+    int cx, cy;
+    if (view_.lattice == render::Lattice::Hex) {
+        const auto [q, r] = view_.fromCellSpace(u - 0.5, v - 0.5);
+        std::tie(cx, cy) = render::View2D::hexRound(q, r);
+    } else {
+        cx = static_cast<int>(std::floor(u));
+        cy = static_cast<int>(std::floor(v));
+    }
+    // Centred on the cursor: a pattern is easier to place by its middle than
+    // by a corner nobody can see.
+    return std::pair{cx - static_cast<int>(pending_->width) / 2,
+                     cy - static_cast<int>(pending_->height) / 2};
+}
+
+// Drawn, never written: the grid is untouched until the click (invariant 6).
+// Cells are filled while there are few enough of them to be worth it, and the
+// footprint is outlined either way so a large pattern still shows where it
+// goes.
+void App::drawPatternPreview() {
+    const auto origin = pendingOrigin();
+    if (!origin || !sim_) return;
+    const auto& spec = sim_->spec();
+    const auto [ox, oy] = *origin;
+    const bool fits = ox >= 0 && oy >= 0 &&
+                      ox + static_cast<int>(pending_->width) <= static_cast<int>(spec.width) &&
+                      oy + static_cast<int>(pending_->height) <= static_cast<int>(spec.height);
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(viewport_.x, viewport_.y),
+                     ImVec2(viewport_.x + viewport_.w, viewport_.y + viewport_.h), true);
+
+    const ImU32 edge = fits ? IM_COL32(150, 200, 255, 220) : IM_COL32(235, 120, 90, 230);
+    const ImU32 fill = fits ? IM_COL32(150, 200, 255, 110) : IM_COL32(235, 120, 90, 110);
+
+    constexpr uint64_t kMaxPreviewCells = 4096;
+    if (pending_->cellCount() <= kMaxPreviewCells && pending_->cell_type == core::CellType::U8) {
+        const float side = std::max(1.0f, static_cast<float>(view_.zoom));
+        for (uint32_t py = 0; py < pending_->height; ++py) {
+            for (uint32_t px = 0; px < pending_->width; ++px) {
+                if (pending_->cells[size_t{py} * pending_->width + px] == 0) continue;
+                const auto [sx, sy] = view_.cellToScreen(ox + static_cast<double>(px),
+                                                         oy + static_cast<double>(py), viewport_);
+                dl->AddRectFilled(ImVec2(static_cast<float>(sx), static_cast<float>(sy)),
+                                  ImVec2(static_cast<float>(sx) + side, static_cast<float>(sy) + side), fill);
+            }
+        }
+    }
+    const auto [x0, y0] = view_.cellToScreen(ox, oy, viewport_);
+    const auto [x1, y1] = view_.cellToScreen(ox + static_cast<double>(pending_->width),
+                                             oy + static_cast<double>(pending_->height), viewport_);
+    dl->AddRect(ImVec2(static_cast<float>(x0), static_cast<float>(y0)),
+                ImVec2(static_cast<float>(x1), static_cast<float>(y1)), edge, 0.0f, 0, 1.5f);
+    dl->PopClipRect();
+}
+
+void App::drawPatternsPanel() {
+    ImGui::PushID("patterns");
+    ImGui::SetNextItemWidth(-90);
+    ImGui::InputTextWithHint("##path", "path to a .rle or .pattern", patternPath_.data(), patternPath_.size());
+    ImGui::SameLine();
+    if (ImGui::Button("Open") && patternPath_[0] != '\0') {
+        std::ifstream in(patternPath_.data(), std::ios::binary);
+        if (!in) {
+            log_.error(std::format("cannot read {}", patternPath_.data()));
+        } else {
+            std::stringstream ss;
+            ss << in.rdbuf();
+            auto parsed = sim::parsePattern(ss.str());
+            if (const auto* e = std::get_if<sim::PatternError>(&parsed)) {
+                log_.error(std::format("pattern: {}", e->message));
+            } else {
+                pending_.emplace(std::get<sim::Pattern>(std::move(parsed)));
+                log_.info(std::format("{} loaded — click the grid to place it",
+                                      pending_->name.value_or(std::string(patternPath_.data()))));
+            }
+        }
+    }
+
+    if (!pending_) {
+        ImGui::TextDisabled("nothing pending");
+        ImGui::PopID();
+        return;
+    }
+    ImGui::Text("%s", pending_->name.value_or("(unnamed)").c_str());
+    ImGui::TextDisabled("%ux%u · %s · %u states%s%s", pending_->width, pending_->height,
+                        std::string(sim::toString(pending_->lattice)).c_str(), pending_->states,
+                        pending_->rule ? " · rule " : "", pending_->rule ? pending_->rule->c_str() : "");
+    if (is3D()) ImGui::TextDisabled("placing is 2D for now");
+    else        ImGui::TextDisabled("click the grid to place, Esc to cancel");
+    if (ImGui::Button("Cancel")) pending_.reset();
     ImGui::PopID();
 }
 

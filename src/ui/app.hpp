@@ -14,6 +14,7 @@
 #include "rule/dsl.hpp"
 #include "rule/library.hpp"
 #include "rule/lua.hpp"
+#include "sim/pattern.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
 
@@ -44,6 +45,7 @@ struct Options {
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
     std::string screenshot;            // if set, written just before exiting
     std::string load;                  // session to resume instead of starting fresh
+    std::string pattern;               // a pattern file to open, pending placement
 };
 
 class App {
@@ -67,6 +69,9 @@ private:
     void drawHelpPanel();
     void refreshWindowTitle();
     void drawLibraryPanel();
+    void drawPatternsPanel();
+    void drawPatternPreview();        // the pending pattern under the cursor, drawn not written
+    std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
     void loadLibraryRule(const rule::LibraryRule& entry);
     void applyPaletteOverrides(const rule::RuleIR& ir);
     void saveSessionTo(const std::string& path);
@@ -135,6 +140,11 @@ private:
     std::array<char, 64> pinName_{};
     std::array<char, 512> sessionPath_{};
     std::array<char, 64>  saveRuleId_{};
+    // A pattern that has been loaded but not yet committed: it follows the
+    // cursor and is drawn rather than written, so the grid is untouched until
+    // the click (F-012).
+    std::optional<sim::Pattern> pending_;
+    std::array<char, 512> patternPath_{};
     std::vector<rule::LibraryRule> library_;
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;
