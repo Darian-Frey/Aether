@@ -71,6 +71,9 @@ private:
     void drawLibraryPanel();
     void drawPatternsPanel();
     void drawPatternPreview();        // the pending pattern under the cursor, drawn not written
+    void drawSelection();             // the selected region, outlined not written
+    void savePatternSelection();      // the selected region, out to a file
+    std::optional<std::pair<int, int>> cellUnderCursor() const;
     std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
     void loadLibraryRule(const rule::LibraryRule& entry);
     void applyPaletteOverrides(const rule::RuleIR& ir);
@@ -145,6 +148,12 @@ private:
     // the click (F-012).
     std::optional<sim::Pattern> pending_;
     std::array<char, 512> patternPath_{};
+    // A region of the grid, in cells, inclusive of both corners. Shift-drag
+    // sets it; it is drawn like the preview and never written to.
+    struct Selection { uint32_t x0, y0, x1, y1; };
+    std::optional<Selection> selection_;
+    std::optional<std::pair<int, int>> selectAnchor_;   // while the drag is live
+    std::array<char, 128> savePatternAs_{};
     std::vector<rule::LibraryRule> library_;
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;

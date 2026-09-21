@@ -4,6 +4,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -161,6 +164,21 @@ TEST_CASE("the format follows the pattern, not the caller", "[pattern]") {
     CHECK(std::get<sim::PatternError>(refused).message.find("hexagonal") != std::string::npos);
 }
 
+TEST_CASE("a pattern's path follows its name and its format", "[pattern]") {
+    // A bare name goes where the library looks; the extension comes from the
+    // format, which came from the pattern.
+    CHECK(sim::pathFor("glider", Format::Rle) == "patterns/glider.rle");
+    CHECK(sim::pathFor("spiral", Format::Native) == "patterns/spiral.pattern");
+    CHECK(sim::pathFor("glider.rle", Format::Rle) == "patterns/glider.rle");      // not doubled
+    CHECK(sim::pathFor("/tmp/thing", Format::Rle) == "/tmp/thing.rle");           // a path is a path
+    CHECK(sim::pathFor("sub/dir/x.pattern", Format::Native) == "sub/dir/x.pattern");
+    CHECK(sim::pathFor("", Format::Rle) == "patterns/pattern.rle");               // something rather than nothing
+    CHECK(sim::pathFor("x", Format::Rle, "") == "x.rle");
+    // A name ending in the *other* format's extension still gains its own:
+    // the format decides, and a .rle holding native JSON would be a lie.
+    CHECK(sim::pathFor("thing.rle", Format::Native) == "patterns/thing.rle.pattern");
+}
+
 TEST_CASE("a malformed pattern is refused rather than half-read", "[pattern]") {
     CHECK(errorOf("bob$2bo$3o!").find("no 'x = ") != std::string::npos);        // no header
     CHECK(errorOf("x = 3, y = 3\nbob$2bo$3oZ!").find("unexpected character") != std::string::npos);
@@ -312,4 +330,46 @@ TEST_CASE("a region of the grid comes back out as a pattern", "[gpu][pattern]") 
 
     CHECK(std::holds_alternative<core::Error>(s.extractPattern(14, 14, 0, 8, 8, 1)));
     CHECK(std::holds_alternative<core::Error>(s.extractPattern(0, 0, 0, 0, 1, 1)));
+}
+
+TEST_CASE("a region goes out to a file and comes back the same", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    // The composition the Patterns panel performs: extract, choose the format
+    // from the pattern, write it where pathFor says, read it back, place it.
+    // The pieces are each tested above; this is the chain they make.
+    sim::Simulation s = freshGrid();
+    REQUIRE_FALSE(s.placePattern(glider(), 4, 4, 0).has_value());
+
+    auto got = s.extractPattern(4, 4, 0, 3, 3, 1);
+    REQUIRE(std::holds_alternative<Pattern>(got));
+    Pattern p = std::get<Pattern>(std::move(got));
+    p.name = "test glider";
+
+    const sim::Format f = sim::formatFor(p);
+    const std::string path = sim::pathFor("aether_test_glider", f, std::filesystem::temp_directory_path().string());
+    auto text = sim::writePattern(p, f);
+    REQUIRE(std::holds_alternative<std::string>(text));
+    {
+        std::ofstream out(path, std::ios::binary);
+        REQUIRE(out.good());
+        out << std::get<std::string>(text);
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::stringstream ss;
+    ss << in.rdbuf();
+    in.close();
+    const Pattern back = ok(ss.str());
+    CHECK(back.cells == p.cells);
+    CHECK(back.name == "test glider");
+    CHECK(back.rule == "B3/S23");
+
+    sim::Simulation other = freshGrid();
+    REQUIRE_FALSE(other.placePattern(back, 4, 4, 0).has_value());
+    CHECK(std::vector<uint8_t>(other.host().current().begin(), other.host().current().end()) ==
+          std::vector<uint8_t>(s.host().current().begin(), s.host().current().end()));
+    std::filesystem::remove(path);
 }

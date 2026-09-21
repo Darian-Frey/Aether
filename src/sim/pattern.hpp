@@ -92,4 +92,10 @@ std::variant<std::string, PatternError> writePattern(const Pattern&, Format);
 // The file extension a format uses, without the dot.
 std::string_view extensionFor(Format);
 
+// Where a pattern called `name` belongs. A bare name goes into `dir`, which is
+// where the library looks; anything carrying a separator is taken as the path
+// it already is. The extension follows the format rather than the name, since
+// the format followed the pattern.
+std::string pathFor(std::string_view name, Format, std::string_view dir = "patterns");
+
 }  // namespace aether::sim

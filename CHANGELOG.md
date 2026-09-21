@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- Region selection and export (F-012, complete): shift-drag the grid to select, and the Patterns panel writes the selection out. `sim::pathFor` decides the path — a bare name into `patterns/`, a separator meaning the path is already given, and the extension following the format rather than the name (2026-09-21).
 - A Patterns panel (F-012): opens a `.rle` or `.pattern` by path, holds it pending, and places it where it is clicked. The pending pattern follows the cursor as a preview drawn into ImGui's background list rather than written to the grid, outlined in red where it would not fit; Esc cancels. `--pattern FILE` opens one at start-up (2026-09-21).
 - Pattern placement (F-012): `Simulation::placePattern` writes a pattern into a running grid on both copies and journals it as a `place` event, and `extractPattern` takes a region back out as a pattern. The event carries the pattern rather than a path, so a paste replays exactly (SPEC §11, §14) (2026-09-19).
 - Pattern formats (Phase 6, F-012, D-017, SPEC §14): `sim/pattern` reads and writes Golly's extended RLE and a native `.pattern` JSON, the latter carrying hexagonal lattices, 3D extents, any state count and `f32` cells through the session codec. Which format a pattern takes follows the pattern rather than the caller, and reading sniffs the content rather than the extension (2026-09-19).

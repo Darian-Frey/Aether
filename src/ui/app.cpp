@@ -172,6 +172,7 @@ int App::run() {
             }
             rlImGuiBegin();
             drawPatternPreview();   // background draw list: behind the panels, over the grid
+            drawSelection();
             drawPanels();
             rlImGuiEnd();
 

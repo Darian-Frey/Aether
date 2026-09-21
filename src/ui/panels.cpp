@@ -186,6 +186,7 @@ void App::drawHelpPanel() {
         {"[ / ]", "brush radius"},
         {"Ctrl+Enter", "compile the rule"},
         {"Left drag", "paint"},
+        {"Shift+drag", "select a region"},
         {"Left click", "place a pending pattern"},
         {"Esc", "cancel a pending pattern"},
         {"Right drag", "pan (2D) or orbit (3D)"},
@@ -569,25 +570,13 @@ void App::drawLogPanel() {
 // Where a pending pattern would land: centred on the cursor, in cells. Empty
 // when the cursor is outside the viewport or there is nothing pending.
 std::optional<std::pair<int, int>> App::pendingOrigin() const {
-    if (!pending_ || !sim_ || is3D()) return std::nullopt;
-    const Vector2 m = GetMousePosition();
-    if (m.x < viewport_.x || m.y < viewport_.y ||
-        m.x >= viewport_.x + viewport_.w || m.y >= viewport_.y + viewport_.h) {
-        return std::nullopt;
-    }
-    const auto [u, v] = view_.screenToCell(m.x, m.y, viewport_);
-    int cx, cy;
-    if (view_.lattice == render::Lattice::Hex) {
-        const auto [q, r] = view_.fromCellSpace(u - 0.5, v - 0.5);
-        std::tie(cx, cy) = render::View2D::hexRound(q, r);
-    } else {
-        cx = static_cast<int>(std::floor(u));
-        cy = static_cast<int>(std::floor(v));
-    }
+    if (!pending_) return std::nullopt;
+    const auto cell = cellUnderCursor();
+    if (!cell) return std::nullopt;
     // Centred on the cursor: a pattern is easier to place by its middle than
     // by a corner nobody can see.
-    return std::pair{cx - static_cast<int>(pending_->width) / 2,
-                     cy - static_cast<int>(pending_->height) / 2};
+    return std::pair{cell->first - static_cast<int>(pending_->width) / 2,
+                     cell->second - static_cast<int>(pending_->height) / 2};
 }
 
 // Drawn, never written: the grid is untouched until the click (invariant 6).
@@ -631,6 +620,51 @@ void App::drawPatternPreview() {
     dl->PopClipRect();
 }
 
+// The selected region, drawn the same way and for the same reason.
+void App::drawSelection() {
+    if (!selection_ || !sim_ || is3D()) return;
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(viewport_.x, viewport_.y),
+                     ImVec2(viewport_.x + viewport_.w, viewport_.y + viewport_.h), true);
+    const auto [x0, y0] = view_.cellToScreen(selection_->x0, selection_->y0, viewport_);
+    const auto [x1, y1] = view_.cellToScreen(selection_->x1 + 1.0, selection_->y1 + 1.0, viewport_);
+    const ImVec2 a(static_cast<float>(x0), static_cast<float>(y0));
+    const ImVec2 b(static_cast<float>(x1), static_cast<float>(y1));
+    dl->AddRectFilled(a, b, IM_COL32(255, 210, 120, 40));
+    dl->AddRect(a, b, IM_COL32(255, 210, 120, 220), 0.0f, 0, 1.5f);
+    dl->PopClipRect();
+}
+
+void App::savePatternSelection() {
+    if (!sim_ || !selection_) return;
+    const auto& sel = *selection_;
+    auto got = sim_->extractPattern(sel.x0, sel.y0, 0, sel.x1 - sel.x0 + 1, sel.y1 - sel.y0 + 1, 1);
+    if (const auto* e = std::get_if<core::Error>(&got)) {
+        log_.error(e->message);
+        return;
+    }
+    sim::Pattern p = std::get<sim::Pattern>(std::move(got));
+    if (savePatternAs_[0] != '\0') p.name = savePatternAs_.data();
+
+    const sim::Format f = sim::formatFor(p);
+    auto text = sim::writePattern(p, f);
+    if (const auto* e = std::get_if<sim::PatternError>(&text)) {
+        log_.error(e->message);
+        return;
+    }
+
+    const std::string path = sim::pathFor(savePatternAs_[0] != '\0' ? savePatternAs_.data() : "selection", f);
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        log_.error(std::format("cannot write {}", path));
+        return;
+    }
+    out << std::get<std::string>(text);
+    log_.info(std::format("wrote {} ({}x{}, {})", path, p.width, p.height,
+                          f == sim::Format::Rle ? "extended RLE" : "native"));
+}
+
 void App::drawPatternsPanel() {
     ImGui::PushID("patterns");
     ImGui::SetNextItemWidth(-90);
@@ -653,6 +687,21 @@ void App::drawPatternsPanel() {
             }
         }
     }
+
+    ImGui::Separator();
+    if (selection_) {
+        const auto& sel = *selection_;
+        ImGui::Text("selection %ux%u at (%u, %u)", sel.x1 - sel.x0 + 1, sel.y1 - sel.y0 + 1, sel.x0, sel.y0);
+        ImGui::SetNextItemWidth(-120);
+        ImGui::InputTextWithHint("##saveas", "name to save as", savePatternAs_.data(), savePatternAs_.size());
+        ImGui::SameLine();
+        if (ImGui::Button("Save region")) savePatternSelection();
+        ImGui::SameLine();
+        if (ImGui::Button("Clear")) selection_.reset();
+    } else {
+        ImGui::TextDisabled("shift-drag the grid to select a region to save");
+    }
+    ImGui::Separator();
 
     if (!pending_) {
         ImGui::TextDisabled("nothing pending");

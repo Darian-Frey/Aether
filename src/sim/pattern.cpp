@@ -70,6 +70,14 @@ std::string_view extensionFor(Format f) {
     return f == Format::Rle ? "rle" : "pattern";
 }
 
+std::string pathFor(std::string_view name, Format f, std::string_view dir) {
+    std::string out = name.empty() ? std::string("pattern") : std::string(name);
+    if (out.find('/') == std::string::npos && !dir.empty()) out = std::string(dir) + "/" + out;
+    const std::string ext = "." + std::string(extensionFor(f));
+    if (!out.ends_with(ext)) out += ext;
+    return out;
+}
+
 // --- Extended RLE ------------------------------------------------------------------
 //
 // State 0 is `.` (or `b`), states 1..24 are `A`..`X`, and above that a prefix

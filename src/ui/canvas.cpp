@@ -44,6 +44,25 @@ void App::paintAt3D(const std::array<int, 3>& cell) {
     }
 }
 
+// The cell the cursor is over, unclipped, or nothing when it is not over the
+// viewport. Shared by selection and by the pattern preview, so the two cannot
+// disagree about where the mouse is.
+std::optional<std::pair<int, int>> App::cellUnderCursor() const {
+    if (!sim_ || is3D()) return std::nullopt;
+    const Vector2 m = GetMousePosition();
+    if (m.x < viewport_.x || m.y < viewport_.y ||
+        m.x >= viewport_.x + viewport_.w || m.y >= viewport_.y + viewport_.h) {
+        return std::nullopt;
+    }
+    const auto [u, v] = view_.screenToCell(m.x, m.y, viewport_);
+    if (view_.lattice == render::Lattice::Hex) {
+        const auto [q, r] = view_.fromCellSpace(u - 0.5, v - 0.5);
+        const auto [hx, hy] = render::View2D::hexRound(q, r);
+        return std::pair{hx, hy};
+    }
+    return std::pair{static_cast<int>(std::floor(u)), static_cast<int>(std::floor(v))};
+}
+
 void App::updateCanvas(double /*dt*/) {
     if (!sim_) return;
     const ImGuiIO& io = ImGui::GetIO();
@@ -129,6 +148,34 @@ void App::updateCanvas(double /*dt*/) {
         panning_ = true;
     } else {
         panning_ = false;
+    }
+
+    // --- Shift-drag selects a region ----------------------------------------
+    // Before the pending-pattern branch, so a selection can be made while one
+    // is loaded; a modifier rather than a mode, so there is nothing to leave
+    // switched on by accident.
+    if (!is3D()) {
+        const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+        if (shift && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && overViewport) {
+            selectAnchor_ = cellUnderCursor();
+            selection_.reset();
+        }
+        if (selectAnchor_ && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            if (const auto now = cellUnderCursor()) {
+                const auto [ax, ay] = *selectAnchor_;
+                const auto [bx, by] = *now;
+                const auto clampX = [&](int v) {
+                    return static_cast<uint32_t>(std::clamp(v, 0, static_cast<int>(sim_->spec().width) - 1));
+                };
+                const auto clampY = [&](int v) {
+                    return static_cast<uint32_t>(std::clamp(v, 0, static_cast<int>(sim_->spec().height) - 1));
+                };
+                selection_ = Selection{clampX(std::min(ax, bx)), clampY(std::min(ay, by)),
+                                       clampX(std::max(ax, bx)), clampY(std::max(ay, by))};
+            }
+            return;
+        }
+        if (selectAnchor_ && !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) selectAnchor_.reset();
     }
 
     // --- A pending pattern takes the left button -----------------------------
