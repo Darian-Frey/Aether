@@ -8,6 +8,7 @@ add_library(aether_sim STATIC
     gpu_step.cpp
     lineage.cpp
     pattern.cpp
+    pattern_library.cpp
     rule_mutation.cpp
     session.cpp
     simulation.cpp

@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 ## [Unreleased]
 
 ### Added
+- A bundled pattern library (F-027): `sim/pattern_library` reads `patterns/` as `rule/library` reads `rules/`, the Patterns panel lists what it finds, and a click makes a pattern pending. Four bundled to start — glider, lightweight spaceship, Gosper glider gun and a Wireworld loop — each verified by running it rather than by recognising it, and each saying in its header whether it is transcribed or constructed (2026-09-21).
 - Region selection and export (F-012, complete): shift-drag the grid to select, and the Patterns panel writes the selection out. `sim::pathFor` decides the path — a bare name into `patterns/`, a separator meaning the path is already given, and the extension following the format rather than the name (2026-09-21).
 - A Patterns panel (F-012): opens a `.rle` or `.pattern` by path, holds it pending, and places it where it is clicked. The pending pattern follows the cursor as a preview drawn into ImGui's background list rather than written to the grid, outlined in red where it would not fit; Esc cancels. `--pattern FILE` opens one at start-up (2026-09-21).
 - Pattern placement (F-012): `Simulation::placePattern` writes a pattern into a running grid on both copies and journals it as a `place` event, and `extractPattern` takes a region back out as a pattern. The event carries the pattern rather than a path, so a paste replays exactly (SPEC §11, §14) (2026-09-19).
@@ -84,6 +85,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 - Source tree per README §Project structure, empty apart from `.gitkeep` placeholders, and a `.gitignore` (2026-09-11).
 
 ### Fixed
+- BUG-012: placing a pattern also painted one cell under the cursor. Placement consumed the press and a click lasts several frames, so the paint branch — which starts on the button being down rather than pressed — took the rest of it (2026-09-21).
+- BUG-013: a pattern the running rule could not take was refused invisibly. `Simulation::canPlace` is now split out of `placePattern` so the interface asks the engine rather than forming its own opinion: the preview turns red for any reason the click would be refused, the panel gives the reason in words, and an unusable pattern is greyed in the library list (2026-09-21).
 - BUG-011: a run that queued compute dispatches without ever synchronising came back wrong — Mesa returned an all-zero grid after a few hundred generations at 512², the T1200 a collapsed field with `0xFFFFFFFF` in its first cells. `GpuStepper::step` drains every 64 generations and `GpuGrid::download` drains before reading back. The interactive path was never affected, because `App` already calls `glFinish` once a frame for the vsync throttle (2026-09-17).
 - BUG-010: `ExprOp::Self` typed as an integer even inside a growth expression, where it is the convolution result, so every growth function that read its own input was ill-typed and only constants validated. It now follows its context, and SPEC §6 says so (2026-09-16).
 - BUG-009: the interface state file is written to `$XDG_CONFIG_HOME/aether/` rather than beside whatever directory the binary was launched from, and is no longer tracked (2026-09-15).

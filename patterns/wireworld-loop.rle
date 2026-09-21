@@ -1,0 +1,8 @@
+#N Wireworld loop
+#C A ring of conductor carrying one electron, which circulates for ever
+#C with a period of twelve. The corners are chamfered on purpose: a square
+#C corner gives its cell three wire neighbours, and the head then ignites
+#C two of them and the electron splits.
+#C Constructed for this library, not transcribed from anywhere.
+x = 6, y = 4, rule = Wireworld
+.BACC.$C4.C$C4.C$.4C.!

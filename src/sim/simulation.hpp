@@ -140,6 +140,9 @@ public:
     // does not have would index past its table, and a pattern hanging over
     // the edge would have to be clipped or wrapped and neither is obviously
     // what was meant.
+    // Why this pattern cannot go there, or nothing. Asked before the click so
+    // that a refusal can be shown rather than only logged after the fact.
+    std::optional<core::Error> canPlace(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) const;
     std::optional<core::Error> placePattern(const Pattern& p, uint32_t x, uint32_t y, uint32_t z);
 
     // The opposite: a region of the grid as a pattern, ready to write out.

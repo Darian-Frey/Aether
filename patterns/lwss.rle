@@ -1,0 +1,6 @@
+#N Lightweight spaceship
+#C The smallest orthogonal spaceship in Conway's Life: nine cells that
+#C travel two cells sideways every four generations.
+#C Published. Found by John Conway in 1970.
+x = 5, y = 4, rule = B3/S23
+bo2bo$o4b$o3bo$4o!

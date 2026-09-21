@@ -279,6 +279,13 @@ TEST_CASE("a pattern that does not belong is refused, not coerced", "[gpu][patte
     for (uint32_t y = 0; y < 8; ++y) {
         for (uint32_t x = 0; x < 8; ++x) CHECK(s.host().get(x, y) == 0);
     }
+
+    // canPlace answers the same question without doing anything, which is
+    // what lets the interface show a refusal before the click (BUG-013).
+    CHECK(s.canPlace(glider(), 6, 6, 0).has_value());
+    CHECK(s.canPlace(hex, 0, 0, 0)->message == wrongLattice->message);
+    CHECK(s.canPlace(manyStates, 0, 0, 0)->message == tooManyStates->message);
+    CHECK_FALSE(s.canPlace(glider(), 0, 0, 0).has_value());
 }
 
 TEST_CASE("a placed pattern replays from the journal (D-013)", "[gpu][pattern][replay]") {

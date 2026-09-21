@@ -95,7 +95,11 @@ void App::updateCanvas(double /*dt*/) {
                 if (IsKeyPressed(KEY_ZERO + k) && k < sim_->rule().states) brush_.state = static_cast<uint8_t>(k);
             }
         }
-        if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
+        // Cleared above the mouse-capture return, or a button released over a
+    // panel would leave it set and swallow the next click on the canvas.
+    if (swallowLeft_ && !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) swallowLeft_ = false;
+
+    if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
         const float wheel = GetMouseWheelMove();
         if (wheel != 0.0f && overViewport) orbit_.zoom(wheel > 0 ? 0.85 : 1.18);
         const bool orbitButton = IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
@@ -194,6 +198,10 @@ void App::updateCanvas(double /*dt*/) {
                     log_.info(std::format("placed {} at ({}, {})",
                                           pending_->name.value_or("pattern"), ox, oy));
                     pending_.reset();
+                    // The button is still down for the frames after this one,
+                    // and with nothing pending the paint branch below would
+                    // take them: one click would place *and* daub.
+                    swallowLeft_ = true;
                 }
             }
         }
@@ -201,6 +209,7 @@ void App::updateCanvas(double /*dt*/) {
     }
 
     // --- Paint with the left button -----------------------------------------
+    if (swallowLeft_) return;
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && (lastPaintCell_ || overViewport)) {
         // cellAt clips to the grid; for strokes that leave it we still want
         // a coordinate, so derive one the same way without the clip.

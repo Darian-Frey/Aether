@@ -208,7 +208,7 @@ Lattice latticeOf(const rule::RuleIR& ir) {
 
 }  // namespace
 
-std::optional<core::Error> Simulation::placePattern(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) {
+std::optional<core::Error> Simulation::canPlace(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) const {
     if (const auto bad = p.problems(); !bad.empty()) return core::Error{"pattern: " + bad.front()};
     if (p.lattice != latticeOf(ir_)) {
         return core::Error{std::format("pattern is {} but the grid is {}",
@@ -227,6 +227,11 @@ std::optional<core::Error> Simulation::placePattern(const Pattern& p, uint32_t x
                                        p.width, p.height, p.depth, x, y, z,
                                        spec().width, spec().height, spec().depth)};
     }
+    return std::nullopt;
+}
+
+std::optional<core::Error> Simulation::placePattern(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) {
+    if (auto e = canPlace(p, x, y, z)) return e;
 
     // The host rows are strided by the grid width; the pattern's are not, so
     // the copy is per row. The GPU takes the pattern's own buffer whole,

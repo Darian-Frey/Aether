@@ -15,6 +15,7 @@
 #include "rule/library.hpp"
 #include "rule/lua.hpp"
 #include "sim/pattern.hpp"
+#include "sim/pattern_library.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
 
@@ -75,6 +76,7 @@ private:
     void savePatternSelection();      // the selected region, out to a file
     std::optional<std::pair<int, int>> cellUnderCursor() const;
     std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
+    std::optional<std::string> pendingProblem() const;          // why it would not, or nothing
     void loadLibraryRule(const rule::LibraryRule& entry);
     void applyPaletteOverrides(const rule::RuleIR& ir);
     void saveSessionTo(const std::string& path);
@@ -153,8 +155,12 @@ private:
     struct Selection { uint32_t x0, y0, x1, y1; };
     std::optional<Selection> selection_;
     std::optional<std::pair<int, int>> selectAnchor_;   // while the drag is live
+    // Placing consumes the press, but the button stays down for frames
+    // afterwards; without this the same click then paints where it landed.
+    bool swallowLeft_ = false;
     std::array<char, 128> savePatternAs_{};
     std::vector<rule::LibraryRule> library_;
+    std::vector<sim::LibraryPattern> patternLibrary_;
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p

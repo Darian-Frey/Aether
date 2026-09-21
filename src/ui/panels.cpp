@@ -116,7 +116,10 @@ void App::drawPanels() {
     // first two so that the column fits on one screen.
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (!library_.empty() && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) drawLibraryPanel();
-    if (!is3D() && ImGui::CollapsingHeader("Patterns", pending_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawPatternsPanel();
+    if (!is3D() && ImGui::CollapsingHeader("Patterns",
+                                           (pending_ || !patternLibrary_.empty()) ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        drawPatternsPanel();
+    }
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
     if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
     if (ImGui::CollapsingHeader("Brush")) drawBrushPanel();
@@ -579,6 +582,29 @@ std::optional<std::pair<int, int>> App::pendingOrigin() const {
                      cell->second - static_cast<int>(pending_->height) / 2};
 }
 
+// Why the pending pattern could not be placed where the cursor is, or
+// nothing. Asked of the engine rather than guessed at here, so the preview
+// cannot disagree with what the click will do.
+std::optional<std::string> App::pendingProblem() const {
+    if (!pending_ || !sim_) return std::nullopt;
+    const auto origin = pendingOrigin();
+    // With the cursor away from the grid there is no position to judge, but a
+    // pattern for another rule is wrong wherever it goes — so ask about the
+    // origin, which reports everything except the bounds.
+    if (!origin) {
+        if (auto e = sim_->canPlace(*pending_, 0, 0, 0)) return e->message;
+        return std::nullopt;
+    }
+    if (origin->first < 0 || origin->second < 0) {
+        return std::string("it would hang over the edge of the grid");
+    }
+    if (auto e = sim_->canPlace(*pending_, static_cast<uint32_t>(origin->first),
+                                static_cast<uint32_t>(origin->second), 0)) {
+        return e->message;
+    }
+    return std::nullopt;
+}
+
 // Drawn, never written: the grid is untouched until the click (invariant 6).
 // Cells are filled while there are few enough of them to be worth it, and the
 // footprint is outlined either way so a large pattern still shows where it
@@ -588,9 +614,11 @@ void App::drawPatternPreview() {
     if (!origin || !sim_) return;
     const auto& spec = sim_->spec();
     const auto [ox, oy] = *origin;
-    const bool fits = ox >= 0 && oy >= 0 &&
-                      ox + static_cast<int>(pending_->width) <= static_cast<int>(spec.width) &&
-                      oy + static_cast<int>(pending_->height) <= static_cast<int>(spec.height);
+    (void)spec;
+    // Red for *any* reason the click would be refused, not only for hanging
+    // over an edge: a pattern for another rule looked identical to one that
+    // would place, and the refusal was only a line in a collapsed log.
+    const bool fits = !pendingProblem().has_value();
 
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     dl->PushClipRect(ImVec2(viewport_.x, viewport_.y),
@@ -667,6 +695,31 @@ void App::savePatternSelection() {
 
 void App::drawPatternsPanel() {
     ImGui::PushID("patterns");
+    if (!patternLibrary_.empty()) {
+        ImGui::BeginChild("bundled", ImVec2(-1, 110), ImGuiChildFlags_Borders);
+        for (const sim::LibraryPattern& entry : patternLibrary_) {
+            ImGui::PushID(entry.id.c_str());
+            // Greyed where the running rule cannot take it — a pattern for
+            // another rule is still worth picking up to see why, but it should
+            // not look like one that will place.
+            const bool fits = sim_ && !sim_->canPlace(entry.pattern, 0, 0, 0).has_value();
+            if (!fits) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            if (ImGui::Selectable(entry.name.c_str())) {
+                pending_ = entry.pattern;
+                log_.info(std::format("{} — click the grid to place it", entry.name));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%ux%u · %s%s%s\n\n%s", entry.pattern.width, entry.pattern.height,
+                                  std::string(sim::toString(entry.pattern.lattice)).c_str(),
+                                  entry.pattern.rule ? " · rule " : "",
+                                  entry.pattern.rule ? entry.pattern.rule->c_str() : "",
+                                  entry.description.c_str());
+            }
+            if (!fits) ImGui::PopStyleColor();
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+    }
     ImGui::SetNextItemWidth(-90);
     ImGui::InputTextWithHint("##path", "path to a .rle or .pattern", patternPath_.data(), patternPath_.size());
     ImGui::SameLine();
@@ -712,8 +765,13 @@ void App::drawPatternsPanel() {
     ImGui::TextDisabled("%ux%u · %s · %u states%s%s", pending_->width, pending_->height,
                         std::string(sim::toString(pending_->lattice)).c_str(), pending_->states,
                         pending_->rule ? " · rule " : "", pending_->rule ? pending_->rule->c_str() : "");
-    if (is3D()) ImGui::TextDisabled("placing is 2D for now");
-    else        ImGui::TextDisabled("click the grid to place, Esc to cancel");
+    if (is3D()) {
+        ImGui::TextDisabled("placing is 2D for now");
+    } else if (const auto why = pendingProblem()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "will not place: %s", why->c_str());
+    } else {
+        ImGui::TextDisabled("click the grid to place, Esc to cancel");
+    }
     if (ImGui::Button("Cancel")) pending_.reset();
     ImGui::PopID();
 }

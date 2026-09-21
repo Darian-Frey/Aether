@@ -153,6 +153,28 @@ returned an empty grid on Mesa, where `--generations 350` returned a healthy one
 What settled it was the interface. The same rule at 512² in the window is perfectly healthy at generation 7721 on the T1200 and 632 on Mesa, both well past where headless was ruined — and the difference is that `App` calls `glFinish()` once a frame for the vsync throttle (a line added on 2026-09-11 for a timing reason entirely unrelated to this). The interactive path had been immune by accident all along.
 **Resolution (2026-09-17).** `GpuStepper::step` drains the queue every 64 generations, and `GpuGrid::download` drains before reading back. Every 64 is as good as every one and the interval is not a tuning knob: without it the results are wrong rather than late. Downloads happen on save and on a path switch, never in the step loop (AV-002), so the second sync costs nothing. Mesa and the T1200 now agree with each other and with the CPU path at 512² where before they agreed with nobody.
 
+### BUG-012: placing a pattern also paints a cell under the cursor
+**Status:** fixed
+**Found:** 2026-09-21 (reported by the author, with screenshots)
+**Fixed:** 2026-09-21
+**Location:** `src/ui/canvas.cpp` (`App::updateCanvas`)
+**Severity:** medium
+**Description.** A click that placed a pattern also painted one cell at the cursor. The placement branch consumed the *press* and cleared the pending pattern, then returned — but a click lasts several frames, and on the next one there was nothing pending, so control fell through to the paint branch, which starts a stroke on the button being *down* rather than pressed. With the brush at radius 0 that is exactly one cell, in the middle of the pattern just placed, which is what the screenshots showed.
+**Reproduction.** Open a pattern, click the grid to place it, and look at the cell under the cursor.
+**Notes.** The general shape: one gesture consumed by two handlers because one of them triggers on a press and the other on a hold.
+**Resolution (2026-09-21).** Placing sets `swallowLeft_`, and the paint branch does nothing until the button is released. Cleared above the mouse-capture early return, or releasing over a panel would leave it set and swallow the next click on the canvas.
+
+### BUG-013: a pattern the rule cannot take was refused invisibly
+**Status:** fixed
+**Found:** 2026-09-21 (reported by the author: "the wireworld loop will not draw the loop")
+**Fixed:** 2026-09-21
+**Location:** `src/ui/panels.cpp` (`App::drawPatternPreview`, `drawPatternsPanel`)
+**Severity:** medium
+**Description.** Selecting the bundled Wireworld loop while Conway's Life was running did nothing when clicked. The engine was right — a four-state pattern cannot go onto a two-state rule, and `placePattern` refused it — but the refusal went only to the log, which is a collapsed panel by default. The preview meanwhile stayed the same colour it uses for a pattern that *will* place, so a correctly refused pattern was indistinguishable from a broken one.
+**Reproduction.** Run `--rule @life`, pick "Wireworld loop" from the Patterns list, click the grid.
+**Notes.** The behaviour was correct and the feedback was not, which is the harder half to notice: nothing was logged as an error in the engine's own terms, so only a user could find it.
+**Resolution (2026-09-21).** `Simulation::canPlace` is split out of `placePattern`, so the interface can ask the engine the same question before the click rather than forming its own opinion. The preview turns red for any reason the click would be refused, not only for hanging over an edge; the panel shows the reason in words; and a pattern the running rule cannot take is greyed in the library list, which stops the confusion before it starts.
+
 ## Won't Fix
 
 *None.*

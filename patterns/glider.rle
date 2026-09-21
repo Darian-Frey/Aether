@@ -1,0 +1,6 @@
+#N Glider
+#C The smallest spaceship in Conway's Life, and the first one found: it
+#C travels one cell diagonally every four generations, for ever.
+#C Published. Found in 1969-70 by Richard Guy, working with Conway's group.
+x = 3, y = 3, rule = B3/S23
+bo$2bo$3o!

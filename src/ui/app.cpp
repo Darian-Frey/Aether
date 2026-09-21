@@ -1,5 +1,7 @@
 #include "ui/app.hpp"
 
+#include "sim/pattern_library.hpp"
+
 #include "core/gl.hpp"
 #include "rule/compile.hpp"
 #include "sim/fill.hpp"
@@ -85,6 +87,12 @@ int App::run() {
         const char* env = std::getenv("AETHER_RULES");
         library_ = rule::loadLibrary({env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"});
         if (!library_.empty()) log_.info(std::format("{} rules in the library", library_.size()));
+        const char* patEnv = std::getenv("AETHER_PATTERNS");
+        patternLibrary_ = sim::loadPatternLibrary({patEnv ? patEnv : "", "patterns",
+                                                   exeDir + "patterns", exeDir + "../patterns"});
+        if (!patternLibrary_.empty()) {
+            log_.info(std::format("{} patterns in the library", patternLibrary_.size()));
+        }
         if (exitCode == 0 && !opts_.pattern.empty()) {
             std::strncpy(patternPath_.data(), opts_.pattern.c_str(), patternPath_.size() - 1);
             std::ifstream in(opts_.pattern, std::ios::binary);
