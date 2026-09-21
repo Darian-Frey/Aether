@@ -24,6 +24,10 @@ struct EvSetRule     { rule::RuleIR ir; };
 struct EvRewind      { size_t entry; };
 struct EvPaint       { uint32_t x0, x1, y, z; uint8_t state; };
 struct EvFill        { std::vector<double> density; };
+// A fill over a box rather than the whole grid (F-028). Its own event rather
+// than bounds on EvFill, so a file written before this existed still means
+// what it said.
+struct EvFillRegion  { uint32_t x, y, z, w, h, d; std::vector<double> density; };
 struct EvClear       {};
 // The pattern travels in the event rather than a reference to a file: a path
 // could change under the session and the paste would replay as something else,
@@ -32,8 +36,8 @@ struct EvPlace       { Pattern pattern; uint32_t x, y, z; };
 struct EvCellMutation{ double p; uint8_t blockShift = 0; };
 struct EvRuleMutation{ RuleMutationParams params; };
 
-using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvClear, EvPlace,
-                               EvCellMutation, EvRuleMutation>;
+using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvFillRegion, EvClear,
+                               EvPlace, EvCellMutation, EvRuleMutation>;
 
 struct Event {
     uint64_t  generation;

@@ -122,7 +122,12 @@ public:
     void syncToHost();                            // GPU -> host (a readback; never per frame)
     void commitHost();                            // host -> GPU
     void clear();
-    void fillRandom(std::span<const double> density);   // draws from stream A
+    void fillRandom(std::span<const double> density);
+
+    // The same over a box, leaving the rest of the grid alone (F-028).
+    // Journalled with its bounds, so a session replays the same box.
+    void fillRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
+                    std::span<const double> density);   // draws from stream A
 
     // Sets cells x0..x1 inclusive on row (y, z) to `state`, on both the
     // host copy and the GPU texture, with no readback. The canvas's one way

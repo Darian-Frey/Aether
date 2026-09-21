@@ -88,6 +88,10 @@ json eventToJson(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvRewind>)   { j["type"] = "rewind"; j["entry"] = b.entry; }
         else if constexpr (std::is_same_v<T, EvPaint>)    { j["type"] = "paint"; j["x0"] = b.x0; j["x1"] = b.x1; j["y"] = b.y; j["z"] = b.z; j["state"] = b.state; }
         else if constexpr (std::is_same_v<T, EvFill>)     { j["type"] = "fill"; j["density"] = b.density; }
+        else if constexpr (std::is_same_v<T, EvFillRegion>) {
+            j["type"] = "fill_region"; j["x"] = b.x; j["y"] = b.y; j["z"] = b.z;
+            j["w"] = b.w; j["h"] = b.h; j["d"] = b.d; j["density"] = b.density;
+        }
         else if constexpr (std::is_same_v<T, EvClear>)    { j["type"] = "clear"; }
         else if constexpr (std::is_same_v<T, EvPlace>)    {
             // The native form of §14, nested rather than stringified, so a
@@ -119,6 +123,10 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
                           j.at("z").get<uint32_t>(), j.at("state").get<uint8_t>()};
     } else if (type == "fill") {
         ev.body = EvFill{j.at("density").get<std::vector<double>>()};
+    } else if (type == "fill_region") {
+        ev.body = EvFillRegion{j.at("x").get<uint32_t>(), j.at("y").get<uint32_t>(), j.at("z").get<uint32_t>(),
+                               j.at("w").get<uint32_t>(), j.at("h").get<uint32_t>(), j.at("d").get<uint32_t>(),
+                               j.at("density").get<std::vector<double>>()};
     } else if (type == "clear") {
         ev.body = EvClear{};
     } else if (type == "place") {

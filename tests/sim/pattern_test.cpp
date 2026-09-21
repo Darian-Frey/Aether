@@ -380,3 +380,58 @@ TEST_CASE("a region goes out to a file and comes back the same", "[gpu][pattern]
           std::vector<uint8_t>(s.host().current().begin(), s.host().current().end()));
     std::filesystem::remove(path);
 }
+
+// --- Region seeding (F-028) ------------------------------------------------
+
+TEST_CASE("seeding a region leaves the rest of the grid alone", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    sim::Simulation s = freshGrid(32, 32);
+    const std::vector<double> density{1.0};        // every cell in the box becomes state 1
+    s.fillRegion(8, 4, 0, 6, 5, 1, density);
+
+    for (uint32_t y = 0; y < 32; ++y) {
+        for (uint32_t x = 0; x < 32; ++x) {
+            const bool inside = x >= 8 && x < 14 && y >= 4 && y < 9;
+            INFO("cell " << x << "," << y);
+            CHECK(s.host().get(x, y) == (inside ? 1 : 0));
+        }
+    }
+}
+
+TEST_CASE("a region fill is the whole-grid fill over a smaller box", "[gpu][pattern]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    // Same seed, same densities: filling the whole grid and filling a box
+    // that happens to be the whole grid must draw from stream A identically,
+    // or every session written before F-028 replays differently.
+    const std::vector<double> density{0.3, 0.2};
+    sim::Simulation a = freshGrid(16, 16);
+    a.fillRandom(density);
+    sim::Simulation b = freshGrid(16, 16);
+    b.fillRegion(0, 0, 0, 16, 16, 1, density);
+    CHECK(std::vector<uint8_t>(a.host().current().begin(), a.host().current().end()) ==
+          std::vector<uint8_t>(b.host().current().begin(), b.host().current().end()));
+}
+
+TEST_CASE("a seeded region replays from the journal", "[gpu][pattern][replay]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    sim::Simulation s = freshGrid(24, 24);
+    for (int i = 0; i < 4; ++i) s.step();
+    s.fillRegion(3, 3, 0, 8, 8, 1, std::vector<double>{0.5});
+    for (int i = 0; i < 15; ++i) s.step();
+    const sim::Session snap = s.session();
+    CHECK(snap.journal.size() == 1);
+
+    const std::string text = sim::sessionToJson(snap);
+    auto parsed = sim::sessionFromJson(text);
+    if (const auto* e = std::get_if<sim::SessionError>(&parsed)) FAIL(e->message);
+    auto replayed = sim::Simulation::replay(std::get<sim::Session>(parsed), {snap.generation}, sim::Path::Cpu);
+    if (const auto* e = std::get_if<core::Error>(&replayed)) FAIL(e->message);
+    CHECK(std::vector<uint8_t>(std::get<sim::Simulation>(replayed).host().current().begin(),
+                               std::get<sim::Simulation>(replayed).host().current().end()) == snap.current);
+}

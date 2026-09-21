@@ -26,4 +26,12 @@ std::vector<double> defaultDensity(const rule::RuleIR& ir);
 // function of the grid size alone and later draws stay reproducible.
 void fillRandom(core::HostGrid& grid, std::span<const double> density, Pcg32& streamA);
 
+// The same, over a box rather than the whole grid, leaving everything outside
+// it alone (F-028). One implementation serves both: `fillRandom` is this over
+// the whole extent, and in that case walks the cells in exactly the order it
+// always did, so the draws a session makes are unchanged and old files replay.
+void fillRandomRegion(core::HostGrid& grid, uint32_t x, uint32_t y, uint32_t z,
+                      uint32_t w, uint32_t h, uint32_t d,
+                      std::span<const double> density, Pcg32& streamA);
+
 }  // namespace aether::sim

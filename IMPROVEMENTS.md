@@ -23,16 +23,6 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
-### IMP-004: the Seed button sits below the controls it is the point of
-**Status:** suggested
-**Found:** 2026-09-15 (the author asked for a seed button that already existed)
-**Location:** `src/ui/panels.cpp` (`Grid` section)
-**Effort:** trivial
-**Description.** The Grid section runs: size fields, a separator, "Random fill density", up to sixteen sliders, a total warning, "even spread", and only then the `Seed` button with Clear, Fit and Fill view beside it. The sliders are the rarely touched part and the button is the thing a user reaches for every few minutes, so the section is ordered opposite to how it is used. It is discoverable enough that it was requested as a new feature by someone who has been using the application for a week, which is the clearest evidence available that its placement is wrong.
-**Proposal.** Put the action row — Seed, Clear, Fit, Fill view — directly under the size fields, above the density block, and collapse the sliders behind a "Random fill density" tree node closed by default. The `R` shortcut is unchanged.
-**Trade-offs.** The densities become one click further away, and the relationship between the sliders and what Seed does gets less obvious when they are not adjacent — the button would want a tooltip naming the densities it is about to use. Moving a control the author has learned the position of is a cost paid once.
-**Notes.** Raised alongside F-028, which adds seeding of a dragged region; if both land, the action row carries two seed gestures and is worth laying out once rather than twice. Doing this before F-028 is fine and doing it after avoids moving the same widgets twice.
-
 ### IMP-008: the pattern preview is ImGui rectangles, so a large pattern shows only its outline
 **Status:** suggested
 **Found:** 2026-09-21 (F-012, building the placement interface)
@@ -84,6 +74,17 @@ Note that candidate *features* live in [FEATURES.md](FEATURES.md) §Candidate fe
 **Notes.** Worth doing when the codegen backend lands and the lowering path stops being a dead end.
 
 **As built (2026-09-14).** Done as part of D-016, which made it worth doing: routing `/C` through `applyDecay` means a Generations rule of any length compiles to a counted table, where before `B2/S/C25` lowered to an expression no backend could run. The oversized-lowering interaction that deferred this no longer arises.
+
+### IMP-004: the Seed button sits below the controls it is the point of
+**Status:** applied 2026-09-21 (with F-028)
+**Found:** 2026-09-15 (the author asked for a seed button that already existed)
+**Location:** `src/ui/panels.cpp` (`Grid` section)
+**Effort:** trivial
+**Description.** The Grid section runs: size fields, a separator, "Random fill density", up to sixteen sliders, a total warning, "even spread", and only then the `Seed` button with Clear, Fit and Fill view beside it. The sliders are the rarely touched part and the button is the thing a user reaches for every few minutes, so the section is ordered opposite to how it is used. It is discoverable enough that it was requested as a new feature by someone who has been using the application for a week, which is the clearest evidence available that its placement is wrong.
+**Proposal.** Put the action row — Seed, Clear, Fit, Fill view — directly under the size fields, above the density block, and collapse the sliders behind a "Random fill density" tree node closed by default. The `R` shortcut is unchanged.
+**Trade-offs.** The densities become one click further away, and the relationship between the sliders and what Seed does gets less obvious when they are not adjacent — the button would want a tooltip naming the densities it is about to use. Moving a control the author has learned the position of is a cost paid once.
+**Notes.** Raised alongside F-028, which adds seeding of a dragged region; if both land, the action row carries two seed gestures and is worth laying out once rather than twice. Doing this before F-028 is fine and doing it after avoids moving the same widgets twice.
+**As built.** As proposed, with the action row under the size fields and the sliders behind a closed `Random fill density` tree. The tooltip the trade-offs asked for is there — `R — fill the whole grid at the densities below` — and the two seed gestures are laid out together as the notes hoped, the whole-grid row first and the partial one under it: `Seed region`, disabled with a tooltip saying to shift-drag until there is a selection to seed, or `Seed slice` in 3D. The selection's extent is printed beside the button, so the thing about to be overwritten is stated before the click rather than after.
 
 ### IMP-005: `cpuStep` has no per-cell entry point
 **Status:** applied

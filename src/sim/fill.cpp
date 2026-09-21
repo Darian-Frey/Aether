@@ -24,16 +24,29 @@ std::vector<double> defaultDensity(const rule::RuleIR& ir) {
     return out;
 }
 
-void fillRandom(core::HostGrid& grid, std::span<const double> density, Pcg32& streamA) {
-    if (grid.spec().cell_type == core::CellType::F32) {
+void fillRandomRegion(core::HostGrid& grid, uint32_t x, uint32_t y, uint32_t z,
+                      uint32_t w, uint32_t h, uint32_t d,
+                      std::span<const double> density, Pcg32& streamA) {
+    const auto& spec = grid.spec();
+    if (x >= spec.width || y >= spec.height || z >= spec.depth) return;
+    w = std::min(w, spec.width - x);
+    h = std::min(h, spec.height - y);
+    d = std::min(d, spec.depth - z);
+
+    if (spec.cell_type == core::CellType::F32) {
         // The first weight is the fraction of cells seeded; a seeded cell
         // takes a uniform value. Two draws a cell either way, so the stream
         // advances by the same amount whatever the density.
         const double p = density.empty() ? 0.0 : std::clamp(density[0], 0.0, 1.0);
-        for (float& cell : grid.currentFloats()) {
-            const double u = streamA.unit();
-            const double v = streamA.unit();
-            cell = u < p ? static_cast<float>(v) : 0.0f;
+        auto cells = grid.currentFloats();
+        for (uint32_t cz = z; cz < z + d; ++cz) {
+            for (uint32_t cy = y; cy < y + h; ++cy) {
+                for (uint32_t cx = x; cx < x + w; ++cx) {
+                    const double u = streamA.unit();
+                    const double v = streamA.unit();
+                    cells[grid.index(cx, cy, cz)] = u < p ? static_cast<float>(v) : 0.0f;
+                }
+            }
         }
         return;
     }
@@ -45,14 +58,26 @@ void fillRandom(core::HostGrid& grid, std::span<const double> density, Pcg32& st
         acc += density[i] < 0.0 ? 0.0 : density[i];
         cumulative[i] = acc;
     }
-    for (uint8_t& cell : grid.current()) {
-        const double u = streamA.unit();
-        uint8_t state = 0;
-        for (size_t i = 0; i < cumulative.size(); ++i) {
-            if (u < cumulative[i]) { state = static_cast<uint8_t>(i + 1); break; }
+    auto cells = grid.current();
+    for (uint32_t cz = z; cz < z + d; ++cz) {
+        for (uint32_t cy = y; cy < y + h; ++cy) {
+            for (uint32_t cx = x; cx < x + w; ++cx) {
+                const double u = streamA.unit();
+                uint8_t state = 0;
+                for (size_t i = 0; i < cumulative.size(); ++i) {
+                    if (u < cumulative[i]) { state = static_cast<uint8_t>(i + 1); break; }
+                }
+                cells[grid.index(cx, cy, cz)] = state;
+            }
         }
-        cell = state;
     }
+}
+
+void fillRandom(core::HostGrid& grid, std::span<const double> density, Pcg32& streamA) {
+    // The whole grid is the box that covers it, and walking it x-fastest is
+    // the order this always walked, so the stream is consumed identically.
+    const auto& s = grid.spec();
+    fillRandomRegion(grid, 0, 0, 0, s.width, s.height, s.depth, density, streamA);
 }
 
 }  // namespace aether::sim

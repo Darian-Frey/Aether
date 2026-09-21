@@ -312,25 +312,12 @@ void App::drawGridPanel() {
         }
     }
     ImGui::Separator();
-    ImGui::TextUnformatted("Random fill density");
-    float total = 0.0f;
-    for (float d : density_) total += d;
-    if (density_.size() > 16) ImGui::TextDisabled("(showing the first 16 of %zu states)", density_.size());
-    for (size_t i = 0; i < density_.size() && i < 16; ++i) {
-        ImGui::SliderFloat(std::format("state {}", i + 1).c_str(), &density_[i], 0.0f, 1.0f);
-    }
-    if (total > 1.0f) {
-        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
-                           "densities total %.2f; the last states will not be seeded", total);
-    } else {
-        ImGui::TextDisabled("state 0 takes the remaining %.2f", 1.0f - total);
-    }
-    if (ImGui::SmallButton("even spread")) {
-        const auto defaults = sim::defaultDensity(sim_->rule());
-        density_.assign(defaults.begin(), defaults.end());
-    }
-    if (ImGui::Button("Seed")) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
-    hint("R — fill the grid at the densities above");
+
+    // The actions first (IMP-004). They are what this panel is for, and they
+    // used to sit under sixteen sliders that are touched once a session.
+    const std::vector<double> density(density_.begin(), density_.end());
+    if (ImGui::Button("Seed")) sim_->fillRandom(density);
+    hint("R — fill the whole grid at the densities below");
     ImGui::SameLine();
     if (ImGui::Button("Clear")) sim_->clear();
     hint("C");
@@ -343,6 +330,56 @@ void App::drawGridPanel() {
             view_.fit(sim_->spec().width, sim_->spec().height, viewport_, false);
         }
         hint("Use the whole viewport, at a fractional zoom. Cells stop being pixel-exact");
+    }
+
+    // Seeding part of the grid (F-028). In 2D the part is the shift-dragged
+    // selection; in 3D there is no way to drag one, so it is the slice the
+    // brush is already painting on, which is what F-011 does there too.
+    if (is3D()) {
+        if (ImGui::Button("Seed slice")) {
+            const uint32_t ext[3] = {sim_->spec().width, sim_->spec().height, sim_->spec().depth};
+            uint32_t at[3] = {0, 0, 0}, size[3] = {ext[0], ext[1], ext[2]};
+            at[sliceAxis_] = static_cast<uint32_t>(sliceIndex_);
+            size[sliceAxis_] = 1;
+            sim_->fillRegion(at[0], at[1], at[2], size[0], size[1], size[2], density);
+        }
+        hint("seed only the slice the brush paints on, at the densities below");
+    } else {
+        ImGui::BeginDisabled(!selection_);
+        if (ImGui::Button("Seed region") && selection_) {
+            sim_->fillRegion(selection_->x0, selection_->y0, 0,
+                             selection_->x1 - selection_->x0 + 1,
+                             selection_->y1 - selection_->y0 + 1, 1, density);
+        }
+        ImGui::EndDisabled();
+        hint(selection_ ? "seed the selected region only, leaving the rest alone"
+                        : "shift-drag the grid to select a region first");
+        if (selection_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%ux%u", selection_->x1 - selection_->x0 + 1,
+                                selection_->y1 - selection_->y0 + 1);
+        }
+    }
+
+    // The densities last, and folded away: they are set once and then left.
+    if (ImGui::TreeNode("Random fill density")) {
+        float total = 0.0f;
+        for (float d : density_) total += d;
+        if (density_.size() > 16) ImGui::TextDisabled("(showing the first 16 of %zu states)", density_.size());
+        for (size_t i = 0; i < density_.size() && i < 16; ++i) {
+            ImGui::SliderFloat(std::format("state {}", i + 1).c_str(), &density_[i], 0.0f, 1.0f);
+        }
+        if (total > 1.0f) {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f),
+                               "densities total %.2f; the last states will not be seeded", total);
+        } else {
+            ImGui::TextDisabled("state 0 takes the remaining %.2f", 1.0f - total);
+        }
+        if (ImGui::SmallButton("even spread")) {
+            const auto defaults = sim::defaultDensity(sim_->rule());
+            density_.assign(defaults.begin(), defaults.end());
+        }
+        ImGui::TreePop();
     }
     ImGui::PopID();
 }

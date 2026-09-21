@@ -290,6 +290,18 @@ std::variant<Pattern, core::Error> Simulation::extractPattern(uint32_t x, uint32
     return p;
 }
 
+void Simulation::fillRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,
+                            std::span<const double> density) {
+    if (w == 0 || h == 0 || d == 0) return;
+    // The host is the authority for a fill either way: on the GPU path the
+    // copy here is stale, so it has to come down before part of it is rewritten
+    // or the untouched cells would be written back from an old snapshot.
+    syncToHost();
+    sim::fillRandomRegion(host_, x, y, z, w, h, d, density, streamA_);
+    commitHost();
+    journal(generation_, EvFillRegion{x, y, z, w, h, d, std::vector<double>(density.begin(), density.end())});
+}
+
 void Simulation::fillRandom(std::span<const double> density) {
     sim::fillRandom(host_, density, streamA_);
     commitHost();
@@ -328,6 +340,7 @@ void Simulation::applyEvent(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvPaint>)         paintSpan(b.x0, b.x1, b.y, b.z, b.state);
         else if constexpr (std::is_same_v<T, EvPlace>)         (void)placePattern(b.pattern, b.x, b.y, b.z);
         else if constexpr (std::is_same_v<T, EvFill>)          fillRandom(b.density);
+        else if constexpr (std::is_same_v<T, EvFillRegion>)    fillRegion(b.x, b.y, b.z, b.w, b.h, b.d, b.density);
         else if constexpr (std::is_same_v<T, EvClear>)         clear();
         else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p, b.blockShift);
         else if constexpr (std::is_same_v<T, EvRuleMutation>)  setRuleMutation(b.params);

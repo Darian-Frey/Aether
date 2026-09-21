@@ -194,7 +194,8 @@ People who want to explore cellular automata rather than run one specific automa
 - Drawn from stream A like the whole-grid fill and journalled with its bounds, so a session replays it exactly
 - Works on both execution paths and every lattice; in 3D it acts on the painting slice, as F-011 does
 - The whole-grid fill keeps its control and its `R` shortcut
-**Status:** Not started
+**Status:** Complete (2026-09-21).
+**Notes on how:** one implementation serves both fills — `fillRandom` is `fillRandomRegion` over the whole extent — which is what keeps a session written before this replays unchanged, since over the whole extent the walk consumes stream A exactly as it always did (SPEC §10). The bounds travel in their own `fill_region` journal event rather than as optional bounds on `fill`, so an old file still means what it said. `Simulation::fillRegion` syncs to host before filling: on the GPU path the host copy is stale, and filling a box from a stale snapshot would write the *rest* of the grid back from it. In 2D the box is F-012's shift-dragged selection, which the panel already has; in 3D there is no gesture that drags a rectangle, so it is the slice the brush paints on.
 **Notes:** Added 2026-09-15 by D-017. Region seeding and pattern placement are the same gesture from opposite directions: put something into part of the grid, from the random side or from the library. The related complaint — that the existing whole-grid Seed button is hard to find beneath the density sliders — is a presentation change rather than a feature, logged as IMP-004.
 
 ### F-029 Pattern editor
