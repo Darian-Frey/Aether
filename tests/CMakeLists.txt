@@ -23,6 +23,7 @@ add_executable(aether_tests
     sim/pattern_test.cpp
     sim/pattern_library_test.cpp
     sim/equivalence_test.cpp
+    sim/inspect_test.cpp
     sim/hash_test.cpp
     sim/rule_mutation_test.cpp
     sim/lineage_test.cpp

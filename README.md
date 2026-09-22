@@ -59,6 +59,8 @@ The same selection is what **Seed region** fills, at the density weights in the 
 
 Press `E` for the pattern editor: a scratch pad with a grid and a rule of its own, drawn on a cell at a time with the same brush the grid uses. It steps forward **and back**, which the simulation cannot — a small host-side grid can afford to remember where it has been. It adopts whatever rule is running, or any bundled one, so a creature is watched under the rule it is being built for. Nothing on the pad is part of the run: it is not saved with the session and it does not disturb one. What leaves it is an ordinary pattern, either placed into the grid or written into `patterns/`.
 
+Hovering a cell on the pad shows what it is about to do: its state and the state it becomes, every neighbour drawn in the neighbourhood's own shape, the counts the rule actually asked about, and the table entry or the condition that answered. Where a boundary sent a neighbour to the far side of the grid, or off it, the diagram says so, which is the part worth seeing — a cell on an edge behaves differently from one in the middle and it is rarely obvious how. None of these figures is worked out for the display: they come from the same function the simulation steps with, so the explanation cannot drift from the behaviour.
+
 ### Drift and reproducibility
 
 The Mutation section has both controls: cell mutation as a probability per cell, optionally grouped into blocks so noise arrives in clumps, and rule mutation as point edits to the rule every N generations. Every rule a run passes through is in the Lineage list, where it can be pinned by name or rewound to — either the rule alone, or the grid with it. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on.

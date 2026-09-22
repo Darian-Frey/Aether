@@ -24,7 +24,16 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-*None.*
+### BUG-014: `[gpu]` cases skip at random, so a green suite does not mean the GPU path ran
+**Status:** open
+**Found:** 2026-09-22 (F-030, running the suite on both GPUs after the inspector landed)
+**Location:** `tests/support/gl_context.cpp` (`GlContext`, `requireGl`)
+**Severity:** medium
+**Description.** Each `[gpu]` case constructs a `GlContext`, which calls `InitWindow`, and skips itself if the window did not come up. That is right on a machine with no display. On a machine *with* one it is also firing, intermittently and in numbers. Seven runs of `[gpu]` on the Intel iGPU on 2026-09-22, same binary, no code change between any of them, skipped 2, 1, 3, 7, 9, 12 and 9 of the 49 cases — in that order, which is the order they were run in. The count climbing through a session points at something the process accumulates rather than at chance. The runs still report success, because a skipped Catch2 case is not a failure, so the suite says the GPU path is fine while a fifth to a quarter of the checks on it did not execute — the CPU/GPU equivalence cases among them. That is the one test the project's own build notes say nothing else is trustworthy without.
+**Reproduction.** `for i in 1 2 3; do ./build/tests/aether_tests "[gpu]" | grep "^test cases:"; done` on a machine with a display, and again after several more runs. The counts differ between runs and tend to worsen. Both GPUs show it, so it is not the PRIME offload path. `[equivalence]` run on its own skipped nothing, which is consistent with the pressure theory and is also why the damage has not shown up as a wrong result yet.
+**Notes.** The cause is not established. Opening and closing several dozen real windows in one process is the obvious suspect — raylib's `InitWindow` failing under some resource the process is not releasing between cases — and if so the fix is one shared context for the whole run rather than one per case, which would also make the suite faster. What matters more than the cause is that the failure is silent: whatever is done about the windows, `requireGl` should tell the difference between "there is no display, skip" and "there is a display and the context did not come up", and the second should fail rather than skip. As it stands a real GPU regression could sit behind a green run.
+Not caused by the work it was found during: F-029 and F-030 add no GL and no `[gpu]` cases, and the case count is unchanged at 49. Logged rather than fixed, per the maintenance rule.
+
 
 ## Fixed
 
@@ -182,3 +191,15 @@ What settled it was the interface. The same rule at 512² in the window is perfe
 ## Deferred
 
 *None.*
+
+### BUG-015: the editor window moved ImGui's cursor without submitting anything, flooding the terminal
+**Status:** fixed
+**Found:** 2026-09-22 (reported by the author, who saw the terminal filling up while using the editor)
+**Fixed:** 2026-09-22
+**Location:** `src/ui/editor.cpp` (`drawEditorGrid`, `drawNeighbourhood`)
+**Severity:** low
+**Description.** Both functions called `SetCursorScreenPos` to move past content they had drawn into the draw list by hand, and in each case something could follow it that submitted no widget. ImGui raises `Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries` for that, because a cursor moved past the content extent without an item behind it leaves the window unable to work out how big its content is. It fires once per offending call per frame, so at 60fps the terminal fills. Nothing was drawn wrongly and nothing crashed — the window sizes itself from the `InvisibleButton` and the `Dummy` either way — but a log line per frame drowns anything else the application has to say, which is the actual cost.
+**Reproduction.** Open the editor (`E`) and leave it open. With the inspector reading a cell whose neighbourhood needs no legend, and with the cursor on the fringe of the pad rectangle, both sites fire. Measured over 120 frames: 117 error lines before, 0 after.
+**Notes.** Both calls were redundant. `InvisibleButton` had already advanced the cursor past the pad, and `Dummy` had already reserved and advanced past each plane of the neighbourhood diagram — that is what makes `Dummy` the right tool for hand-drawn content and it was doing its job. Removing both is the whole fix; the hover readout also gained an else branch so that a frame on the fringe still submits a line and the layout does not jump.
+Made visible rather than caused by two things landing the same day: the neighbourhood diagram was new, and the legend under it had just been made conditional, which is what let a frame reach the end of the loop with nothing following the cursor move.
+**Resolution (2026-09-22).** Both `SetCursorScreenPos` calls removed, an `else` added to the hover readout. Verified by A/B rather than by reasoning: the calls were put back and the same 120-frame run produced 117 errors, then removed again for 0.

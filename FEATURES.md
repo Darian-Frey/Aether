@@ -221,7 +221,11 @@ The interface is a floating window rather than a section of the left column, bec
 - Neighbours are resolved through `sim::resolve`, the same boundary handling the step uses, so a cell on an edge or in a corner explains correctly
 - Covers all four table kinds and the expression form
 - A test asserts the inspector's predicted next state equals what `cpuStep` writes, for every cell of every equivalence fixture under every boundary
-**Status:** Not started
+**Status:** Complete (2026-09-22).
+**Notes on how:** `sim::inspect` calls `stepCell` and then reads what it left behind — the neighbours it gathered, the counts it took, the entry it indexed. It computes nothing about the transition itself, which is the whole point: the figures cannot disagree with the stepper because they are the stepper's own.
+The one thing that looked like it would need deriving was "the clause that fires", since an expression is a tree rather than a list of clauses. It does not: `evalArena` walks every node bottom-up, so the arena already holds each conditional's test value, and descending the chain of `Select` nodes reading those values says which branch answered without evaluating anything a second time. A rule where every test failed is reported as such rather than by naming a clause that did not fire.
+The cross-check lives in `equivalence_test.cpp`, where the fixtures are: every fixture, every boundary, 1D, 2D and 3D, every cell, with a second pass under cell mutation asserting that what the rule alone gave is still reported beside what mutation did with it. The inspector's own reporting — neighbour order, wrapped and off-grid marking, each kind's reduction, which branch answered — is `tests/sim/inspect_test.cpp`. Neither needs a display.
+It reads the scratch pad, not the live grid, which is D-018's choice rather than an omission: on the GPU path the host copy is stale, so a running grid would want a readback every frame. Nothing in `sim::inspect` is specific to the pad, so that remains the reversal condition D-018 recorded and not a rewrite.
 **Notes:** Added 2026-09-15 by D-018, as the inspecting half of the editor. Depends on IMP-005. Built for the scratch pad of F-029, but nothing in it is specific to that grid — pointing it at a running simulation is a readback problem, not an inspector problem, and is the reversal condition recorded in D-018.
 
 ## Dynamics

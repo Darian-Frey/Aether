@@ -9,6 +9,7 @@
 #include "rule/dsl.hpp"
 #include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
+#include "sim/inspect.hpp"
 #include "sim/gpu_step.hpp"
 #include "support/gl_context.hpp"
 
@@ -497,4 +498,126 @@ TEST_CASE("a rule whose dimensionality mismatches the grid is refused, leaving t
     REQUIRE(err.has_value());
     CHECK(err->message.find("3D") != std::string::npos);
     CHECK(stepper.hasRule());
+}
+
+// --- The inspector against the stepper (F-030, AV-017) ----------------------
+//
+// The inspector is consulted precisely when nobody can check its answer, so
+// what it predicts for a cell must be what the stepper writes into that cell.
+// Run over the same fixtures under the same boundaries as the equivalence
+// cases above, because the cells that matter are the edges and the corners: an
+// inspector resolving neighbours differently from `sim::resolve` explains the
+// interior perfectly and lies about the rim. No GL, so this is not a [gpu]
+// case — it compares the oracle against itself.
+
+namespace {
+
+void checkInspector(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec) {
+    rule::RuleIR ir = f.ir;
+    ir.boundary = boundary;
+    auto compiled = rule::compileRule(ir);
+    REQUIRE(std::holds_alternative<rule::CompiledRule>(compiled));
+    const rule::CompiledRule rule = std::get<rule::CompiledRule>(std::move(compiled));
+
+    core::HostGrid grid(spec);
+    fill(grid, ir.states, 4242u, 0.4);
+
+    // What the stepper writes, for every cell at once.
+    sim::cpuStep(rule, spec, grid.current(), grid.next(), 0, sim::CellMutation{});
+
+    sim::StepScratch scratch(rule);
+    size_t checked = 0;
+    for (uint32_t z = 0; z < spec.depth; ++z) {
+        for (uint32_t y = 0; y < spec.height; ++y) {
+            for (uint32_t x = 0; x < spec.width; ++x) {
+                const sim::Inspection got =
+                    sim::inspect(rule, spec, grid.current(), x, y, z, 0, sim::CellMutation{}, scratch);
+                const size_t at = (size_t{z} * spec.height + y) * spec.width + x;
+                if (got.transition.next != grid.next()[at]) {
+                    INFO(f.name << " / " << rule::toString(boundary) << " at " << x << "," << y << "," << z);
+                    CHECK(got.transition.next == grid.next()[at]);
+                    return;
+                }
+                // The neighbours it reports must be the ones the rule was
+                // given, in the order it was given them.
+                REQUIRE(got.neighbours.size() == rule.neighbourCount());
+                ++checked;
+            }
+        }
+    }
+    CHECK(checked == spec.cellCount());
+}
+
+}  // namespace
+
+TEST_CASE("the inspector predicts what the stepper writes, 2D", "[inspect][equivalence]") {
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    for (const Fixture& f : fixtures()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary)) {
+            checkInspector(f, boundary, core::GridSpec{2, 37, 29, 1});
+        }
+    }
+}
+
+TEST_CASE("the inspector predicts what the stepper writes, 3D and 1D", "[inspect][equivalence]") {
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    for (const Fixture& f : fixtures3d()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary)) {
+            checkInspector(f, boundary, core::GridSpec{3, 11, 9, 7});
+        }
+    }
+    for (const Fixture& f : fixtures1d()) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary)) {
+            checkInspector(f, boundary, core::GridSpec{1, 71, 1, 1});
+        }
+    }
+}
+
+TEST_CASE("the inspector predicts what the stepper writes with mutation on", "[inspect][equivalence]") {
+    // Mutation is hashed from the coordinate and the generation, so the
+    // inspector must agree about an overridden cell too — and say that it was
+    // overridden rather than reporting the rule's answer as the outcome.
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero);
+    const core::GridSpec spec{2, 37, 29, 1};
+    for (const Fixture& f : fixtures()) {
+        rule::RuleIR ir = f.ir;
+        ir.boundary = boundary;
+        auto compiled = rule::compileRule(ir);
+        REQUIRE(std::holds_alternative<rule::CompiledRule>(compiled));
+        const rule::CompiledRule rule = std::get<rule::CompiledRule>(std::move(compiled));
+
+        sim::CellMutation mutation;
+        mutation.threshold = sim::mutationThreshold(0.05);
+        mutation.seedB = 99;
+
+        core::HostGrid grid(spec);
+        fill(grid, ir.states, 777u, 0.4);
+        sim::cpuStep(rule, spec, grid.current(), grid.next(), 5, mutation);
+
+        sim::StepScratch scratch(rule);
+        size_t overridden = 0;
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary) << " / p=0.05") {
+            for (uint32_t y = 0; y < spec.height; ++y) {
+                for (uint32_t x = 0; x < spec.width; ++x) {
+                    const sim::Inspection got =
+                        sim::inspect(rule, spec, grid.current(), x, y, 0, 5, mutation, scratch);
+                    REQUIRE(got.transition.next == grid.next()[size_t{y} * spec.width + x]);
+                    if (got.transition.mutated) {
+                        ++overridden;
+                        // What the rule alone would have given is still there
+                        // to show beside what mutation did with it. The two
+                        // may coincide: cell mutation draws uniformly over
+                        // every state and does not exclude the current one
+                        // (SPEC §9.2), so the check is that `fromRule` is
+                        // the rule's answer, not that it differs.
+                        const sim::Inspection unmutated =
+                            sim::inspect(rule, spec, grid.current(), x, y, 0, 5, sim::CellMutation{}, scratch);
+                        CHECK_FALSE(unmutated.transition.mutated);
+                        CHECK(got.transition.fromRule == unmutated.transition.next);
+                    }
+                }
+            }
+            CHECK(overridden > 0);
+        }
+    }
 }

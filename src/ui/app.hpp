@@ -16,6 +16,7 @@
 #include "rule/lua.hpp"
 #include "sim/pattern.hpp"
 #include "sim/pattern_library.hpp"
+#include "sim/inspect.hpp"
 #include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
@@ -78,6 +79,8 @@ private:
     void savePatternFile(sim::Pattern p, std::string name, const char* fallbackName);  // the one write to patterns/
     void drawEditor();                // the scratch pad, in a window of its own (F-029)
     void drawEditorGrid();            // the pad's cells, drawn and painted
+    void drawInspector();             // what the cell under the cursor is about to do (F-030)
+    void drawNeighbourhood(const sim::Inspection&);   // the neighbours, in their own geometry
     bool ensureScratch();             // make one from the live rule if there is none
     std::optional<std::pair<int, int>> cellUnderCursor() const;
     std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
@@ -173,6 +176,15 @@ private:
     int   editorWidth_ = 32, editorHeight_ = 32;
     float editorZoom_ = 12.0f;                  // pixels per cell
     std::array<char, 128> editorSaveAs_{};
+    // The cell the inspector is reading (F-030). Kept rather than taken from
+    // the cursor each frame, so the panel still says something once the mouse
+    // has left the pad to go and read it.
+    std::optional<std::array<uint32_t, 3>> inspectAt_;
+    bool showInspector_ = true;
+    // Rebuilt when the pad's rule changes; a StepScratch allocates, and this
+    // is on the frame path.
+    std::optional<sim::StepScratch> inspectScratch_;
+    uint64_t inspectScratchFor_ = 0;   // the ir_hash it was built for
     std::vector<rule::LibraryRule> library_;
     std::vector<sim::LibraryPattern> patternLibrary_;
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
