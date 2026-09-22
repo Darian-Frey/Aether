@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <charconv>
 #include <format>
 #include <utility>
@@ -366,6 +367,99 @@ std::variant<std::string, PatternError> writePattern(const Pattern& p, Format f)
     if (f == Format::Rle) return writeRle(p);
     if (const auto bad = p.problems(); !bad.empty()) return PatternError{bad.front()};
     return writeNative(p);
+}
+
+// --- Patterns against a grid ------------------------------------------------
+
+Lattice latticeFor(const rule::RuleIR& ir) {
+    return ir.neighbourhood.type == rule::NeighbourhoodType::Hexagonal ? Lattice::Hexagonal
+                                                                       : Lattice::Square;
+}
+
+std::optional<PatternError> patternFits(const Pattern& p, const rule::RuleIR& ir,
+                                        const core::GridSpec& spec,
+                                        uint32_t x, uint32_t y, uint32_t z) {
+    if (const auto bad = p.problems(); !bad.empty()) return PatternError{"pattern: " + bad.front()};
+    if (p.lattice != latticeFor(ir)) {
+        return PatternError{std::format("pattern is {} but the grid is {}",
+                                        toString(p.lattice), toString(latticeFor(ir)))};
+    }
+    if (p.cell_type != spec.cell_type) {
+        return PatternError{std::format("pattern holds {} cells but the grid holds {}",
+                                        core::toString(p.cell_type), core::toString(spec.cell_type))};
+    }
+    if (p.cell_type == core::CellType::U8 && p.states > ir.states) {
+        return PatternError{std::format("pattern uses {} states but the rule has {}", p.states, ir.states)};
+    }
+    if (uint64_t{x} + p.width > spec.width || uint64_t{y} + p.height > spec.height ||
+        uint64_t{z} + p.depth > spec.depth) {
+        return PatternError{std::format("a {}x{}x{} pattern at ({},{},{}) hangs over the edge of a {}x{}x{} grid",
+                                        p.width, p.height, p.depth, x, y, z,
+                                        spec.width, spec.height, spec.depth)};
+    }
+    return std::nullopt;
+}
+
+namespace {
+
+// Cell index within a buffer of this spec. The same arithmetic HostGrid::index
+// does, reachable from a bare span.
+size_t cellIndex(const core::GridSpec& spec, uint32_t x, uint32_t y, uint32_t z) {
+    return (size_t{z} * spec.height + y) * spec.width + x;
+}
+
+}  // namespace
+
+void blitPattern(const Pattern& p, const core::GridSpec& spec, std::span<uint8_t> cells,
+                 uint32_t x, uint32_t y, uint32_t z) {
+    assert(uint64_t{x} + p.width <= spec.width && uint64_t{y} + p.height <= spec.height &&
+           uint64_t{z} + p.depth <= spec.depth);
+    assert(p.cell_type == spec.cell_type);
+    const uint32_t bytes = core::cellBytes(spec.cell_type);
+    for (uint32_t pz = 0; pz < p.depth; ++pz) {
+        for (uint32_t py = 0; py < p.height; ++py) {
+            const size_t dst = cellIndex(spec, x, y + py, z + pz) * bytes;
+            const size_t src = (size_t{pz} * p.height + py) * p.width * bytes;
+            std::copy_n(p.cells.begin() + static_cast<std::ptrdiff_t>(src),
+                        size_t{p.width} * bytes, cells.begin() + static_cast<std::ptrdiff_t>(dst));
+        }
+    }
+}
+
+std::variant<Pattern, PatternError> extractRegion(const rule::RuleIR& ir, const core::GridSpec& spec,
+                                                  std::span<const uint8_t> cells,
+                                                  uint32_t x, uint32_t y, uint32_t z,
+                                                  uint32_t w, uint32_t h, uint32_t d) {
+    if (w == 0 || h == 0 || d == 0) return PatternError{"a pattern needs a region of at least one cell"};
+    if (uint64_t{x} + w > spec.width || uint64_t{y} + h > spec.height || uint64_t{z} + d > spec.depth) {
+        return PatternError{"the region reaches outside the grid"};
+    }
+
+    Pattern p;
+    p.dimensions = spec.dimensions;
+    p.width = w; p.height = h; p.depth = d;
+    p.lattice = latticeFor(ir);
+    p.cell_type = spec.cell_type;
+    p.rule = ir.metadata.source_notation.value_or(ir.metadata.name.value_or(std::string{}));
+    if (p.rule->empty()) p.rule.reset();
+
+    const uint32_t bytes = core::cellBytes(spec.cell_type);
+    p.cells.resize(size_t{w} * h * d * bytes);
+    for (uint32_t pz = 0; pz < d; ++pz) {
+        for (uint32_t py = 0; py < h; ++py) {
+            const size_t src = cellIndex(spec, x, y + py, z + pz) * bytes;
+            const size_t dst = (size_t{pz} * h + py) * w * bytes;
+            std::copy_n(cells.begin() + static_cast<std::ptrdiff_t>(src), size_t{w} * bytes,
+                        p.cells.begin() + static_cast<std::ptrdiff_t>(dst));
+        }
+    }
+    if (p.cell_type == core::CellType::U8) {
+        uint16_t highest = 0;
+        for (uint8_t c : p.cells) highest = std::max<uint16_t>(highest, c);
+        p.states = static_cast<uint16_t>(std::max<uint16_t>(2, highest + 1));
+    }
+    if (const auto bad = p.problems(); !bad.empty()) return PatternError{"extracted pattern: " + bad.front()};
+    return p;
 }
 
 }  // namespace aether::sim

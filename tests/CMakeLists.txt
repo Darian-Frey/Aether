@@ -28,6 +28,7 @@ add_executable(aether_tests
     sim/lineage_test.cpp
     sim/session_test.cpp
     sim/scheduler_test.cpp
+    sim/scratch_test.cpp
     sim/rng_test.cpp
     sim/simulation_test.cpp
     render/view2d_test.cpp

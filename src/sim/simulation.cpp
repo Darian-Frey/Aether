@@ -201,51 +201,18 @@ namespace {
 // A pattern's lattice is the rule's: hex neighbourhoods are the only ones
 // stored axially, and the pattern format names the lattice rather than the
 // neighbourhood because a pattern has no radius (SPEC §14).
-Lattice latticeOf(const rule::RuleIR& ir) {
-    return ir.neighbourhood.type == rule::NeighbourhoodType::Hexagonal ? Lattice::Hexagonal
-                                                                       : Lattice::Square;
-}
-
 }  // namespace
 
 std::optional<core::Error> Simulation::canPlace(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) const {
-    if (const auto bad = p.problems(); !bad.empty()) return core::Error{"pattern: " + bad.front()};
-    if (p.lattice != latticeOf(ir_)) {
-        return core::Error{std::format("pattern is {} but the grid is {}",
-                                       toString(p.lattice), toString(latticeOf(ir_)))};
-    }
-    if (p.cell_type != spec().cell_type) {
-        return core::Error{std::format("pattern holds {} cells but the grid holds {}",
-                                       core::toString(p.cell_type), core::toString(spec().cell_type))};
-    }
-    if (p.cell_type == core::CellType::U8 && p.states > ir_.states) {
-        return core::Error{std::format("pattern uses {} states but the rule has {}", p.states, ir_.states)};
-    }
-    if (uint64_t{x} + p.width > spec().width || uint64_t{y} + p.height > spec().height ||
-        uint64_t{z} + p.depth > spec().depth) {
-        return core::Error{std::format("a {}x{}x{} pattern at ({},{},{}) hangs over the edge of a {}x{}x{} grid",
-                                       p.width, p.height, p.depth, x, y, z,
-                                       spec().width, spec().height, spec().depth)};
-    }
+    if (auto e = patternFits(p, ir_, spec(), x, y, z)) return core::Error{e->message};
     return std::nullopt;
 }
 
 std::optional<core::Error> Simulation::placePattern(const Pattern& p, uint32_t x, uint32_t y, uint32_t z) {
     if (auto e = canPlace(p, x, y, z)) return e;
-
-    // The host rows are strided by the grid width; the pattern's are not, so
-    // the copy is per row. The GPU takes the pattern's own buffer whole,
-    // which is exactly the layout uploadRegion wants.
-    const uint32_t bytes = core::cellBytes(spec().cell_type);
-    auto cells = host_.current();
-    for (uint32_t pz = 0; pz < p.depth; ++pz) {
-        for (uint32_t py = 0; py < p.height; ++py) {
-            const size_t dst = host_.index(x, y + py, z + pz) * bytes;
-            const size_t src = (size_t{pz} * p.height + py) * p.width * bytes;
-            std::copy_n(p.cells.begin() + static_cast<std::ptrdiff_t>(src),
-                        size_t{p.width} * bytes, cells.begin() + static_cast<std::ptrdiff_t>(dst));
-        }
-    }
+    blitPattern(p, spec(), host_.current(), x, y, z);
+    // The GPU takes the pattern's own buffer whole, which is exactly the
+    // layout uploadRegion wants.
     gpu_.uploadRegion(x, y, z, p.width, p.height, p.depth, p.cells);
     journal(generation_, EvPlace{p, x, y, z});
     return std::nullopt;
@@ -253,41 +220,10 @@ std::optional<core::Error> Simulation::placePattern(const Pattern& p, uint32_t x
 
 std::variant<Pattern, core::Error> Simulation::extractPattern(uint32_t x, uint32_t y, uint32_t z,
                                                               uint32_t w, uint32_t h, uint32_t d) {
-    if (w == 0 || h == 0 || d == 0) return core::Error{"a pattern needs a region of at least one cell"};
-    if (uint64_t{x} + w > spec().width || uint64_t{y} + h > spec().height ||
-        uint64_t{z} + d > spec().depth) {
-        return core::Error{"the region reaches outside the grid"};
-    }
     syncToHost();
-
-    Pattern p;
-    p.dimensions = spec().dimensions;
-    p.width = w; p.height = h; p.depth = d;
-    p.lattice = latticeOf(ir_);
-    p.cell_type = spec().cell_type;
-    p.rule = ir_.metadata.source_notation.value_or(ir_.metadata.name.value_or(std::string{}));
-    if (p.rule->empty()) p.rule.reset();
-
-    const uint32_t bytes = core::cellBytes(spec().cell_type);
-    p.cells.resize(size_t{w} * h * d * bytes);
-    auto cells = host_.current();
-    uint16_t highest = 0;
-    for (uint32_t pz = 0; pz < d; ++pz) {
-        for (uint32_t py = 0; py < h; ++py) {
-            const size_t src = host_.index(x, y + py, z + pz) * bytes;
-            const size_t dst = (size_t{pz} * h + py) * w * bytes;
-            std::copy_n(cells.begin() + static_cast<std::ptrdiff_t>(src), size_t{w} * bytes,
-                        p.cells.begin() + static_cast<std::ptrdiff_t>(dst));
-        }
-    }
-    if (p.cell_type == core::CellType::U8) {
-        for (uint8_t c : p.cells) highest = std::max<uint16_t>(highest, c);
-        // What the cells use, not what the rule has: a pattern using three of
-        // fourteen states fits any rule with three (SPEC §14).
-        p.states = static_cast<uint16_t>(std::max<uint16_t>(2, highest + 1));
-    }
-    if (const auto bad = p.problems(); !bad.empty()) return core::Error{"extracted pattern: " + bad.front()};
-    return p;
+    auto got = extractRegion(ir_, spec(), host_.current(), x, y, z, w, h, d);
+    if (const auto* e = std::get_if<PatternError>(&got)) return core::Error{e->message};
+    return std::get<Pattern>(got);
 }
 
 void Simulation::fillRegion(uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d,

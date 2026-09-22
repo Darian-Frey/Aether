@@ -1,5 +1,8 @@
 #include "rule/library.hpp"
 
+#include "rule/dsl.hpp"
+#include "rule/lua.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -148,6 +151,25 @@ std::optional<std::string> saveRule(const std::string& directory, const LibraryR
     if (!rule.source.ends_with("\n")) f << "\n";
     if (!f) return std::format("write failed for {}", path.string());
     return std::nullopt;
+}
+
+std::variant<RuleIR, std::string> compileLibraryRule(const LibraryRule& entry, Boundary boundary) {
+    if (entry.isLua) {
+        LuaContext lctx;
+        lctx.dimensions = entry.dimensions;
+        lctx.boundary = boundary;
+        auto r = compileLua(entry.source, lctx);
+        if (const auto* e = std::get_if<LuaError>(&r)) return e->message;
+        return std::get<RuleIR>(std::move(r));
+    }
+    DslContext ctx;
+    ctx.dimensions = entry.dimensions;
+    ctx.boundary = boundary;
+    auto parsed = parseDsl(entry.source, ctx);
+    if (!parsed) {
+        return std::format("{}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message);
+    }
+    return *parsed.ir;
 }
 
 }  // namespace aether::rule

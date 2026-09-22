@@ -23,6 +23,16 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
+### IMP-009: ImGui's default font has no em dash, so seven interface strings show a question mark
+**Status:** suggested
+**Found:** 2026-09-22 (F-029, reading a screenshot of the new editor window)
+**Location:** `src/ui/app.cpp` (font setup); the strings are in `src/ui/panels.cpp`
+**Effort:** trivial
+**Description.** Dear ImGui's default font is built with the Basic Latin and Latin-1 Supplement ranges only. An em dash is U+2014 and a bullet U+2022, both in General Punctuation, so neither has a glyph and each renders as `?`. Seven rendered strings are affected — the tooltips on `N`, `R`, `F` and the CPU-path selector, the 3D slice-mode line, and two log messages about a pattern being ready to place. It has been there since the tooltips were written and was never noticed because tooltips are transient and the log panel is usually closed. The reason the rest of the interface looks right is that the separators use `·`, U+00B7, which is inside Latin-1 and does have a glyph. British English is a documentation convention rather than an interface one, so this is purely cosmetic: the strings read correctly, one character is wrong.
+**Proposal.** Build the font atlas with a glyph range that includes General Punctuation, which is one `ImFontGlyphRangesBuilder` call or an explicit range array at font load, and then the existing strings need no editing at all. The alternative — rewriting seven strings to use a hyphen — is smaller but has to be remembered every time a string is written, which is how this arrived.
+**Trade-offs.** A wider range makes the atlas texture larger, by a few hundred glyphs at one font size, which is nothing against the volume texture. Against that, doing nothing costs a `?` in strings nobody reads twice.
+**Notes.** Found by comparing a screenshot against the source rather than by reading the source: the two characters are indistinguishable from a hyphen and a full stop at a glance in an editor. The new editor window (F-029) was written to use `·` and a hyphen, so it is not in the count.
+
 ### IMP-008: the pattern preview is ImGui rectangles, so a large pattern shows only its outline
 **Status:** suggested
 **Found:** 2026-09-21 (F-012, building the placement interface)

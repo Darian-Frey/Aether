@@ -133,6 +133,9 @@ void App::drawPanels() {
 
     ImGui::PopItemWidth();
     ImGui::End();
+
+    // Its own window, after the fixed column so it floats over the viewport.
+    drawEditor();
 }
 
 // What the cursor is over, and whether time is passing. Drawn over the
@@ -192,6 +195,7 @@ void App::drawHelpPanel() {
         {"Shift+drag", "select a region"},
         {"Left click", "place a pending pattern"},
         {"Esc", "cancel a pending pattern"},
+        {"E", "the pattern editor's scratch pad"},
         {"Right drag", "pan (2D) or orbit (3D)"},
         {"Wheel", "zoom"},
         {"S", "3D: slice mode"},
@@ -708,8 +712,15 @@ void App::savePatternSelection() {
         log_.error(e->message);
         return;
     }
-    sim::Pattern p = std::get<sim::Pattern>(std::move(got));
-    if (savePatternAs_[0] != '\0') p.name = savePatternAs_.data();
+    savePatternFile(std::get<sim::Pattern>(std::move(got)), savePatternAs_.data(), "selection");
+}
+
+// The one place a pattern is written to a file. The format follows the
+// pattern rather than the name (D-017), and `pathFor` decides where a bare
+// name lands, so the editor and the selection agree on both without either
+// knowing how the other does it.
+void App::savePatternFile(sim::Pattern p, std::string name, const char* fallbackName) {
+    if (!name.empty()) p.name = name;
 
     const sim::Format f = sim::formatFor(p);
     auto text = sim::writePattern(p, f);
@@ -718,8 +729,7 @@ void App::savePatternSelection() {
         return;
     }
 
-    const std::string path = sim::pathFor(savePatternAs_[0] != '\0' ? savePatternAs_.data() : "selection", f);
-
+    const std::string path = sim::pathFor(name.empty() ? fallbackName : name, f);
     std::ofstream out(path, std::ios::binary);
     if (!out) {
         log_.error(std::format("cannot write {}", path));
@@ -791,6 +801,15 @@ void App::drawPatternsPanel() {
     } else {
         ImGui::TextDisabled("shift-drag the grid to select a region to save");
     }
+    ImGui::Separator();
+
+    // The way into the editor (F-029). It lives with the patterns because
+    // that is what it makes: a pad is drawn on, and what leaves it is a
+    // pattern, placed or saved like any other.
+    if (ImGui::Checkbox("Pattern editor", &showEditor_)) {
+        if (showEditor_) ensureScratch();
+    }
+    hint("E - a scratch pad to draw a creature on and step, outside the run");
     ImGui::Separator();
 
     if (!pending_) {

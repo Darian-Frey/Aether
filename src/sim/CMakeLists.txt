@@ -10,6 +10,7 @@ add_library(aether_sim STATIC
     pattern.cpp
     pattern_library.cpp
     rule_mutation.cpp
+    scratch.cpp
     session.cpp
     simulation.cpp
     ${HASH_GLSL_CPP}

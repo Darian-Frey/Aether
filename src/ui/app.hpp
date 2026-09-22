@@ -16,6 +16,7 @@
 #include "rule/lua.hpp"
 #include "sim/pattern.hpp"
 #include "sim/pattern_library.hpp"
+#include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
 #include "ui/log.hpp"
 
@@ -74,6 +75,10 @@ private:
     void drawPatternPreview();        // the pending pattern under the cursor, drawn not written
     void drawSelection();             // the selected region, outlined not written
     void savePatternSelection();      // the selected region, out to a file
+    void savePatternFile(sim::Pattern p, std::string name, const char* fallbackName);  // the one write to patterns/
+    void drawEditor();                // the scratch pad, in a window of its own (F-029)
+    void drawEditorGrid();            // the pad's cells, drawn and painted
+    bool ensureScratch();             // make one from the live rule if there is none
     std::optional<std::pair<int, int>> cellUnderCursor() const;
     std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
     std::optional<std::string> pendingProblem() const;          // why it would not, or nothing
@@ -159,6 +164,15 @@ private:
     // afterwards; without this the same click then paints where it landed.
     bool swallowLeft_ = false;
     std::array<char, 128> savePatternAs_{};
+    // The pattern editor's scratch pad (F-029). Outside the session and the
+    // journal by design, so it is not part of what a run replays; it holds a
+    // rule and a grid of its own and steps on the CPU path whatever the
+    // simulation is doing.
+    std::optional<sim::Scratch> scratch_;
+    bool  showEditor_ = false;
+    int   editorWidth_ = 32, editorHeight_ = 32;
+    float editorZoom_ = 12.0f;                  // pixels per cell
+    std::array<char, 128> editorSaveAs_{};
     std::vector<rule::LibraryRule> library_;
     std::vector<sim::LibraryPattern> patternLibrary_;
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded

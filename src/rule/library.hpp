@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace aether::rule {
@@ -42,6 +43,13 @@ struct LibraryRule {
     uint8_t     dimensions = 2;
     std::vector<PaletteOverride> palette;
 };
+
+// A library rule's source as an IR, through whichever front end its file
+// names (SPEC §7, §8). The one place that dispatch lives: a caller holding a
+// LibraryRule should not have to know that `.lua` means one parser and
+// `.rule` another. `boundary` is the run's, since neither front end's source
+// carries one. The string is the front end's own error message.
+std::variant<RuleIR, std::string> compileLibraryRule(const LibraryRule&, Boundary boundary);
 
 // Parses one file's text. `id` and `isLua` come from its name.
 LibraryRule parseRuleFile(std::string id, std::string text, bool isLua);

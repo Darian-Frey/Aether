@@ -23,6 +23,8 @@
 #pragma once
 
 #include "core/cell.hpp"
+#include "core/grid.hpp"
+#include "rule/ir.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -91,6 +93,39 @@ std::variant<std::string, PatternError> writePattern(const Pattern&, Format);
 
 // The file extension a format uses, without the dot.
 std::string_view extensionFor(Format);
+
+// --- Patterns against a grid ------------------------------------------------
+//
+// A pattern goes into a buffer of cells and comes out of one, and there is one
+// implementation of each: `Simulation` has a live grid to journal and a GPU
+// copy to keep in step, and the scratch pad of F-029 has neither, but the
+// copy itself is the same arithmetic and does not get written twice (AV-017 is
+// about exactly this class of second opinion).
+
+// The lattice a rule is drawn on. Patterns record it because the same cells
+// mean a different shape on a hex lattice (SPEC §3).
+Lattice latticeFor(const rule::RuleIR&);
+
+// Whether this pattern could be placed at (x, y, z) on a grid of this spec
+// running this rule: well-formed, the right lattice and cell type, within the
+// rule's state count, and inside the grid. Empty when it fits. Split from the
+// placement so an interface can refuse before the click rather than after it.
+std::optional<PatternError> patternFits(const Pattern&, const rule::RuleIR&, const core::GridSpec&,
+                                       uint32_t x, uint32_t y, uint32_t z);
+
+// Copies a pattern's cells into `cells` at (x, y, z). The pattern's rows are
+// contiguous and the grid's are strided by its width, so the copy is per row.
+// The caller has checked it fits; this asserts rather than returns.
+void blitPattern(const Pattern&, const core::GridSpec&, std::span<uint8_t> cells,
+                 uint32_t x, uint32_t y, uint32_t z);
+
+// The reverse: a region of `cells` as a pattern. `states` is set from what the
+// cells actually use rather than from the rule, since a pattern using three of
+// fourteen states fits any rule with three (SPEC §14).
+std::variant<Pattern, PatternError> extractRegion(const rule::RuleIR&, const core::GridSpec&,
+                                                 std::span<const uint8_t> cells,
+                                                 uint32_t x, uint32_t y, uint32_t z,
+                                                 uint32_t w, uint32_t h, uint32_t d);
 
 // Where a pattern called `name` belongs. A bare name goes into `dir`, which is
 // where the library looks; anything carrying a separator is taken as the path
