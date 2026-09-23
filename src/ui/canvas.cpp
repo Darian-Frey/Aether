@@ -140,6 +140,20 @@ void App::updateCanvas(double /*dt*/) {
 
     if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
 
+    // A 1D run is shown as its history, not as its row, so the mouse means
+    // something different: the wheel sets how many pixels a generation gets,
+    // and there is nothing to paint or pan. Painting would write into a row
+    // the diagram has already scrolled past (F-005).
+    if (is1D()) {
+        const float wheel1d = GetMouseWheelMove();
+        if (wheel1d != 0.0f && overViewport) {
+            const int before = spaceTimeZoom_;
+            spaceTimeZoom_ = std::clamp(spaceTimeZoom_ + (wheel1d > 0 ? 1 : -1), 1, 16);
+            if (spaceTimeZoom_ != before) rebuildSpaceTime();
+        }
+        return;
+    }
+
     // --- Zoom about the cursor ----------------------------------------------
     const float wheel = GetMouseWheelMove();
     if (wheel != 0.0f && overViewport) {

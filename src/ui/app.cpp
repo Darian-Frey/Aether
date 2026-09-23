@@ -125,7 +125,7 @@ int App::run() {
             loadSessionFrom(opts_.load);
             if (!sim_) exitCode = 1;
         } else if (exitCode == 0) {
-            ctx_.dimensions = opts_.depth > 1 ? 3 : 2;
+            ctx_.dimensions = opts_.dimensions;
             ruleLanguage_ = opts_.ruleIsLua ? 1 : 0;
             if (!opts_.ruleIsLua && opts_.rule.starts_with("@")) {
                 const std::string wanted = opts_.rule.substr(1);
@@ -152,7 +152,12 @@ int App::run() {
                 exitCode = 1;
             } else {
                 sim_->scheduler().setTargetRate(opts_.targetGps);
-                sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+                // A 1D run starts from one cell rather than a soup: that is
+                // the picture an elementary rule is known by, and the whole
+                // of what makes rule 90 a triangle rather than a mess. Seed
+                // is one press away for the other kind (F-005).
+                if (sim_->spec().dimensions == 1) seedSingleCell();
+                else sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
                 sim_->scheduler().setPaused(false);
             }
         }
@@ -161,7 +166,10 @@ int App::run() {
         while (exitCode == 0 && !WindowShouldClose()) {
             const double dt = GetFrameTime();
             layOut();
-            if (IsWindowResized()) fitView();
+            if (IsWindowResized()) {
+                fitView();
+                if (is1D()) rebuildSpaceTime();   // the row count is the viewport's
+            }
 
             updateCanvas(dt);
             if (sim_) {
@@ -175,7 +183,15 @@ int App::run() {
                     // generations. Letting the scheduler decide would tie the
                     // record to how fast this machine happened to be drawing.
                     const uint64_t steps = recording_->stepsBefore(sim_->generation());
-                    for (uint64_t i = 0; i < steps; ++i) sim_->step();
+                    for (uint64_t i = 0; i < steps; ++i) {
+                        sim_->step();
+                        if (spaceTime_) spaceTime_->capture(sim_->texture());
+                    }
+                } else if (spaceTime_) {
+                    // Every generation is a row, not just the last one of the
+                    // frame, or the diagram would have gaps wherever the rate
+                    // ran ahead of the frame rate.
+                    sim_->frame(dt, [&] { spaceTime_->capture(sim_->texture()); });
                 } else {
                     sim_->frame(dt);
                 }
@@ -190,7 +206,11 @@ int App::run() {
 
             BeginDrawing();
             ClearBackground(Color{18, 18, 22, 255});
-            if (sim_ && is3D() && renderer3d_) {
+            if (sim_ && spaceTime_ && renderer_) {
+                renderer_->setDecayFrom(std::nullopt);
+                spaceTime_->draw(*renderer_, viewport_, GetRenderWidth(), GetRenderHeight(),
+                                 sim_->rule().states, static_cast<double>(std::max(1, spaceTimeZoom_)));
+            } else if (sim_ && is3D() && renderer3d_) {
                 renderer3d_->draw(sim_->texture(), sim_->spec(), orbit_, volumeSettings(), viewport_,
                                   GetRenderWidth(), GetRenderHeight());
             } else if (sim_ && renderer_) {
@@ -237,6 +257,7 @@ int App::run() {
         renderer_.reset();
         renderer3d_.reset();
         previewGrid_.reset();   // a GL handle like the rest: before CloseWindow
+        spaceTime_.reset();
     }
     CloseWindow();
     return exitCode;
@@ -340,6 +361,31 @@ void App::refreshWindowTitle() {
                        .c_str());
 }
 
+bool App::is1D() const { return sim_ && sim_->spec().dimensions == 1; }
+
+void App::seedSingleCell() {
+    if (!sim_) return;
+    sim_->clear();
+    const uint32_t middle = sim_->spec().width / 2;
+    sim_->paintSpan(middle, middle, 0, 0, 1);
+    rebuildSpaceTime();
+}
+
+void App::rebuildSpaceTime() {
+    spaceTime_.reset();
+    if (!is1D()) return;
+    const uint32_t zoom = static_cast<uint32_t>(std::max(1, spaceTimeZoom_));
+    const uint32_t rows = std::max(1u, static_cast<uint32_t>(viewport_.h) / zoom);
+    auto made = render::SpaceTime::create(sim_->spec().width, rows);
+    if (const auto* e = std::get_if<core::Error>(&made)) {
+        log_.error(std::format("space-time view: {}", e->message));
+        return;
+    }
+    spaceTime_.emplace(std::move(std::get<render::SpaceTime>(made)));
+    // The state as it stands is the first generation of the diagram.
+    spaceTime_->capture(sim_->texture());
+}
+
 bool App::is3D() const { return sim_ && sim_->spec().dimensions == 3; }
 
 render::VolumeSettings App::volumeSettings() const {
@@ -362,7 +408,12 @@ render::VolumeSettings App::volumeSettings() const {
 bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path) {
     // The grid's storage follows the rule: a continuous rule needs float
     // cells, and Simulation refuses the pair if they disagree.
-    core::GridSpec spec{static_cast<uint8_t>(depth > 1 ? 3 : 2), width, height, depth, ir.cell_type};
+    // The rule decides the dimensionality, not the extents: an elementary
+    // rule is 1D whatever numbers it was handed (F-005), and a 1D grid is a
+    // different thing from a 2D one that happens to be one cell tall.
+    if (ir.dimensions < 3) depth = 1;
+    if (ir.dimensions < 2) height = 1;
+    core::GridSpec spec{ir.dimensions, width, height, depth, ir.cell_type};
     auto made = sim::Simulation::create(spec, ir, path, opts_.seed, opts_.seedB);
     if (const auto* e = std::get_if<core::Error>(&made)) {
         log_.error(std::format("grid {}x{}: {}", width, height, e->message));
@@ -380,6 +431,7 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
     sliceIndex_ = static_cast<int>(depth / 2);
     applyPaletteForStates();
     fitView();
+    rebuildSpaceTime();
     refreshWindowTitle();
     return true;
 }
@@ -409,6 +461,7 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     const auto defaults = sim::defaultDensity(ir);
     density_.assign(defaults.begin(), defaults.end());
     fitView();
+    rebuildSpaceTime();
     refreshWindowTitle();
     log_.info(std::format("{}: generation {}, {} lineage entries, {} journal events (paused)", what,
                           sim_->generation(), sim_->lineage().size(), sim_->journal().size()));
@@ -534,6 +587,30 @@ bool App::compileRuleText() {
         return false;
     }
     if (!sim_) return false;
+    // A rule of another dimensionality needs a grid of that shape; `setRule`
+    // rightly refuses the mismatch rather than reinterpreting the cells, so
+    // the grid is rebuilt here as it is for a library rule. An elementary
+    // rule is the common way to arrive at this (F-005).
+    if (compiled->dimensions != sim_->spec().dimensions) {
+        const uint32_t width = compiled->dimensions == 3 ? 64u
+                             : compiled->dimensions == 1 ? std::max(64u, sim_->spec().width)
+                                                         : 512u;
+        const uint32_t height = compiled->dimensions >= 2 ? width : 1u;
+        const uint32_t depth  = compiled->dimensions == 3 ? width : 1u;
+        const sim::Path path = sim_->path();
+        const uint8_t was = sim_->spec().dimensions;
+        sim_.reset();
+        if (!createSimulation(width, height, depth, *compiled, path)) return false;
+        sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+        ctx_.dimensions = compiled->dimensions;
+        newWidth_ = static_cast<int>(width);
+        newHeight_ = static_cast<int>(height);
+        newDepth_ = static_cast<int>(depth);
+        ruleError_.clear();
+        refreshRuleSummary();
+        log_.info(std::format("rule is {}D; rebuilt the grid from {}D", compiled->dimensions, was));
+        return true;
+    }
     const uint16_t oldStates = sim_->rule().states;
     if (auto e = sim_->setRule(*compiled)) {
         ruleError_ = e->message;

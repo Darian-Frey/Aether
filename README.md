@@ -51,6 +51,16 @@ Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at 
 
 The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules and a fading Life. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
 
+### One dimension
+
+`W110` — or any number from 0 to 255 — loads one of Wolfram's elementary rules. A one-dimensional automaton has nothing to look at in its own geometry, so it is drawn as its history instead: each generation becomes a row and time runs down the screen, scrolling once the window is full. That is the picture rule 30 and rule 110 are known by, and it is what makes rule 90 recognisable as Sierpinski's triangle rather than a flickering line.
+
+```bash
+./build/aether --rule W30 --size 800     # one number is a 1D grid
+```
+
+A 1D run starts from a single live cell, which is how these rules are usually read; **Seed** in the Grid section gives a random row instead. Over the diagram the wheel sets how many pixels a generation gets.
+
 ### Patterns and seeding
 
 The Patterns section lists what is in `patterns/` — gliders, a Gosper gun, a Wireworld loop, a Brian's Brain glider, a cyclic spiral seed, a hex oscillator and a 3D shell — or opens any `.rle` or `.pattern` file. A chosen pattern follows the cursor until you click, drawn in the colours it will become rather than written into the grid, so you can see it against what is already there before committing to it; one the running rule cannot take is greyed in the list, tinted red under the cursor, and says why. Shift-drag the grid to select a region, and the Patterns section will write it back out as a file: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not, so hexagonal, 3D and continuous patterns are not squeezed into a format that cannot hold them.

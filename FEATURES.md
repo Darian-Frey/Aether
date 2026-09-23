@@ -64,7 +64,11 @@ People who want to explore cellular automata rather than run one specific automa
 **Acceptance:**
 - Wolfram rules 0–255 by number
 - Rendered as a space-time diagram: one generation per raster row, scrolling
-**Status:** Not started
+**Status:** Complete (2026-09-23).
+**Notes on how:** `W110` in the DSL. The eight-entry table is filled through `TableLayout::indexNonTotalistic` rather than by working out where each signature lands, so the front end cannot disagree with the steppers about what a neighbourhood means; bit i answers the neighbourhood whose (left, centre, right) read as binary is i, which is Wolfram's own numbering. The rule declares `dimensions = 1` whatever the session says, because an elementary rule is one-dimensional by definition, and the interface rebuilds the grid to match as it already did for a 3D library rule. `--size` grew a one-number form, there having been no way to ask for a 1D grid at all.
+`render/spacetime` is the diagram: a texture of the grid's width by as many rows as fit, written one row per generation by a GPU-to-GPU copy, so a 1D run costs no readback. It is a ring — the newest generation overwrites the oldest and the seam is resolved at draw time as two bands, rather than by copying the whole history up one row every generation. `Renderer2D::drawBand` is the entry point that lets a caller name the row a band starts at; the palette pass itself is unchanged, the history being an ordinary 2D field of states. Every generation becomes a row, not just the last of each frame, which is what `Simulation::frame`'s per-step hook is for.
+A 1D run starts from a single live cell rather than a soup, that being the picture an elementary rule is known by and the whole of what makes rule 90 a triangle instead of a mess; **Single cell** and **Seed** are both in the Grid section. Over the diagram the wheel sets pixels per generation, and painting is off: a click would write into a row that has already scrolled past.
+Checked by running them — rule 90 draws Sierpinski's triangle, rule 30 its ordered-left chaotic-right wedge, rule 110 its leftward structure — and by tests on the transitions themselves, since a rule that ran but meant a different number would look entirely plausible.
 
 ### F-006 Continuous-state automata
 **Priority:** Could

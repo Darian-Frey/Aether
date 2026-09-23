@@ -9,6 +9,7 @@ add_executable(aether_tests
     rule/ir_test.cpp
     rule/dsl_test.cpp
     rule/decay_test.cpp
+    rule/elementary_test.cpp
     rule/signature_test.cpp
     rule/lua_test.cpp
     rule/library_test.cpp

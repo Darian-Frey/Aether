@@ -130,7 +130,7 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
     int code = 0;
     {
         rule::DslContext ctx;
-        ctx.dimensions = opts.depth > 1 ? 3 : 2;
+        ctx.dimensions = opts.dimensions;
         rule::RuleIR ir;
         if (opts.ruleIsLua) {
             rule::LuaContext lctx;

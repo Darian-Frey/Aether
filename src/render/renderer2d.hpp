@@ -66,6 +66,18 @@ public:
                      const Rect& viewport, int frameWidth, int frameHeight, unsigned int states,
                      double cellX, double cellY, Rgba tint);
 
+    // --- A band of rows, for the space-time view (F-005) --------------------
+    //
+    // `viewport` shows the texture's rows from `firstRow` down, at `zoom`
+    // pixels per cell, with column 0 at its left edge. The space-time history
+    // is a ring, so its seam is drawn as two bands rather than by shuffling
+    // the texture's rows every generation; this is the entry point that lets
+    // a caller say which row a band starts at, which `draw` cannot because it
+    // takes a camera rather than an origin.
+    void drawBand(unsigned int stateTexture, const core::GridSpec& spec, const Rect& viewport,
+                  int frameWidth, int frameHeight, unsigned int states,
+                  double zoom, double firstRow);
+
 private:
     Renderer2D() = default;
     void release();

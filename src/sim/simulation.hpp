@@ -26,6 +26,7 @@
 #include "sim/scheduler.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <variant>
@@ -86,6 +87,10 @@ public:
     // --- Time ---------------------------------------------------------------
     void     step();                  // one generation on the active path
     uint32_t frame(double dt);        // as many as the scheduler says
+    // The same, with something to do after each step. The space-time view of
+    // a 1D run needs every generation, not the last one of each frame, and
+    // the number of steps is the scheduler's to decide (F-005).
+    uint32_t frame(double dt, const std::function<void()>& afterStep);
     uint64_t generation() const { return generation_; }
     Scheduler&       scheduler()       { return scheduler_; }
     const Scheduler& scheduler() const { return scheduler_; }

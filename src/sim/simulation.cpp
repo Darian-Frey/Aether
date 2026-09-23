@@ -152,6 +152,10 @@ uint32_t Simulation::frame(double dt) {
     return scheduler_.update(dt, [this] { step(); });
 }
 
+uint32_t Simulation::frame(double dt, const std::function<void()>& afterStep) {
+    return scheduler_.update(dt, [&] { step(); afterStep(); });
+}
+
 std::optional<core::Error> Simulation::setPath(Path p) {
     if (p == path_) return std::nullopt;
     if (p == Path::Cpu) {

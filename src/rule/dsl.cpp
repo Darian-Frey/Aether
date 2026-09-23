@@ -51,6 +51,33 @@ struct LifeLike {
     uint16_t          states = 2;
 };
 
+// Wolfram's elementary rules (F-005), written `W110`.
+//
+// One dimension, two states, one neighbour each side: eight neighbourhoods,
+// and the rule number's eight bits say what each produces. Bit i answers the
+// neighbourhood whose (left, centre, right) read as a binary number is i,
+// which is Wolfram's own numbering and the reason 110 and 30 mean what
+// everyone expects them to.
+//
+// Returns nullopt if `s` is not in that form at all, so the other notations
+// can be tried; an error if it is and is malformed.
+std::optional<std::variant<uint8_t, ParseError>> tryElementary(std::string_view s) {
+    s = trim(s);
+    if (s.size() < 2 || (s[0] != 'W' && s[0] != 'w')) return std::nullopt;
+    // `W` then digits and nothing else, so a table block beginning with a
+    // word that happens to start with w is not swallowed.
+    for (size_t i = 1; i < s.size(); ++i) {
+        if (s[i] < '0' || s[i] > '9') return std::nullopt;
+    }
+    uint32_t n = 0;
+    for (size_t i = 1; i < s.size(); ++i) {
+        n = n * 10 + static_cast<uint32_t>(s[i] - '0');
+        if (n > 255) return std::variant<uint8_t, ParseError>{ParseError{1, static_cast<uint32_t>(i + 1),
+                            "an elementary rule is numbered 0 to 255"}};
+    }
+    return std::variant<uint8_t, ParseError>{static_cast<uint8_t>(n)};
+}
+
 // Returns nullopt if `s` is not in B/S form at all (so the table block can be
 // tried), or an error if it is B/S form but malformed.
 std::optional<std::variant<LifeLike, ParseError>> tryLifeLike(std::string_view s, uint32_t N) {
@@ -693,6 +720,49 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
             ++number;
         }
     }
+    // 0: an elementary rule, which is one dimension by definition — so it
+    // says so rather than taking the session's, and the caller resizes the
+    // grid to match as it does for any rule of another dimensionality.
+    if (auto el = tryElementary(firstLine)) {
+        if (const auto* e = std::get_if<ParseError>(&*el)) {
+            DslResult r;
+            r.error = *e;
+            r.error->line = firstLineNumber;
+            return r;
+        }
+        const uint8_t number = std::get<uint8_t>(*el);
+        RuleIR ir;
+        ir.dimensions    = 1;
+        ir.states        = 2;
+        ir.neighbourhood = {NeighbourhoodType::Moore, 1};   // in 1D, the two adjacent cells
+        ir.boundary      = ctx.boundary;
+        ir.kind          = Kind::NonTotalistic;
+        ir.metadata.source_notation = std::format("W{}", number);
+        ir.metadata.name = std::format("Rule {}", number);
+
+        // The table is filled through the layout's own index function rather
+        // than by working out where each entry lands, so this cannot disagree
+        // with the steppers about what a signature means (SPEC §5).
+        const TableLayout layout(Kind::NonTotalistic, 2, 2);
+        Table table;
+        table.entries.assign(static_cast<size_t>(*layout.size()), 0);
+        for (uint8_t left = 0; left < 2; ++left) {
+            for (uint8_t centre = 0; centre < 2; ++centre) {
+                for (uint8_t right = 0; right < 2; ++right) {
+                    const uint8_t neighbours[2] = {left, right};   // canonical order: -1 then +1
+                    const uint32_t bit = static_cast<uint32_t>(left) * 4u +
+                                         static_cast<uint32_t>(centre) * 2u + right;
+                    table.entries[layout.indexNonTotalistic(centre, neighbours)] =
+                        static_cast<uint8_t>((number >> bit) & 1u);
+                }
+            }
+        }
+        ir.transition = table;
+        DslResult r;
+        r.ir = ir;
+        return r;
+    }
+
     if (auto ll = tryLifeLike(firstLine, mooreN)) {
         if (const auto* e = std::get_if<ParseError>(&*ll)) {
             DslResult r;

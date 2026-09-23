@@ -23,7 +23,15 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
-*None.*
+### IMP-010: App's GL-owning members are kept in the teardown list by memory, and it has failed twice
+**Status:** suggested
+**Found:** 2026-09-23 (F-005, the second time in two features)
+**Location:** `src/ui/app.cpp` (`App::run` teardown), `src/ui/app.hpp` (the members)
+**Effort:** small
+**Description.** GL RAII objects must be destroyed while the context still exists, so `App::run` resets `sim_`, `renderer_`, `renderer3d_`, `previewGrid_` and now `spaceTime_` before `CloseWindow()`. Nothing enforces that list. A member that owns a GL handle and is not added to it is destroyed in `~App()` instead, after the context is gone, and the process segfaults on exit. That has now happened twice in consecutive features — `previewGrid_` in IMP-008 (BUG-016) and `spaceTime_` in F-005 — each time caught by running the thing rather than by reading the code, and each time in spite of the rule being written down in CLAUDE.md's pitfalls and in ATTACK_VECTORS. A rule that is followed by remembering it is a rule that will be forgotten; the interesting fact is not that it happened but that documenting it did not prevent the recurrence.
+**Proposal.** Group every GL-owning member into one struct — `struct GlOwned { std::optional<sim::Simulation> sim; std::optional<render::Renderer2D> renderer; ... };` — held by `App` as a single member and reset in one statement inside the window's lifetime. Adding a new GL object then means adding it to that struct, which is the same act as putting it in the teardown, rather than two acts of which the second is easy to skip. The alternative, a scoped object whose destructor runs before `CloseWindow()`, amounts to the same thing.
+**Trade-offs.** Every use site gains a level of indirection — `sim_` becomes `gl_.sim` or similar — across `ui/`, which is a wide, shallow, mechanical diff touching files that are otherwise stable. Against that, it converts a class of crash that has recurred immediately into one that cannot be written. The change is to `App`'s shape, which is why it is a proposal rather than something folded into the feature that provoked it.
+**Notes.** The crash is always on exit and always after the last frame, so nothing a user was doing is lost and no data is at risk; the cost is a process that segfaults on the way out, which reads as though the last thing they did broke something. Both instances were found within minutes of writing the member, because both features were exercised by running them — which is a point in favour of that habit rather than a reason to think the next one will be caught too.
 
 ## Applied
 

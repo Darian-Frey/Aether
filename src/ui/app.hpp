@@ -10,6 +10,7 @@
 #include "render/orbit.hpp"
 #include "render/renderer2d.hpp"
 #include "render/renderer3d.hpp"
+#include "render/spacetime.hpp"
 #include "render/view2d.hpp"
 #include "rule/dsl.hpp"
 #include "rule/library.hpp"
@@ -36,6 +37,10 @@ struct Options {
     uint32_t    width  = 512;
     uint32_t    height = 512;
     uint32_t    depth  = 1;      // > 1 makes a 3D grid
+    // How many dimensions the grid has. Derived from how many numbers `--size`
+    // was given, because a 1D grid and a 2D one of height 1 are different
+    // things and the extents alone cannot tell them apart (F-005).
+    uint8_t     dimensions = 2;
     bool        cpu    = false;
     uint64_t    seed   = 1;      // stream A
     uint64_t    seedB  = 2;      // stream B
@@ -61,6 +66,9 @@ private:
     // Lifecycle
     bool createSimulation(uint32_t width, uint32_t height, uint32_t depth, const rule::RuleIR& ir, sim::Path path);
     bool is3D() const;
+    bool is1D() const;   // a 1D run is shown as a space-time diagram, not as a row (F-005)
+    void rebuildSpaceTime();   // sized to the grid and the viewport
+    void seedSingleCell();     // one live cell in the middle: how an elementary rule is read
     void layOut();
     static std::string configDirectory();
     render::VolumeSettings volumeSettings() const;
@@ -125,6 +133,11 @@ private:
     std::optional<sim::Simulation>    sim_;
     std::optional<render::Renderer2D> renderer_;
     std::optional<render::Renderer3D> renderer3d_;
+    // The history of a 1D run. Owned here rather than by the renderer because
+    // it is a view of the run over time and is thrown away when the run
+    // changes shape (F-005).
+    std::optional<render::SpaceTime> spaceTime_;
+    int  spaceTimeZoom_ = 2;      // pixels per cell
     render::View2D view_;
     render::Orbit  orbit_;
     std::array<float, 3> clipLo_{0, 0, 0};   // fractions of the grid

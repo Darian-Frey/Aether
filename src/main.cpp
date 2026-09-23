@@ -44,7 +44,7 @@ void usage() {
     std::puts("usage: aether [--rule R] [--size WxH] [--cpu] [--seed N] [--seed-b N] [--rate G] [--gl-check]\n"
               "  --rule R     B/S, B/S/C or a table block (default B3/S23); @name loads from the library\n"
               "  --lua FILE   a Lua script returning a rule table, instead of --rule\n"
-              "  --size WxH[xD]  grid extents (default 512x512); a depth makes it 3D\n"
+              "  --size W[xH[xD]]  grid extents (default 512x512); one number is 1D, three is 3D\n"
               "  --cpu        start on the CPU reference path\n"
               "  --seed N     stream A seed for the random fill (default 1)\n"
               "  --seed-b N   stream B seed for cell mutation (default 2)\n"
@@ -109,12 +109,17 @@ int main(int argc, char** argv) {
             opts.ruleIsLua = true;
         }
         else if (a == "--size") {
-            unsigned w = 0, h = 0, d = 1;
+            unsigned w = 0, h = 1, d = 1;
             const int n = std::sscanf(value("--size"), "%ux%ux%u", &w, &h, &d);
-            if (n < 2 || w == 0 || h == 0 || d == 0) {
-                std::puts("--size expects WxH or WxHxD"); return 2;
+            // How many numbers were given is how many dimensions are wanted:
+            // `512` is a line, `512x512` a plane, `64x64x64` a volume. An
+            // elementary rule (F-005) needs the first of those and there was
+            // no way to ask for it.
+            if (n < 1 || w == 0 || h == 0 || d == 0) {
+                std::puts("--size expects W, WxH or WxHxD"); return 2;
             }
             opts.width = w; opts.height = h; opts.depth = d;
+            opts.dimensions = n == 1 ? 1 : (n == 2 ? 2 : 3);
         }
         else if (a == "--cpu") opts.cpu = true;
         else if (a == "--seed") opts.seed = std::strtoull(value("--seed"), nullptr, 10);

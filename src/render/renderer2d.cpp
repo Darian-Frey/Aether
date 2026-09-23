@@ -119,6 +119,19 @@ void Renderer2D::drawOverlay(unsigned int stateTexture, const core::GridSpec& sp
              view.toCellSpace(cellX, cellY), tint);
 }
 
+void Renderer2D::drawBand(unsigned int stateTexture, const core::GridSpec& spec, const Rect& vp,
+                          int frameWidth, int frameHeight, unsigned int states,
+                          double zoom, double firstRow) {
+    // A View2D is a camera, so the origin is expressed as the centre that
+    // produces it rather than passed directly: origin = centre - half the
+    // viewport in cells, which inverts to this.
+    View2D view;
+    view.zoom = zoom;
+    view.centre_x = vp.w * 0.5 / zoom;
+    view.centre_y = firstRow + vp.h * 0.5 / zoom;
+    drawPass(stateTexture, spec, view, vp, frameWidth, frameHeight, states, false, {0.0, 0.0}, Rgba{});
+}
+
 void Renderer2D::drawPass(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
                           const Rect& vp, int frameWidth, int frameHeight, unsigned int states,
                           bool isOverlay, std::pair<double, double> originShift, Rgba tintColour) {

@@ -338,6 +338,14 @@ void App::drawGridPanel() {
         hint("Use the whole viewport, at a fractional zoom. Cells stop being pixel-exact");
     }
 
+    // A 1D run has its own starting point: the single cell an elementary
+    // rule's picture is drawn from (F-005). A soup is still a press away.
+    if (is1D()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Single cell")) seedSingleCell();
+        hint("one live cell in the middle, which is how an elementary rule is usually read");
+    }
+
     // Seeding part of the grid (F-028). In 2D the part is the shift-dragged
     // selection; in 3D there is no way to drag one, so it is the slice the
     // brush is already painting on, which is what F-011 does there too.

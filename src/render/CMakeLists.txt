@@ -5,6 +5,7 @@ aether_embed_shader(volume.frag kVolumeFrag VOLUME_FRAG_CPP)
 add_library(aether_render STATIC
     palette.cpp
     renderer2d.cpp
+    spacetime.cpp
     renderer3d.cpp
     ${PALETTE_VERT_CPP}
     ${PALETTE_FRAG_CPP}
