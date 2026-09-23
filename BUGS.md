@@ -24,7 +24,25 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-*None.*
+### BUG-018: F1 opens the key list in 3D only
+**Status:** open
+**Found:** 2026-09-23 (writing MANUAL.md, checking the shortcut rather than repeating the README)
+**Location:** `src/ui/canvas.cpp` (`updateCanvas`, the 2D branch)
+**Severity:** low
+**Description.** The README has said "**Keys** lists the shortcuts, and F1 opens it" since it was written, and the Keys section itself offers `F1` or `?`. Neither works in two dimensions. `updateCanvas` has two keyboard branches, one per dimensionality, and `KEY_F1 || KEY_SLASH` appears only in the 3D one — every other shortcut is in both. The section can still be opened by clicking its header, so nothing is unreachable; the documented way in simply does not work in the mode almost everyone uses.
+**Reproduction.** Run 2D and press F1 or `?`: nothing. Run `--size 32x32x32` with a 3D rule and press F1: the Keys section opens.
+**Notes.** One line, duplicated into the 2D branch beside the other shared shortcuts. It is worth asking why the two branches share thirteen keys by copy rather than by a common block, since that is the mechanism by which this went missing and would be the mechanism for the next one; that is a larger change than the fix and is the author's to weigh.
+Found while writing the manual, because a documented shortcut is the kind of claim that should be tried rather than copied from the README that also asserts it. The manual now says what is true and points here.
+
+### BUG-017: `--rule @name` works interactively and not headlessly
+**Status:** open
+**Found:** 2026-09-23 (writing MANUAL.md, checking every example rather than assuming it)
+**Location:** `src/ui/headless.cpp` (`runHeadless`), `src/main.cpp` (`usage`)
+**Severity:** low
+**Description.** `--help` lists `--rule R` once, for every invocation, and says "@name loads from the library". That holds for the window, where `App::run` searches `rules/` and resolves the name before compiling. It does not hold for `aether headless`, which passes `opts.rule` straight to the DSL parser and gets `rule: 1:1: unexpected character '@'`. The same flag, documented once, behaves differently depending on the subcommand — and it fails in the path where a user is least likely to be watching, since headless is what goes in a script.
+**Reproduction.** `aether headless --rule @wireworld --generations 5 --save w.aether` exits 1 with the parse error. `aether --rule @wireworld --frames 5` runs.
+**Notes.** The library loader is `rule::loadLibrary` plus `rule::compileLibraryRule`, both already in `aether_rule` and both already used by `App`; `runHeadless` would need the same four lines and the same search path. The alternative is to narrow the help text to say the library is a window feature, which is smaller but leaves a scripted run unable to name a bundled rule — including Langton's loops, whose 219 clauses are not something anybody will paste onto a command line.
+Found while writing the manual, which is the first thing to have tried every documented invocation in one sitting. Logged rather than fixed, per the maintenance rule; the manual documents what is true today and points here.
 
 ## Fixed
 

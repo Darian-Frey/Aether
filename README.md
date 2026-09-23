@@ -9,6 +9,9 @@ Aether is a cellular automata laboratory for Linux. It runs discrete and continu
 
 The name was confirmed on 2026-09-11 (see D-009).
 
+![The Aether window: a fourteen-state cyclic automaton running from a Lua rule](docs/images/window.png)
+
+
 ## Quick start
 
 ```bash
@@ -23,7 +26,7 @@ cmake --build build -j
 
 ### In the window
 
-Pause, step, burst and the rate live in the bar across the top, with the generation count and the running rule beside them. The left column holds everything else in sections, closed until you want them; **Keys** lists the shortcuts, and F1 opens it.
+Pause, step, burst and the rate live in the bar across the top, with the generation count and the running rule beside them. The left column holds everything else in sections, closed until you want them; **Keys** lists the shortcuts.
 
 | | |
 |---|---|
@@ -49,7 +52,7 @@ states 2; neighbourhood hex 1;      a table block: count conditions,
 
 Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at compile time, and returns a table describing the rule, computing the transition rather than tabulating it.
 
-The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules, a fading Life and three of Wolfram's elementary rules. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
+The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules, a fading Life, three of Wolfram's elementary rules and Langton's self-reproducing loops. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
 
 ### One dimension
 
@@ -63,7 +66,7 @@ A 1D run starts from a single live cell, which is how these rules are usually re
 
 ### Patterns and seeding
 
-The Patterns section lists what is in `patterns/` — gliders, a Gosper gun, a Wireworld loop, a Brian's Brain glider, a cyclic spiral seed, a hex oscillator and a 3D shell — or opens any `.rle` or `.pattern` file. A chosen pattern follows the cursor until you click, drawn in the colours it will become rather than written into the grid, so you can see it against what is already there before committing to it; one the running rule cannot take is greyed in the list, tinted red under the cursor, and says why. Shift-drag the grid to select a region, and the Patterns section will write it back out as a file: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not, so hexagonal, 3D and continuous patterns are not squeezed into a format that cannot hold them.
+The Patterns section lists what is in `patterns/` — gliders, a Gosper gun, a Wireworld loop, a Brian's Brain glider, a cyclic spiral seed, a hex oscillator, a 3D shell and the seed for Langton's loops — or opens any `.rle` or `.pattern` file. A chosen pattern follows the cursor until you click, drawn in the colours it will become rather than written into the grid, so you can see it against what is already there before committing to it; one the running rule cannot take is greyed in the list, tinted red under the cursor, and says why. Shift-drag the grid to select a region, and the Patterns section will write it back out as a file: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not, so hexagonal, 3D and continuous patterns are not squeezed into a format that cannot hold them.
 
 The same selection is what **Seed region** fills, at the density weights in the Grid section and leaving everything outside it alone; **Seed** does the whole grid, and in 3D **Seed slice** does the one the brush is painting on. Every one of these is recorded, so a session replays a paste or a partial reseed exactly as it happened.
 
@@ -102,6 +105,17 @@ aether: Conway's Life  --rule @life --seed 13180641628780542681 --seed-b 1332714
 
 It is a standalone fullscreen binary rather than an X screensaver hack: the `XSCREENSAVER_WINDOW` convention hands over a window to draw into, and raylib makes its own.
 
+### A few of the things it runs
+
+| | |
+|---|---|
+| ![Langton's loops, a colony of self-reproducing loops](docs/images/langtons-loops.png) | ![Rule 90 drawing Sierpinski's triangle as a space-time diagram](docs/images/rule90.png) |
+| **Langton's loops.** Eight states and 219 transitions; each loop extrudes an arm, turns it four times and closes it into a daughter. The interior loops die as their children wall them in. | **Rule 90, one dimension.** The left and right neighbours exclusive-ored. Each generation is a raster row and time runs down the screen, which is the only way a row of cells has anything to look at. |
+| ![Bays' 3D Life rendered as a volume](docs/images/life3d.png) | ![A Lenia field of self-organised ring structures](docs/images/lenia.png) |
+| **Three dimensions.** Bays' 4555, raymarched as a volume with clip planes and slice painting. | **Lenia.** No states and no counting — a kernel convolved over the neighbourhood and a growth function. Cells hold a value rather than an index. |
+| ![A hexagonal lattice, stored axially so the grid is a rhombus](docs/images/hex.png) | |
+| **Hexagonal lattices.** Six neighbours, stored axially — which is why a W×H hex grid is a rhombus on screen and wraps as a rhombic torus. | |
+
 See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements
@@ -129,6 +143,7 @@ aether/
 │   ├── render/      2D and 3D presentation
 │   ├── ui/          Control panel, drawing canvas
 │   └── main.cpp
+├── docs/images/     Screenshots used by the README and the manual
 ├── shaders/         Compute and fragment shaders, plus codegen templates
 ├── rules/           Bundled rule library
 ├── patterns/        Bundled pattern library
@@ -138,6 +153,7 @@ aether/
 
 ## Documentation
 
+- [Manual](MANUAL.md) — how it all works, with worked examples
 - [Features](FEATURES.md) — capabilities, priorities, acceptance criteria
 - [Roadmap](ROADMAP.md) — phased plan
 - [Architecture](ARCHITECTURE.md) — module boundaries and data flow

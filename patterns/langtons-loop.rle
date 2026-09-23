@@ -1,0 +1,9 @@
+#N Langton's loop
+#C The initial configuration of Langton's self-reproducing loop (1984): a
+#C sheathed loop of 85 cells carrying the instruction sequence that extrudes
+#C an arm, grows it, turns it four times and closes it into a daughter. The
+#C first daughter is complete at about generation 150.
+#C Transcribed data, not constructed here; see rules/langtons-loops.rule.
+x = 14, y = 10, rule = langtons-loops
+b8B$BAGbADbADB$Bb6BbB$BGB4bBAB$BAB4bBAB$BbB4bBAB$BGB4bBAB$BA6BA5B$BbGA
+bGAbG5A$b13B!
