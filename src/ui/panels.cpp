@@ -6,6 +6,7 @@
 #include "sim/fill.hpp"
 #include "sim/session.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include "sim/pattern.hpp"
@@ -126,6 +127,7 @@ void App::drawPanels() {
     if (ImGui::CollapsingHeader("Mutation")) drawMutationPanel();
     if (ImGui::CollapsingHeader("Lineage")) drawLineagePanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
+    if (ImGui::CollapsingHeader("Export", recording_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawExportPanel();
     if (ImGui::CollapsingHeader("Session")) drawSessionPanel();
     if (ImGui::CollapsingHeader("Engine")) drawSimulationPanel();
     if (ImGui::CollapsingHeader("Keys", showHelp_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawHelpPanel();
@@ -582,6 +584,97 @@ void App::drawLibraryPanel() {
             saveRuleId_[0] = '\0';
         }
     }
+    ImGui::PopID();
+}
+
+// Frame export (F-021): one PNG of what is on screen, or a numbered sequence
+// over a range of generations for something else to encode.
+void App::drawExportPanel() {
+    if (!sim_) return;
+    ImGui::PushID("export");
+
+    ImGui::SetNextItemWidth(-70);
+    ImGui::InputTextWithHint("##png", "aether.png", exportPath_.data(), exportPath_.size());
+    ImGui::SameLine();
+    if (ImGui::Button("PNG")) exportRequested_ = true;
+    hint("the viewport as it stands, without the panels over it. Taken at the end of this frame");
+
+    ImGui::Separator();
+    if (recording_) {
+        const uint64_t total = recording_->totalFrames();
+        ImGui::Text("recording %llu of %llu", static_cast<unsigned long long>(recording_->written),
+                    static_cast<unsigned long long>(total));
+        ImGui::ProgressBar(total == 0 ? 0.0f
+                                      : static_cast<float>(recording_->written) / static_cast<float>(total),
+                           ImVec2(-1, 0));
+        ImGui::TextDisabled("generation %llu of %llu",
+                            static_cast<unsigned long long>(sim_->generation()),
+                            static_cast<unsigned long long>(recording_->to));
+        if (ImGui::Button("Stop")) {
+            log_.info(std::format("recording stopped after {} frames", recording_->written));
+            recording_.reset();
+        }
+        hint("keeps the frames already written");
+        ImGui::PopID();
+        return;
+    }
+
+    ImGui::SetNextItemWidth(-kLabelColumn);
+    ImGui::InputTextWithHint("folder", "frames", recordDir_.data(), recordDir_.size());
+    ImGui::InputInt("from", &recordFrom_, 1, 100);
+    ImGui::InputInt("to", &recordTo_, 1, 100);
+    ImGui::InputInt("every", &recordEvery_, 1, 10);
+    recordFrom_  = std::max(0, recordFrom_);
+    recordTo_    = std::max(0, recordTo_);
+    recordEvery_ = std::clamp(recordEvery_, 1, 100000);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("from here")) {
+        recordFrom_ = static_cast<int>(sim_->generation());
+        recordTo_ = recordFrom_ + 500;
+    }
+
+    Recording planned;
+    planned.from = static_cast<uint64_t>(recordFrom_);
+    planned.to = static_cast<uint64_t>(recordTo_);
+    planned.every = static_cast<uint32_t>(recordEvery_);
+    planned.dir = recordDir_[0] != '\0' ? recordDir_.data() : "frames";
+
+    const uint64_t frames = planned.totalFrames();
+    const bool behind = planned.from < sim_->generation();
+    // Wrapped, not just coloured: the panel is narrow and a refusal that runs
+    // off its right edge is the same as no refusal at all (BUG-013's lesson).
+    if (frames == 0 || behind) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.55f, 0.45f, 1.0f));
+        if (frames == 0) {
+            ImGui::TextWrapped("no frames: `to` is before `from`");
+        } else {
+            // Generations only run forwards, so a range already passed cannot
+            // be recorded without rewinding to it first (F-017).
+            ImGui::TextWrapped("generation %llu is already past. Rewind to it, or press "
+                               "'from here' to start where the run is.",
+                               static_cast<unsigned long long>(sim_->generation()));
+        }
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextWrapped("%llu frames, first is %s", static_cast<unsigned long long>(frames),
+                           planned.pathFor(planned.from).c_str());
+    }
+
+    ImGui::BeginDisabled(frames == 0 || behind);
+    if (ImGui::Button("Record")) {
+        std::error_code ec;
+        std::filesystem::create_directories(planned.dir, ec);
+        if (ec) {
+            log_.error(std::format("cannot make {}: {}", planned.dir, ec.message()));
+        } else {
+            recording_ = planned;
+            log_.info(std::format("recording {} frames, generations {} to {} every {}",
+                                  frames, planned.from, planned.to, planned.every));
+        }
+    }
+    ImGui::EndDisabled();
+    hint("steps by generations rather than by frames, so the sequence is the run and not this machine's frame rate");
+
     ImGui::PopID();
 }
 

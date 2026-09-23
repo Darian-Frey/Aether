@@ -2,6 +2,7 @@ add_library(aether_ui STATIC
     app.cpp
     brush.cpp
     canvas.cpp
+    capture.cpp
     editor.cpp
     headless.cpp
     panels.cpp)

@@ -402,7 +402,11 @@ Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Every feature h
 **Acceptance:**
 - Export current view as PNG
 - Export a numbered frame sequence over a generation range for offline encoding
-**Status:** Not started
+**Status:** Complete (2026-09-23).
+**Notes on how:** an Export section with a path and a PNG button, and below it a folder, a generation range and a step. What is written is the viewport alone — the capture happens after the grid is drawn and before the preview and the panels go over it, so an export is the automaton rather than the interface around it. It works in 3D as well, the volume render being just another thing drawn into that rectangle.
+A sequence is specified in *generations*, and that is the whole of why it does not simply save every frame: while a recording runs, the scheduler stops deciding how far to step and `Recording::stepsBefore` does, so a frame that ran long cannot drop or double a generation. The frame at generation g goes to index `(g - from) / every`, zero-padded so the files sort in the order an encoder expects them. Only that arithmetic is in `ui/capture`, because a wrong answer in it would produce a sequence with a gap nobody would notice, and it is the part testable without a window — nine cases, no display needed.
+A range already behind the run is refused rather than silently started, since generations only run forwards; the panel says so and offers to start from where the run is. `ExportImage` is used rather than `TakeScreenshot`, which prefixes raylib's base directory and mangles an absolute path.
+**Notes:** F-022 wants the same sequence with no window, which is a different driver over the same `Recording` rather than a second implementation of it.
 
 ### F-022 Headless mode
 **Priority:** Could

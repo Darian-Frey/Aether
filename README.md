@@ -65,6 +65,8 @@ Hovering a cell on the pad shows what it is about to do: its state and the state
 
 The Mutation section has both controls: cell mutation as a probability per cell, optionally grouped into blocks so noise arrives in clumps, and rule mutation as point edits to the rule every N generations. Every rule a run passes through is in the Lineage list, where it can be pinned by name or rewound to — either the rule alone, or the grid with it. `--rule-mutation 250:1 --cell-mutation 0.0001` starts with both on.
 
+The Export section writes what is in the viewport — the automaton, without the panels over it — as a PNG, or as a numbered sequence over a range of generations for `ffmpeg` or anything else to turn into a film. A sequence is counted in generations rather than in frames, so it is a record of the run and not of how fast this machine happened to be drawing.
+
 The Session section saves and loads `.aether` files. A saved run replays bit-for-bit from its initial state: **Verify replay** checks it on the other execution path, and `aether replay in.aether out.aether` does the same headlessly.
 
 See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.

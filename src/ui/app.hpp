@@ -19,6 +19,7 @@
 #include "sim/inspect.hpp"
 #include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
+#include "ui/capture.hpp"
 #include "ui/log.hpp"
 
 #include <array>
@@ -67,6 +68,13 @@ private:
     void paintAt3D(const std::array<int, 3>& cell);
     bool adoptSimulation(sim::Simulation&& s, const char* what);   // after load/rewind
     void drawSessionPanel();
+    void drawExportPanel();           // PNG and frame sequences (F-021)
+    // The viewport as it stands, to a PNG. Must be called inside
+    // BeginDrawing and before EndDrawing: after the swap the back buffer is
+    // undefined. Called before the panels are drawn, so what is written is
+    // the automaton and not the interface around it.
+    bool captureViewport(const std::string& path);
+    void recordingCapture();          // one frame of a sequence, if this generation is one
     void drawTransportBar();
     void drawViewportOverlay();
     void drawHelpPanel();
@@ -202,6 +210,15 @@ private:
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p
+
+    // A frame sequence being written (F-021). While one exists the transport
+    // stops deciding how far to step — a recording is specified in
+    // generations, and a frame that ran long must not drop or double one.
+    std::optional<Recording> recording_;
+    std::array<char, 512> exportPath_{};
+    std::array<char, 512> recordDir_{};
+    int  recordFrom_ = 0, recordTo_ = 500, recordEvery_ = 1;
+    bool exportRequested_ = false;    // a single PNG, taken at the right point in the frame
 
     Log log_;
 };

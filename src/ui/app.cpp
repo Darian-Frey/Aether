@@ -170,7 +170,15 @@ int App::run() {
                 // scheduler's wall-clock budget measures stepping and not
                 // the previous frame's presentation.
                 glFinish();
-                sim_->frame(dt);
+                if (recording_) {
+                    // A sequence is specified in generations, so it steps by
+                    // generations. Letting the scheduler decide would tie the
+                    // record to how fast this machine happened to be drawing.
+                    const uint64_t steps = recording_->stepsBefore(sim_->generation());
+                    for (uint64_t i = 0; i < steps; ++i) sim_->step();
+                } else {
+                    sim_->frame(dt);
+                }
                 if (sim_->lineage().size() != lastLineageSize_) {
                     lastLineageSize_ = sim_->lineage().size();
                     const auto& e = sim_->lineage().back();
@@ -193,6 +201,16 @@ int App::run() {
                 renderer_->draw(sim_->texture(), sim_->spec(), view_, viewport_,
                                 GetRenderWidth(), GetRenderHeight(), ramp);
             }
+            // Export before the preview and the panels: what is wanted is the
+            // automaton, not the interface around it (F-021).
+            if (exportRequested_) {
+                exportRequested_ = false;
+                const std::string path = exportPath_[0] != '\0' ? exportPath_.data() : "aether.png";
+                if (captureViewport(path)) log_.info(std::format("wrote {}", path));
+                else log_.error(std::format("cannot write {}", path));
+            }
+            if (recording_ && sim_) recordingCapture();
+
             // The preview's cells are a GL pass like the grid's, so they go
             // after it and before ImGui; its outline is an ImGui rectangle and
             // goes with the rest of them.
@@ -222,6 +240,46 @@ int App::run() {
     }
     CloseWindow();
     return exitCode;
+}
+
+// --- Frame export (F-021) ----------------------------------------------------
+
+bool App::captureViewport(const std::string& path) {
+    // The batch has to reach the framebuffer before it can be read back.
+    rlDrawRenderBatchActive();
+    Image shot = LoadImageFromScreen();
+    if (shot.data == nullptr) return false;
+
+    // `viewport_` is in window coordinates and the framebuffer may be larger
+    // on a scaled display, so the crop is scaled rather than assumed equal.
+    const float sx = static_cast<float>(shot.width) / static_cast<float>(GetScreenWidth());
+    const float sy = static_cast<float>(shot.height) / static_cast<float>(GetScreenHeight());
+    ImageCrop(&shot, Rectangle{viewport_.x * sx, viewport_.y * sy,
+                               viewport_.w * sx, viewport_.h * sy});
+    // ExportImage writes the path as given. TakeScreenshot does not — it
+    // prefixes raylib's base directory and mangles an absolute path — which
+    // is why the scripted screenshot has to cd first and this does not.
+    const bool ok = ExportImage(shot, path.c_str());
+    UnloadImage(shot);
+    return ok;
+}
+
+void App::recordingCapture() {
+    const uint64_t generation = sim_->generation();
+    if (recording_->wants(generation) && generation != recording_->lastCaptured) {
+        const std::string path = recording_->pathFor(generation);
+        if (!captureViewport(path)) {
+            log_.error(std::format("cannot write {}; recording stopped", path));
+            recording_.reset();
+            return;
+        }
+        recording_->lastCaptured = generation;
+        ++recording_->written;
+    }
+    if (recording_->finished(generation)) {
+        log_.info(std::format("wrote {} frames to {}", recording_->written, recording_->dir));
+        recording_.reset();
+    }
 }
 
 // One description of the running rule, used wherever it is shown.
