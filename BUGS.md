@@ -24,16 +24,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-### BUG-014: `[gpu]` cases skip at random, so a green suite does not mean the GPU path ran
-**Status:** open
-**Found:** 2026-09-22 (F-030, running the suite on both GPUs after the inspector landed)
-**Location:** `tests/support/gl_context.cpp` (`GlContext`, `requireGl`)
-**Severity:** medium
-**Description.** Each `[gpu]` case constructs a `GlContext`, which calls `InitWindow`, and skips itself if the window did not come up. That is right on a machine with no display. On a machine *with* one it is also firing, intermittently and in numbers. Seven runs of `[gpu]` on the Intel iGPU on 2026-09-22, same binary, no code change between any of them, skipped 2, 1, 3, 7, 9, 12 and 9 of the 49 cases — in that order, which is the order they were run in. The count climbing through a session points at something the process accumulates rather than at chance. The runs still report success, because a skipped Catch2 case is not a failure, so the suite says the GPU path is fine while a fifth to a quarter of the checks on it did not execute — the CPU/GPU equivalence cases among them. That is the one test the project's own build notes say nothing else is trustworthy without.
-**Reproduction.** `for i in 1 2 3; do ./build/tests/aether_tests "[gpu]" | grep "^test cases:"; done` on a machine with a display, and again after several more runs. The counts differ between runs and tend to worsen. Both GPUs show it, so it is not the PRIME offload path. `[equivalence]` run on its own skipped nothing, which is consistent with the pressure theory and is also why the damage has not shown up as a wrong result yet.
-**Notes.** The cause is not established. Opening and closing several dozen real windows in one process is the obvious suspect — raylib's `InitWindow` failing under some resource the process is not releasing between cases — and if so the fix is one shared context for the whole run rather than one per case, which would also make the suite faster. What matters more than the cause is that the failure is silent: whatever is done about the windows, `requireGl` should tell the difference between "there is no display, skip" and "there is a display and the context did not come up", and the second should fail rather than skip. As it stands a real GPU regression could sit behind a green run.
-Not caused by the work it was found during: F-029 and F-030 add no GL and no `[gpu]` cases, and the case count is unchanged at 49. Logged rather than fixed, per the maintenance rule.
-
+*None.*
 
 ## Fixed
 
@@ -184,13 +175,20 @@ What settled it was the interface. The same rule at 512² in the window is perfe
 **Notes.** The behaviour was correct and the feedback was not, which is the harder half to notice: nothing was logged as an error in the engine's own terms, so only a user could find it.
 **Resolution (2026-09-21).** `Simulation::canPlace` is split out of `placePattern`, so the interface can ask the engine the same question before the click rather than forming its own opinion. The preview turns red for any reason the click would be refused, not only for hanging over an edge; the panel shows the reason in words; and a pattern the running rule cannot take is greyed in the library list, which stops the confusion before it starts.
 
-## Won't Fix
-
-*None.*
-
-## Deferred
-
-*None.*
+### BUG-014: `[gpu]` cases skip at random, so a green suite does not mean the GPU path ran
+**Status:** fixed
+**Found:** 2026-09-22 (F-030, running the suite on both GPUs after the inspector landed)
+**Fixed:** 2026-09-23
+**Location:** `tests/support/gl_context.cpp` (`GlContext`, `requireGl`)
+**Severity:** medium
+**Description.** Each `[gpu]` case constructs a `GlContext`, which calls `InitWindow`, and skips itself if the window did not come up. That is right on a machine with no display. On a machine *with* one it is also firing, intermittently and in numbers. Seven runs of `[gpu]` on the Intel iGPU on 2026-09-22, same binary, no code change between any of them, skipped 2, 1, 3, 7, 9, 12 and 9 of the 49 cases — in that order, which is the order they were run in. The count climbing through a session points at something the process accumulates rather than at chance. The runs still report success, because a skipped Catch2 case is not a failure, so the suite says the GPU path is fine while a fifth to a quarter of the checks on it did not execute — the CPU/GPU equivalence cases among them. That is the one test the project's own build notes say nothing else is trustworthy without.
+**Reproduction.** `for i in 1 2 3; do ./build/tests/aether_tests "[gpu]" | grep "^test cases:"; done` on a machine with a display, and again after several more runs. The counts differ between runs and tend to worsen. Both GPUs show it, so it is not the PRIME offload path. `[equivalence]` run on its own skipped nothing, which is consistent with the pressure theory and is also why the damage has not shown up as a wrong result yet.
+**Notes.** The cause is not established. Opening and closing several dozen real windows in one process is the obvious suspect — raylib's `InitWindow` failing under some resource the process is not releasing between cases — and if so the fix is one shared context for the whole run rather than one per case, which would also make the suite faster. What matters more than the cause is that the failure is silent: whatever is done about the windows, `requireGl` should tell the difference between "there is no display, skip" and "there is a display and the context did not come up", and the second should fail rather than skip. As it stands a real GPU regression could sit behind a green run.
+Not caused by the work it was found during: F-029 and F-030 add no GL and no `[gpu]` cases, and the case count is unchanged at 49. Logged rather than fixed, per the maintenance rule.
+**Resolution (2026-09-23).** The cause, once the helper's `SetTraceLogLevel(LOG_NONE)` was lifted long enough to read the log, is GLX rather than anything of ours: `GLX: Error 65542: No GLXFBConfigs returned`, then `Failed to find a suitable GLXFBConfig`, then the window fails. Opening and closing a hidden window per case exhausts framebuffer-config enumeration after a few dozen cycles, which is why the count climbed through a session and why it affected both GPUs.
+So there is now one context for the whole run, created on first use and deliberately never closed — whether raylib's state is still intact when a static destructor runs is not worth betting the suite's exit code on, and the process is ending anyway. That removed the failure entirely: five consecutive runs of the `[gpu]` set gave 51 of 51 cases and the identical assertion count every time, where the count had previously varied between 3,943 and 5,154 depending on how many cases had quietly not run. It also took about fifteen seconds off the suite, since the teardown was not free.
+The silence was the other half and is fixed separately, as the notes asked: `requireGl` now distinguishes no display at all, which still skips, from a display that is present while the context will not come up, which now fails. Both branches were checked rather than reasoned about — with `DISPLAY` unset all 51 skip, and with `DISPLAY=:99` all 51 fail.
+Nothing was hiding behind the skips: every case that had not been running passes.
 
 ### BUG-015: the editor window moved ImGui's cursor without submitting anything, flooding the terminal
 **Status:** fixed
@@ -214,3 +212,11 @@ Made visible rather than caused by two things landing the same day: the neighbou
 **Reproduction.** `aether --pattern some.rle --frames 30`, then let it exit. Backtrace: `GpuGrid::~GpuGrid` inside `App::~App` inside `main`.
 **Notes.** The rule this breaks is already written down, in CLAUDE.md's pitfalls and in ATTACK_VECTORS: GL RAII objects must be destroyed inside the window's lifetime. It is worth noticing that having written the rule down did not prevent walking into it, because the rule is remembered rather than structural — nothing stops a GL-owning member being added to `App` without a matching reset. A `struct GlOwned { ... }` grouping every such member, reset in one place, would make the next one impossible rather than merely documented. That is a change to `App`'s shape and is the author's call, not something to fold into an improvement about pattern previews.
 **Resolution (2026-09-23).** `previewGrid_.reset()` added alongside the others before `CloseWindow()`. Confirmed by three clean runs; the crash was reproducible on every run before it.
+
+## Won't Fix
+
+*None.*
+
+## Deferred
+
+*None.*
