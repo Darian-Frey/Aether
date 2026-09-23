@@ -412,8 +412,12 @@ A range already behind the run is refused rather than silently started, since ge
 **Priority:** Could
 **Acceptance:**
 - Run a session file for N generations with no window and dump the final grid or a frame sequence
-**Status:** In progress
-**Progress:** `aether headless`, `aether replay` and `aether compare` exist for the cross-process replay test (2026-09-12); frame-sequence dump pending.
+**Status:** Complete (2026-09-23).
+**Progress:** `aether headless`, `aether replay` and `aether compare` exist for the cross-process replay test (2026-09-12); frame dumps 2026-09-23.
+**Notes on how:** `--png FILE` writes the final grid and `--frame-dir DIR` a numbered sequence, with `--frame-every N` and `--frame-scale N`; `--save` became optional, since a run that writes images need not also write a session. The generation arithmetic is `ui::Recording`, the same type the window's Export section drives — two drivers, one set of rules about which generation is which frame, which is why F-021 put that arithmetic in a file of its own.
+Images render through the same `Renderer2D` and the same palette pass the window uses, into an offscreen texture at one pixel per cell. Mapping states to colours on the host would have needed no GL context at all, and was rejected: it is a second implementation of `shaders/palette2d.frag`, free to drift from it on ageing tails and on the continuous ramp, in a place where nobody would ever be comparing the two. The cost is that a dump still needs a context, which these subcommands already did.
+A 3D dump is refused rather than guessed at — a picture of a volume needs a camera, clip planes and an opacity, which are choices a flag list does not make; the session and pattern formats carry 3D data losslessly for anything that wants it.
+The orientation was checked against the data rather than by eye: an 8x6 run dumped as both a session and a PNG, the session's cells decoded, and every cell compared with its pixel.
 **Notes:** Makes CPU/GPU equivalence testing (F-002) scriptable in CI.
 
 ## Candidate features (uncommitted)

@@ -1,13 +1,16 @@
 #include "ui/headless.hpp"
 
+#include "render/renderer2d.hpp"
 #include "rule/dsl.hpp"
 #include "sim/fill.hpp"
 #include "sim/session.hpp"
 #include "sim/simulation.hpp"
+#include "ui/capture.hpp"
 
 #include <raylib.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <format>
 
 namespace aether::ui {
@@ -33,9 +36,95 @@ int fail(const std::string& msg) {
     return 1;
 }
 
+// Renders a grid to PNGs at its own size, through the same palette pass the
+// window draws with. Holds GL objects, so it must be scoped inside the hidden
+// window's lifetime like everything else that does (BUG-016).
+class GridWriter {
+public:
+    static std::variant<GridWriter, core::Error> create(const core::GridSpec& spec, uint32_t scale) {
+        if (spec.dimensions == 3) {
+            // A 3D dump would have to say where the camera is, how far the
+            // clip planes are and how opaque a cell is — a picture of a volume
+            // is a choice in a way a picture of a plane is not. Refused rather
+            // than guessed at; the session and the pattern formats carry 3D
+            // data losslessly for anything that wants it.
+            return core::Error{"a headless image dump is 2D only; a 3D view needs a camera to be specified"};
+        }
+        auto made = render::Renderer2D::create();
+        if (const auto* e = std::get_if<core::Error>(&made)) return *e;
+
+        GridWriter w;
+        w.renderer_.emplace(std::move(std::get<render::Renderer2D>(made)));
+        w.scale_ = scale < 1 ? 1 : scale;
+        w.width_  = static_cast<int>(spec.width * w.scale_);
+        w.height_ = static_cast<int>(spec.height * w.scale_);
+        w.target_ = LoadRenderTexture(w.width_, w.height_);
+        if (w.target_.id == 0) return core::Error{"could not make an offscreen target"};
+        w.owns_ = true;
+        return w;
+    }
+
+    GridWriter(GridWriter&& o) noexcept { *this = std::move(o); }
+    GridWriter& operator=(GridWriter&& o) noexcept {
+        if (this != &o) {
+            release();
+            renderer_ = std::move(o.renderer_);
+            target_ = o.target_; width_ = o.width_; height_ = o.height_; scale_ = o.scale_;
+            owns_ = o.owns_;
+            o.owns_ = false;
+        }
+        return *this;
+    }
+    GridWriter(const GridWriter&) = delete;
+    GridWriter& operator=(const GridWriter&) = delete;
+    ~GridWriter() { release(); }
+
+    void setPalette(const render::Palette& p) { renderer_->setPalette(p); }
+
+    bool write(const sim::Simulation& sim, const std::string& path) {
+        const core::GridSpec& spec = sim.spec();
+        render::View2D view;
+        view.zoom = static_cast<double>(scale_);
+        view.centre_x = spec.width * 0.5;
+        view.centre_y = spec.height * 0.5;
+        view.lattice = sim.rule().neighbourhood.type == rule::NeighbourhoodType::Hexagonal
+                           ? render::Lattice::Hex : render::Lattice::Square;
+        const render::Rect vp{0, 0, static_cast<float>(width_), static_cast<float>(height_)};
+        const unsigned int ramp = spec.cell_type == core::CellType::F32 ? 256u : sim.rule().states;
+
+        BeginTextureMode(target_);
+        ClearBackground(BLACK);
+        renderer_->draw(sim.texture(), spec, view, vp, width_, height_, ramp);
+        EndTextureMode();
+
+        Image img = LoadImageFromTexture(target_.texture);
+        if (img.data == nullptr) return false;
+        // A render texture is bottom-up; a PNG is not.
+        ImageFlipVertical(&img);
+        const bool ok = ExportImage(img, path.c_str());
+        UnloadImage(img);
+        return ok;
+    }
+
+private:
+    GridWriter() = default;
+    void release() {
+        if (owns_) UnloadRenderTexture(target_);
+        owns_ = false;
+        renderer_.reset();
+    }
+
+    std::optional<render::Renderer2D> renderer_;
+    RenderTexture2D target_{};
+    int width_ = 0, height_ = 0;
+    uint32_t scale_ = 1;
+    bool owns_ = false;
+};
+
 }  // namespace
 
-int runHeadless(const Options& opts, uint64_t generations, const std::string& savePath) {
+int runHeadless(const Options& opts, uint64_t generations, const std::string& savePath,
+                const DumpOptions& dump) {
     HiddenWindow win;
     if (!win.ready()) return kExitNoContext;
     int code = 0;
@@ -64,10 +153,60 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
         sim.fillRandom(sim::defaultDensity(ir));
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
         if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));
-        for (uint64_t g = 0; g < generations; ++g) sim.step();
-        if (auto e = sim::saveSession(savePath, sim.session())) code = fail(e->message);
-        else std::printf("ran %llu generations, %zu lineage entries, saved %s\n",
-                         static_cast<unsigned long long>(generations), sim.lineage().size(), savePath.c_str());
+        const bool wantsImages = !dump.png.empty() || !dump.framesDir.empty();
+        std::optional<GridWriter> writer;
+        if (wantsImages) {
+            auto made2 = GridWriter::create(spec, dump.frameScale);
+            if (const auto* e = std::get_if<core::Error>(&made2)) return fail(e->message);
+            writer.emplace(std::move(std::get<GridWriter>(made2)));
+            writer->setPalette(render::Palette::defaultFor(
+                spec.cell_type == core::CellType::F32 ? 256 : ir.states, ir.metadata.decay_from));
+            if (spec.cell_type == core::CellType::F32) {
+                writer->setPalette(render::Palette::continuousRamp());
+            }
+        }
+
+        // The same `Recording` the window's Export section drives (F-021), so
+        // the two agree about which generation is which frame without either
+        // knowing the other exists.
+        std::optional<Recording> frames;
+        if (!dump.framesDir.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(dump.framesDir, ec);
+            if (ec) return fail(std::format("cannot make {}: {}", dump.framesDir, ec.message()));
+            Recording r;
+            r.from = 0;
+            r.to = generations;
+            r.every = dump.frameEvery == 0 ? 1 : dump.frameEvery;
+            r.dir = dump.framesDir;
+            frames = r;
+        }
+
+        for (uint64_t g = 0; g <= generations; ++g) {
+            if (frames && frames->wants(g)) {
+                const std::string path = frames->pathFor(g);
+                if (!writer->write(sim, path)) return fail(std::format("cannot write {}", path));
+                frames->lastCaptured = g;
+                ++frames->written;
+            }
+            if (g < generations) sim.step();
+        }
+        if (!dump.png.empty() && !writer->write(sim, dump.png)) {
+            return fail(std::format("cannot write {}", dump.png));
+        }
+
+        if (!savePath.empty()) {
+            if (auto e = sim::saveSession(savePath, sim.session())) code = fail(e->message);
+        }
+        if (code == 0) {
+            std::printf("ran %llu generations, %zu lineage entries", 
+                        static_cast<unsigned long long>(generations), sim.lineage().size());
+            if (!savePath.empty()) std::printf(", saved %s", savePath.c_str());
+            if (frames) std::printf(", %llu frames in %s",
+                                    static_cast<unsigned long long>(frames->written), dump.framesDir.c_str());
+            if (!dump.png.empty()) std::printf(", wrote %s", dump.png.c_str());
+            std::printf("\n");
+        }
     }
     return code;
 }

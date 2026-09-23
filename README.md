@@ -69,6 +69,15 @@ The Export section writes what is in the viewport — the automaton, without the
 
 The Session section saves and loads `.aether` files. A saved run replays bit-for-bit from its initial state: **Verify replay** checks it on the other execution path, and `aether replay in.aether out.aether` does the same headlessly.
 
+The same pictures can be had with no window at all:
+
+```bash
+aether headless --rule B3/S23 --size 512x512 --generations 2000        --frame-dir frames --frame-every 10 --png final.png
+ffmpeg -framerate 30 -i frames/frame_%06d.png life.mp4
+```
+
+Frames render through the same palette pass the window uses, at one pixel per cell unless `--frame-scale` says otherwise.
+
 See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 
 ## Build requirements

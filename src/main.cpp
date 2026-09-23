@@ -55,7 +55,13 @@ void usage() {
               "  --load FILE  resume a saved session\n"
               "  --pattern F  open a pattern file, ready to place\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
-              "  --screenshot F  write the final frame to F before exiting");
+              "  --screenshot F  write the final frame to F before exiting\n"
+              "\n"
+              "subcommands:\n"
+              "  aether headless --generations G [--save F] [--png F] [--frame-dir D]\n"
+              "                  [--frame-every N] [--frame-scale N]   run with no window\n"
+              "  aether replay IN OUT [--to G] [--cpu]   replay a session from its initial state\n"
+              "  aether compare A B                      exit 0 if two sessions' grids match");
 }
 
 }  // namespace
@@ -66,6 +72,7 @@ int main(int argc, char** argv) {
     std::string_view sub = argc > 1 ? argv[1] : "";
     uint64_t generations = 0;
     std::string savePath, loadPath;
+    aether::ui::DumpOptions dump;
     uint64_t replayTo = UINT64_MAX;
     int first = 1;
     if (sub == "headless" || sub == "replay" || sub == "compare") first = 2;
@@ -130,12 +137,24 @@ int main(int argc, char** argv) {
         else if (a == "--load") loadPath = value("--load");
         else if (a == "--pattern") opts.pattern = value("--pattern");
         else if (a == "--frames") opts.exitAfterFrames = std::atoi(value("--frames"));
+        // Headless image dumps. `--frames` is already the interactive frame
+        // count, so the directory is `--frame-dir` rather than a flag that
+        // means two different things depending on the subcommand.
+        else if (a == "--png") dump.png = value("--png");
+        else if (a == "--frame-dir") dump.framesDir = value("--frame-dir");
+        else if (a == "--frame-every") dump.frameEvery = static_cast<uint32_t>(std::strtoul(value("--frame-every"), nullptr, 10));
+        else if (a == "--frame-scale") dump.frameScale = static_cast<uint32_t>(std::strtoul(value("--frame-scale"), nullptr, 10));
         else if (a == "--screenshot") opts.screenshot = value("--screenshot");
         else { std::printf("unknown option %s\n", argv[i]); usage(); return 2; }
     }
     if (sub == "headless") {
-        if (savePath.empty()) { std::puts("headless needs --save FILE"); return 2; }
-        return aether::ui::runHeadless(opts, generations, savePath);
+        if (savePath.empty() && dump.png.empty() && dump.framesDir.empty()) {
+            std::puts("headless needs something to write: --save FILE, --png FILE or --frame-dir DIR");
+            return 2;
+        }
+        if (dump.frameEvery == 0) { std::puts("--frame-every must be at least 1"); return 2; }
+        if (dump.frameScale == 0 || dump.frameScale > 16) { std::puts("--frame-scale must be 1 to 16"); return 2; }
+        return aether::ui::runHeadless(opts, generations, savePath, dump);
     }
     opts.load = loadPath;
     return aether::ui::App(opts).run();

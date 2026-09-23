@@ -66,3 +66,19 @@ set_tests_properties(replay.record replay.gpu replay.cpu PROPERTIES SKIP_RETURN_
 set_tests_properties(replay.gpu replay.cpu PROPERTIES DEPENDS replay.record)
 set_tests_properties(replay.compare_gpu PROPERTIES DEPENDS replay.gpu)
 set_tests_properties(replay.compare_cpu PROPERTIES DEPENDS replay.cpu)
+
+# F-022: the same run, dumped as images with no window. `--frame-every 3` over
+# twelve generations is frames at 0, 3, 6, 9 and 12, and the last of those is
+# the final state — so `compare_files` against `--png` checks the sequence's
+# arithmetic against the run's own end rather than against a number typed here.
+set(AETHER_FRAMES_DIR ${CMAKE_BINARY_DIR}/frames_test)
+add_test(NAME frames.dump
+    COMMAND aether headless --rule B3/S23 --size 64x48 --seed 9 --generations 12
+            --frame-dir ${AETHER_FRAMES_DIR} --frame-every 3 --frame-scale 2
+            --png ${AETHER_FRAMES_DIR}/final.png)
+set_tests_properties(frames.dump PROPERTIES SKIP_RETURN_CODE 77
+                     PASS_REGULAR_EXPRESSION "5 frames in")
+add_test(NAME frames.final_matches_last
+    COMMAND ${CMAKE_COMMAND} -E compare_files
+            ${AETHER_FRAMES_DIR}/frame_000004.png ${AETHER_FRAMES_DIR}/final.png)
+set_tests_properties(frames.final_matches_last PROPERTIES DEPENDS frames.dump)
