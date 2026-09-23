@@ -37,6 +37,15 @@ int App::run() {
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(opts_.windowWidth, opts_.windowHeight, "Aether");
     if (!IsWindowReady()) return 1;
+    if (opts_.screensaver) {
+        // The monitor can only be asked once there is a window on it, so the
+        // size is set here rather than through a config flag: fullscreen at
+        // the default window size is a small picture stretched over a screen.
+        const int monitor = GetCurrentMonitor();
+        const int mw = GetMonitorWidth(monitor), mh = GetMonitorHeight(monitor);
+        if (mw > 0 && mh > 0) SetWindowSize(mw, mh);
+        if (!IsWindowFullscreen()) ToggleFullscreen();
+    }
     int exitCode = 0;
     {
         rlImGuiSetup(true);
@@ -162,9 +171,38 @@ int App::run() {
             }
         }
 
+        if (opts_.screensaver) {
+            if (library_.empty()) {
+                log_.error("screensaver: no rules in the library");
+                exitCode = 1;
+            } else {
+                HideCursor();
+                PlaylistOptions po;
+                po.seconds = opts_.screensaverSeconds;
+                playlist_.emplace(library_.size(), opts_.seed, po);
+                advanceScreensaver();
+            }
+        }
+
         int frames = 0;
         while (exitCode == 0 && !WindowShouldClose()) {
             const double dt = GetFrameTime();
+            if (opts_.screensaver) {
+                // Going fullscreen moves the cursor in the window's frame, so
+                // the first moments cannot be taken as input; the baseline is
+                // whatever it has settled to by the end of that grace period.
+                screensaverAge_ += dt;
+                if (!mouseAtStart_) {
+                    if (screensaverAge_ > 0.75) {
+                        const Vector2 m = GetMousePosition();
+                        mouseAtStart_ = std::pair{m.x, m.y};
+                    }
+                } else if (screensaverInterrupted()) {
+                    break;
+                }
+                entryElapsed_ += dt;
+                if (playlist_ && entryElapsed_ >= playlist_->options().seconds) advanceScreensaver();
+            }
             layOut();
             if (IsWindowResized()) {
                 fitView();
@@ -172,6 +210,11 @@ int App::run() {
             }
 
             updateCanvas(dt);
+            if (sim_ && opts_.screensaver && is3D()) {
+                // A volume that never turns reads as a photograph. Slow
+                // enough that it is not the thing being watched.
+                orbit_.yaw += dt * 0.12;
+            }
             if (sim_) {
                 // Some drivers (Mesa iris) defer the vsync throttle to the
                 // first GL call after the swap. Take that wait here, so the
@@ -235,11 +278,13 @@ int App::run() {
             // after it and before ImGui; its outline is an ImGui rectangle and
             // goes with the rest of them.
             drawPatternPreviewCells();
-            rlImGuiBegin();
-            drawPatternPreview();   // background draw list: behind the panels, over the grid
-            drawSelection();
-            drawPanels();
-            rlImGuiEnd();
+            if (!opts_.screensaver) {
+                rlImGuiBegin();
+                drawPatternPreview();   // background draw list: behind the panels, over the grid
+                drawSelection();
+                drawPanels();
+                rlImGuiEnd();
+            }
 
             // Capture before the swap: the back buffer's contents after a
             // swap are undefined, and on Mesa they are often black.
@@ -303,6 +348,92 @@ void App::recordingCapture() {
     }
 }
 
+
+// --- Screensaver (F-024) -----------------------------------------------------
+
+void App::advanceScreensaver() {
+    if (!playlist_ || library_.empty()) return;
+    const PlaylistEntry entry = playlist_->next();
+    const rule::LibraryRule& chosen = library_[entry.rule % library_.size()];
+
+    auto ir = rule::compileLibraryRule(chosen, ctx_.boundary);
+    if (const auto* bad = std::get_if<std::string>(&ir)) {
+        log_.error(std::format("screensaver: {}: {}", chosen.id, *bad));
+        return;
+    }
+    const rule::RuleIR& compiled = std::get<rule::RuleIR>(ir);
+
+    // Shaped like the screen, not square: a square grid fitted to a wide
+    // monitor is mostly black, and the point of the mode is what fills it.
+    const uint32_t screenW = static_cast<uint32_t>(std::max(1, GetScreenWidth()));
+    const uint32_t screenH = static_cast<uint32_t>(std::max(1, GetScreenHeight()));
+    constexpr uint32_t kPixelsPerCell = 3;
+    uint32_t width = std::clamp(screenW / kPixelsPerCell, 256u, 1536u);
+    uint32_t height = std::max(64u, width * screenH / screenW);
+    if (compiled.dimensions == 3) { width = height = 64u; }         // a volume, not a plane
+    if (compiled.dimensions == 1) { width = std::max(256u, screenW / 2u); height = 1u; }
+
+    // The entry's own seeds, so that what is on screen is a run somebody
+    // could ask for again by name and number.
+    opts_.seed = entry.seedA;
+    opts_.seedB = entry.seedB;
+    cellMutationOn_ = entry.cellMutationP > 0.0;
+    cellMutationLog_ = static_cast<float>(std::log10(std::max(1e-9, entry.cellMutationP)));
+    ruleMutationOn_ = entry.ruleMutation;
+    ruleInterval_ = static_cast<int>(entry.ruleInterval);
+    ruleMagnitude_ = static_cast<int>(entry.ruleMagnitude);
+    paletteOverrides_ = chosen.palette;
+
+    const sim::Path path = sim_ ? sim_->path() : sim::Path::Gpu;
+    sim_.reset();
+    if (!createSimulation(width, height, compiled.dimensions == 3 ? width : 1u, compiled, path)) {
+        return;
+    }
+    applyPaletteOverrides(compiled);
+    if (compiled.dimensions == 1) {
+        seedSingleCell();
+        // A space-time diagram is one row per generation, so at the ordinary
+        // rate it would spend most of its turn as an empty screen with a
+        // sliver at the top. Fast enough to fill in a second or two.
+        const double rows = spaceTime_ ? static_cast<double>(spaceTime_->rows()) : 512.0;
+        sim_->scheduler().setTargetRate(std::max(120.0, rows * 0.75));
+    } else {
+        sim_->fillRandom(sim::defaultDensity(compiled));
+    }
+    sim_->scheduler().setPaused(false);
+    entryElapsed_ = 0.0;
+
+    // Printed rather than drawn: the mode has no interface, and this is what
+    // makes a run reproducible after the fact (F-024's fourth point).
+    std::printf("aether: %s  --rule @%s --seed %llu --seed-b %llu%s%s\n",
+                chosen.name.c_str(), chosen.id.c_str(),
+                static_cast<unsigned long long>(entry.seedA),
+                static_cast<unsigned long long>(entry.seedB),
+                entry.ruleMutation
+                    ? std::format(" --rule-mutation {}:{}", entry.ruleInterval, entry.ruleMagnitude).c_str()
+                    : "",
+                entry.cellMutationP > 0.0
+                    ? std::format(" --cell-mutation {:.2e}", entry.cellMutationP).c_str() : "");
+    std::fflush(stdout);
+}
+
+bool App::screensaverInterrupted() const {
+    if (GetKeyPressed() != 0) return true;
+    for (int b = MOUSE_BUTTON_LEFT; b <= MOUSE_BUTTON_BACK; ++b) {
+        if (IsMouseButtonPressed(b)) return true;
+    }
+    // A nudge, not a drift: a mouse that has settled a pixel off where it was
+    // should not end the show.
+    if (mouseAtStart_) {
+        const Vector2 now = GetMousePosition();
+        if (std::abs(now.x - mouseAtStart_->first) > 16.0f ||
+            std::abs(now.y - mouseAtStart_->second) > 16.0f) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // One description of the running rule, used wherever it is shown.
 void App::refreshRuleSummary() {
     if (!sim_) return;
@@ -345,6 +476,12 @@ std::string App::configDirectory() {
 void App::layOut() {
     const float w = static_cast<float>(GetScreenWidth());
     const float h = static_cast<float>(GetScreenHeight());
+    if (opts_.screensaver) {
+        // No chrome at all: the automaton is the whole screen (F-024).
+        panelRect_ = render::Rect{0.0f, 0.0f, 0.0f, 0.0f};
+        viewport_  = render::Rect{0.0f, 0.0f, w, h};
+        return;
+    }
     panelRect_ = render::Rect{0.0f, kTransportHeight, kPanelWidth, h - kTransportHeight};
     viewport_  = render::Rect{kPanelWidth, kTransportHeight, w - kPanelWidth, h - kTransportHeight};
 }

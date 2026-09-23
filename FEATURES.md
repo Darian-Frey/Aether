@@ -387,7 +387,12 @@ Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Every feature h
 - Optional rule mutation and cell mutation per playlist entry, so a run drifts rather than repeats
 - Exits on any input; usable as a standalone fullscreen binary, and as an X screensaver hack via the `XSCREENSAVER_WINDOW` convention if that proves practical
 - Session reproducibility unaffected: every run it shows is saveable
-**Status:** Not started
+**Status:** Complete (2026-09-23).
+**Notes on how:** `--screensaver`, with `--seconds` for how long each entry runs. `ui/screensaver` holds the only new decision — what to show next — and it is deterministic: a playlist built from the same seed produces the same rules, grid seeds and mutation settings in the same order. It draws from a PCG32 of its own rather than from stream A, so the run's randomness stays exactly what its session says it is (AV-006). No rule follows itself, which with fifteen rules would otherwise happen every fifteenth entry and read as a fault.
+Each entry prints the command that reproduces it — `--rule @life --seed N --seed-b M --rule-mutation 371:1` — to stdout rather than to the screen, the mode having no interface to put it in. That is what the fourth acceptance point asks for: everything it shows is an ordinary `Simulation`, journalled and saveable, and now findable again afterwards.
+The grid is shaped like the screen rather than square, since a square grid fitted to a wide monitor is mostly black. A 1D entry runs fast enough to fill its space-time diagram in a second or two, a diagram at the ordinary rate being an empty screen with a sliver at the top; a 3D entry turns slowly, a volume that never moves reading as a photograph. Three elementary rules were added to the library at the same time, the screensaver being the first thing with a reason to want them.
+Going fullscreen moves the cursor in the window's frame, so input cannot be taken as input for the first three quarters of a second — without that the mode ended immediately, which is how the grace period came to be there.
+**Not done: the `XSCREENSAVER_WINDOW` convention.** The acceptance made it conditional on proving practical, and it does not: the convention hands over an existing X window to draw into, and raylib creates its own through GLFW with no way to adopt one. It would need a second windowing path maintained beside the first, for one platform's screensaver host. `--screensaver` is a standalone fullscreen binary, which is the rest of that bullet.
 **Notes:** Promoted from Candidate features 2026-09-12; this is the project's original motivation. Phase 6.
 
 ## Session and export

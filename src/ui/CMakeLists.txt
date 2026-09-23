@@ -5,7 +5,8 @@ add_library(aether_ui STATIC
     capture.cpp
     editor.cpp
     headless.cpp
-    panels.cpp)
+    panels.cpp
+    screensaver.cpp)
 
 target_include_directories(aether_ui PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(aether_ui PUBLIC cxx_std_20)

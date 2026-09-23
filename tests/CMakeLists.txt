@@ -34,6 +34,7 @@ add_executable(aether_tests
     sim/rng_test.cpp
     sim/simulation_test.cpp
     ui/capture_test.cpp
+    ui/screensaver_test.cpp
     render/view2d_test.cpp
     render/renderer2d_test.cpp
     render/orbit_test.cpp

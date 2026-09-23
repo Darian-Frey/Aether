@@ -49,7 +49,7 @@ states 2; neighbourhood hex 1;      a table block: count conditions,
 
 Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at compile time, and returns a table describing the rule, computing the transition rather than tabulating it.
 
-The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules and a fading Life. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
+The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules, a fading Life and three of Wolfram's elementary rules. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
 
 ### One dimension
 
@@ -87,6 +87,20 @@ ffmpeg -framerate 30 -i frames/frame_%06d.png life.mp4
 ```
 
 Frames render through the same palette pass the window uses, at one pixel per cell unless `--frame-scale` says otherwise.
+
+### Screensaver
+
+```bash
+./build/aether --screensaver --seconds 60
+```
+
+Fullscreen, no interface, walking the bundled rules and reseeding each, with some of them left to drift under rule or cell mutation. Any key, any button or a nudge of the mouse ends it. The playlist is deterministic from the run's seed, and each entry prints the command that recreates it, so something worth keeping is not lost when it moves on:
+
+```
+aether: Conway's Life  --rule @life --seed 13180641628780542681 --seed-b 13327142696364827322 --rule-mutation 371:1
+```
+
+It is a standalone fullscreen binary rather than an X screensaver hack: the `XSCREENSAVER_WINDOW` convention hands over a window to draw into, and raylib makes its own.
 
 See [BUILD.md](BUILD.md) for prerequisites and for running on the NVIDIA GPU on an Optimus laptop.
 

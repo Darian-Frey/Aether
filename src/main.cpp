@@ -56,6 +56,8 @@ void usage() {
               "  --pattern F  open a pattern file, ready to place\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
               "  --screenshot F  write the final frame to F before exiting\n"
+              "  --screensaver   fullscreen, no interface, a playlist of the bundled rules\n"
+              "  --seconds N     how long each playlist entry runs (default 45)\n"
               "\n"
               "subcommands:\n"
               "  aether headless --generations G [--save F] [--png F] [--frame-dir D]\n"
@@ -150,6 +152,8 @@ int main(int argc, char** argv) {
         else if (a == "--frame-every") dump.frameEvery = static_cast<uint32_t>(std::strtoul(value("--frame-every"), nullptr, 10));
         else if (a == "--frame-scale") dump.frameScale = static_cast<uint32_t>(std::strtoul(value("--frame-scale"), nullptr, 10));
         else if (a == "--screenshot") opts.screenshot = value("--screenshot");
+        else if (a == "--screensaver") opts.screensaver = true;
+        else if (a == "--seconds") opts.screensaverSeconds = std::strtod(value("--seconds"), nullptr);
         else { std::printf("unknown option %s\n", argv[i]); usage(); return 2; }
     }
     if (sub == "headless") {

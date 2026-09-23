@@ -1,0 +1,4 @@
+# name: Rule 90
+# description: Wolfram's elementary rule 90, one dimension. The left and right neighbours exclusive-ored, which draws Sierpinski's triangle from one live cell.
+# dimensions: 1
+W90

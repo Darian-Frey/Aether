@@ -1,0 +1,4 @@
+# name: Rule 30
+# description: Wolfram's elementary rule 30, one dimension. Ordered on its left edge and chaotic on its right, from a single cell; used for years as a random number generator.
+# dimensions: 1
+W30

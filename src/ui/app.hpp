@@ -22,6 +22,7 @@
 #include "sim/simulation.hpp"
 #include "ui/capture.hpp"
 #include "ui/log.hpp"
+#include "ui/screensaver.hpp"
 
 #include <array>
 #include <cstdint>
@@ -55,6 +56,8 @@ struct Options {
     std::string screenshot;            // if set, written just before exiting
     std::string load;                  // session to resume instead of starting fresh
     std::string pattern;               // a pattern file to open, pending placement
+    bool        screensaver = false;   // fullscreen, no interface, a playlist (F-024)
+    double      screensaverSeconds = 45.0;
 };
 
 class App {
@@ -69,6 +72,10 @@ private:
     bool is1D() const;   // a 1D run is shown as a space-time diagram, not as a row (F-005)
     void rebuildSpaceTime();   // sized to the grid and the viewport
     void seedSingleCell();     // one live cell in the middle: how an elementary rule is read
+    // Screensaver (F-024). `advanceScreensaver` puts the next playlist entry
+    // on screen; `screensaverInterrupted` is what ends the mode.
+    void advanceScreensaver();
+    bool screensaverInterrupted() const;
     void layOut();
     static std::string configDirectory();
     render::VolumeSettings volumeSettings() const;
@@ -232,6 +239,13 @@ private:
     std::array<char, 512> recordDir_{};
     int  recordFrom_ = 0, recordTo_ = 500, recordEvery_ = 1;
     bool exportRequested_ = false;    // a single PNG, taken at the right point in the frame
+
+    // Screensaver state. The playlist is deterministic from the run's seed,
+    // so what it showed can be found again (F-024).
+    std::optional<Playlist> playlist_;
+    double  entryElapsed_ = 0.0;
+    double  screensaverAge_ = 0.0;   // since the mode started, for the input grace period
+    std::optional<std::pair<float, float>> mouseAtStart_;
 
     Log log_;
 };
