@@ -73,7 +73,8 @@ private:
     void refreshWindowTitle();
     void drawLibraryPanel();
     void drawPatternsPanel();
-    void drawPatternPreview();        // the pending pattern under the cursor, drawn not written
+    void drawPatternPreview();        // the pending pattern's outline, in ImGui
+    void drawPatternPreviewCells();   // its cells, through the grid's own palette pass (IMP-008)
     void drawSelection();             // the selected region, outlined not written
     void savePatternSelection();      // the selected region, out to a file
     void savePatternFile(sim::Pattern p, std::string name, const char* fallbackName);  // the one write to patterns/
@@ -157,6 +158,17 @@ private:
     // cursor and is drawn rather than written, so the grid is untouched until
     // the click (F-012).
     std::optional<sim::Pattern> pending_;
+    // The one route to `pending_`, so that the preview texture cannot be left
+    // showing the previous pattern. Every assignment bumps `pendingSerial_`,
+    // which is what `drawPatternPreview` compares against to decide whether to
+    // re-upload (IMP-008).
+    void setPending(std::optional<sim::Pattern> p);
+    uint64_t pendingSerial_ = 0;
+    // The pending pattern as a state texture, so the preview goes through the
+    // same palette pass as the grid. A GpuGrid rather than a texture of our
+    // own: it already knows how to make and fill one for either cell type.
+    std::optional<core::GpuGrid> previewGrid_;
+    uint64_t previewSerial_ = 0;
     std::array<char, 512> patternPath_{};
     // A region of the grid, in cells, inclusive of both corners. Shift-drag
     // sets it; it is drawn like the preview and never written to.

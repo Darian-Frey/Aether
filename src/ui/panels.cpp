@@ -650,12 +650,55 @@ std::optional<std::string> App::pendingProblem() const {
 // Cells are filled while there are few enough of them to be worth it, and the
 // footprint is outlined either way so a large pattern still shows where it
 // goes.
+// The pending pattern, drawn over the grid and never into it (F-012).
+//
+// The cells go through the same palette pass the grid does (IMP-008), so a
+// preview shows the states it will actually become rather than a wash of one
+// colour, and a five-hundred-square pattern costs the same as a glider. What
+// stays in ImGui is the footprint outline, which has to be visible where the
+// pattern is empty and so cannot come from the cells.
+void App::setPending(std::optional<sim::Pattern> p) {
+    pending_ = std::move(p);
+    ++pendingSerial_;
+}
+
+void App::drawPatternPreviewCells() {
+    if (!pending_ || !renderer_ || !sim_ || is3D()) return;
+    const auto origin = pendingOrigin();
+    if (!origin) return;
+
+    // Re-upload only when the pattern itself changed; holding one under the
+    // cursor moves the draw, not the data.
+    if (previewSerial_ != pendingSerial_ || !previewGrid_) {
+        previewGrid_.reset();
+        core::GridSpec spec{2, pending_->width, pending_->height, 1, pending_->cell_type};
+        auto made = core::GpuGrid::create(spec, core::queryVram());
+        if (const auto* e = std::get_if<core::Error>(&made)) {
+            log_.error(std::format("pattern preview: {}", e->message));
+            previewSerial_ = pendingSerial_;   // do not retry every frame
+            return;
+        }
+        previewGrid_.emplace(std::move(std::get<core::GpuGrid>(made)));
+        previewGrid_->upload(pending_->cells);
+        previewSerial_ = pendingSerial_;
+    }
+    if (!previewGrid_) return;
+
+    const auto [ox, oy] = *origin;
+    const bool fits = !pendingProblem().has_value();
+    const render::Rgba tint = fits ? render::Rgba{150, 200, 255, 60}
+                                   : render::Rgba{235, 110, 85, 150};
+    const unsigned int ramp = pending_->cell_type == core::CellType::F32
+                                  ? 256u : std::max<unsigned int>(2, pending_->states);
+    renderer_->drawOverlay(previewGrid_->current(), previewGrid_->spec(), view_, viewport_,
+                           GetRenderWidth(), GetRenderHeight(), ramp,
+                           static_cast<double>(ox), static_cast<double>(oy), tint);
+}
+
 void App::drawPatternPreview() {
     const auto origin = pendingOrigin();
     if (!origin || !sim_) return;
-    const auto& spec = sim_->spec();
     const auto [ox, oy] = *origin;
-    (void)spec;
     // Red for *any* reason the click would be refused, not only for hanging
     // over an edge: a pattern for another rule looked identical to one that
     // would place, and the refusal was only a line in a collapsed log.
@@ -666,21 +709,6 @@ void App::drawPatternPreview() {
                      ImVec2(viewport_.x + viewport_.w, viewport_.y + viewport_.h), true);
 
     const ImU32 edge = fits ? IM_COL32(150, 200, 255, 220) : IM_COL32(235, 120, 90, 230);
-    const ImU32 fill = fits ? IM_COL32(150, 200, 255, 110) : IM_COL32(235, 120, 90, 110);
-
-    constexpr uint64_t kMaxPreviewCells = 4096;
-    if (pending_->cellCount() <= kMaxPreviewCells && pending_->cell_type == core::CellType::U8) {
-        const float side = std::max(1.0f, static_cast<float>(view_.zoom));
-        for (uint32_t py = 0; py < pending_->height; ++py) {
-            for (uint32_t px = 0; px < pending_->width; ++px) {
-                if (pending_->cells[size_t{py} * pending_->width + px] == 0) continue;
-                const auto [sx, sy] = view_.cellToScreen(ox + static_cast<double>(px),
-                                                         oy + static_cast<double>(py), viewport_);
-                dl->AddRectFilled(ImVec2(static_cast<float>(sx), static_cast<float>(sy)),
-                                  ImVec2(static_cast<float>(sx) + side, static_cast<float>(sy) + side), fill);
-            }
-        }
-    }
     const auto [x0, y0] = view_.cellToScreen(ox, oy, viewport_);
     const auto [x1, y1] = view_.cellToScreen(ox + static_cast<double>(pending_->width),
                                              oy + static_cast<double>(pending_->height), viewport_);
@@ -752,7 +780,7 @@ void App::drawPatternsPanel() {
             const bool fits = sim_ && !sim_->canPlace(entry.pattern, 0, 0, 0).has_value();
             if (!fits) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(entry.name.c_str())) {
-                pending_ = entry.pattern;
+                setPending(entry.pattern);
                 log_.info(std::format("{} — click the grid to place it", entry.name));
             }
             if (ImGui::IsItemHovered()) {
@@ -781,7 +809,7 @@ void App::drawPatternsPanel() {
             if (const auto* e = std::get_if<sim::PatternError>(&parsed)) {
                 log_.error(std::format("pattern: {}", e->message));
             } else {
-                pending_.emplace(std::get<sim::Pattern>(std::move(parsed)));
+                setPending(std::get<sim::Pattern>(std::move(parsed)));
                 log_.info(std::format("{} loaded — click the grid to place it",
                                       pending_->name.value_or(std::string(patternPath_.data()))));
             }
@@ -809,7 +837,7 @@ void App::drawPatternsPanel() {
     if (ImGui::Checkbox("Pattern editor", &showEditor_)) {
         if (showEditor_) ensureScratch();
     }
-    hint("E - a scratch pad to draw a creature on and step, outside the run");
+    hint("E — a scratch pad to draw a creature on and step, outside the run");
     ImGui::Separator();
 
     if (!pending_) {
@@ -828,7 +856,7 @@ void App::drawPatternsPanel() {
     } else {
         ImGui::TextDisabled("click the grid to place, Esc to cancel");
     }
-    if (ImGui::Button("Cancel")) pending_.reset();
+    if (ImGui::Button("Cancel")) setPending(std::nullopt);
     ImGui::PopID();
 }
 

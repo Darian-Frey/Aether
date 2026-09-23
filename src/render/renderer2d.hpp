@@ -13,6 +13,7 @@
 #include "render/view2d.hpp"
 
 #include <optional>
+#include <utility>
 #include <variant>
 
 namespace aether::render {
@@ -45,9 +46,37 @@ public:
     void draw(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
               const Rect& viewport, int frameWidth, int frameHeight, unsigned int states);
 
+    // --- Overlay: a pattern drawn over the grid, not into it (IMP-008) ------
+    //
+    // The same palette pass over a pattern's own cells, so a preview is drawn
+    // in the colours it will actually become rather than as a wash of
+    // rectangles. Takes the texture rather than owning one, exactly as `draw`
+    // does: the caller already has a `core::GpuGrid` to make a state texture
+    // of either cell type, and a second way of making one here would be a
+    // second thing to keep in step, besides a GL handle in a class whose move
+    // protection was hard enough to get right once (IMP-007, BUG-007).
+    //
+    // `cellX`/`cellY` place the pattern's cell (0, 0) at that grid cell, under
+    // the same view the grid is drawn with. `tint` is mixed in by its own
+    // alpha: a light wash for a pattern that will place, a red one for a
+    // pattern that will not. Cells the pattern leaves empty are not drawn, so
+    // what is underneath still shows. Nothing here touches simulation state
+    // (invariant 6).
+    void drawOverlay(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
+                     const Rect& viewport, int frameWidth, int frameHeight, unsigned int states,
+                     double cellX, double cellY, Rgba tint);
+
 private:
     Renderer2D() = default;
     void release();
+
+    // Both public draws are this one pass with different uniforms, so the
+    // grid and its overlay cannot drift in how they map a pixel to a cell.
+    // `originShift` moves the pattern's cell (0, 0) onto a grid cell; it is
+    // zero for the grid itself.
+    void drawPass(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
+                  const Rect& viewport, int frameWidth, int frameHeight, unsigned int states,
+                  bool overlay, std::pair<double, double> originShift, Rgba tint);
 
     // One compiled variant of the palette pass. The locations belong with the
     // program: they are meaningless without it, and exchanging them together
@@ -55,7 +84,8 @@ private:
     struct Program {
         unsigned int id = 0;
         int state = -1, palette = -1, frame = -1, viewport = -1, origin = -1, zoom = -1,
-            grid = -1, states = -1, age = -1, background = -1, lattice = -1, decayFrom = -1;
+            grid = -1, states = -1, age = -1, background = -1, lattice = -1, decayFrom = -1,
+            overlay = -1, tint = -1;
     };
 
     // GL handles: exchanged wholesale on move, never listed one at a time.

@@ -84,7 +84,7 @@ void App::updateCanvas(double /*dt*/) {
             // Above the mouse-capture return below, so a pattern can be cancelled
         // with the cursor anywhere, including over the panel that opened it.
         if (pending_ && IsKeyPressed(KEY_ESCAPE)) {
-            pending_.reset();
+            setPending(std::nullopt);
             log_.info("pattern cancelled");
         }
         if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
@@ -199,7 +199,7 @@ void App::updateCanvas(double /*dt*/) {
                 } else {
                     log_.info(std::format("placed {} at ({}, {})",
                                           pending_->name.value_or("pattern"), ox, oy));
-                    pending_.reset();
+                    setPending(std::nullopt);
                     // The button is still down for the frames after this one,
                     // and with nothing pending the paint branch below would
                     // take them: one click would place *and* daub.

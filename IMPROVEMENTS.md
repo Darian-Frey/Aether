@@ -23,25 +23,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
-### IMP-009: ImGui's default font has no em dash, so seven interface strings show a question mark
-**Status:** suggested
-**Found:** 2026-09-22 (F-029, reading a screenshot of the new editor window)
-**Location:** `src/ui/app.cpp` (font setup); the strings are in `src/ui/panels.cpp`
-**Effort:** trivial
-**Description.** Dear ImGui's default font is built with the Basic Latin and Latin-1 Supplement ranges only. An em dash is U+2014 and a bullet U+2022, both in General Punctuation, so neither has a glyph and each renders as `?`. Seven rendered strings are affected — the tooltips on `N`, `R`, `F` and the CPU-path selector, the 3D slice-mode line, and two log messages about a pattern being ready to place. It has been there since the tooltips were written and was never noticed because tooltips are transient and the log panel is usually closed. The reason the rest of the interface looks right is that the separators use `·`, U+00B7, which is inside Latin-1 and does have a glyph. British English is a documentation convention rather than an interface one, so this is purely cosmetic: the strings read correctly, one character is wrong.
-**Proposal.** Build the font atlas with a glyph range that includes General Punctuation, which is one `ImFontGlyphRangesBuilder` call or an explicit range array at font load, and then the existing strings need no editing at all. The alternative — rewriting seven strings to use a hyphen — is smaller but has to be remembered every time a string is written, which is how this arrived.
-**Trade-offs.** A wider range makes the atlas texture larger, by a few hundred glyphs at one font size, which is nothing against the volume texture. Against that, doing nothing costs a `?` in strings nobody reads twice.
-**Notes.** Found by comparing a screenshot against the source rather than by reading the source: the two characters are indistinguishable from a hyphen and a full stop at a glance in an editor. The new editor window (F-029) was written to use `·` and a hyphen, so it is not in the count.
-
-### IMP-008: the pattern preview is ImGui rectangles, so a large pattern shows only its outline
-**Status:** suggested
-**Found:** 2026-09-21 (F-012, building the placement interface)
-**Location:** `src/ui/panels.cpp` (`App::drawPatternPreview`)
-**Effort:** medium
-**Description.** The pending pattern is previewed by drawing one filled rectangle per live cell into ImGui's background draw list. It costs nothing to build, needs no GL work and no change to `Renderer2D`, and it keeps the preview plainly outside the simulation, which is what invariant 6 wants. It does not scale: a rectangle per cell is fine for a glider and unreasonable for a 500-square pattern, so above 4096 cells the fill is skipped and only the footprint is outlined. A large pattern therefore shows where it will go but not what it is. The preview is also drawn in one colour rather than through the palette, so a multi-state pattern does not look like what it will become.
-**Proposal.** Upload the pending pattern to a small texture and draw it with the palette pass already used for the grid, positioned by adjusting the shader's `origin` and drawing a quad over the pattern's screen rectangle. The same shader, the same palette, the same view transform, at the cost of one more texture and a second draw call.
-**Trade-offs.** `Renderer2D` gains an overlay entry point and a texture that has to be reuploaded whenever the pending pattern changes, which is a GL handle in a class that has only just been given the move protection that makes such handles safe (IMP-007). Against that, the current version is honest about its limits and a preview is not correctness-critical: placing is exact whatever the preview shows, since both come from `pendingOrigin()`.
-**Notes.** The 4096-cell cap is a guess rather than a measurement. Worth doing with F-027, when the bundled library starts handing people patterns larger than a glider.
+*None.*
 
 ## Applied
 
@@ -136,6 +118,35 @@ Two things came out of it beyond the refactor. The equivalence failure message n
 **Notes.** Found while adding a second shader program for the float variant of the palette pass, which is the addition the pitfall warns about. The count of hand-listed members had already reached seventeen.
 
 **As built (2026-09-17).** As proposed, with the uniform locations moved inside a `Program` struct alongside the id they belong to, so the class holds two programs and a palette texture rather than a shader id and twelve loose ints. The move constructor is now `owned_(std::exchange(o.owned_, Owned{})), cfg_(o.cfg_)` and names no member at all. Applied rather than left for later because the same commit added the second shader program — the addition the entry was written about — and a hand-listed constructor with eighteen members in it was not a thing to hand on.
+
+### IMP-008: the pattern preview is ImGui rectangles, so a large pattern shows only its outline
+**Status:** applied 2026-09-23
+**Found:** 2026-09-21 (F-012, building the placement interface)
+**Location:** `src/ui/panels.cpp` (`App::drawPatternPreview`)
+**Effort:** medium
+**Description.** The pending pattern is previewed by drawing one filled rectangle per live cell into ImGui's background draw list. It costs nothing to build, needs no GL work and no change to `Renderer2D`, and it keeps the preview plainly outside the simulation, which is what invariant 6 wants. It does not scale: a rectangle per cell is fine for a glider and unreasonable for a 500-square pattern, so above 4096 cells the fill is skipped and only the footprint is outlined. A large pattern therefore shows where it will go but not what it is. The preview is also drawn in one colour rather than through the palette, so a multi-state pattern does not look like what it will become.
+**Proposal.** Upload the pending pattern to a small texture and draw it with the palette pass already used for the grid, positioned by adjusting the shader's `origin` and drawing a quad over the pattern's screen rectangle. The same shader, the same palette, the same view transform, at the cost of one more texture and a second draw call.
+**Trade-offs.** `Renderer2D` gains an overlay entry point and a texture that has to be reuploaded whenever the pending pattern changes, which is a GL handle in a class that has only just been given the move protection that makes such handles safe (IMP-007). Against that, the current version is honest about its limits and a preview is not correctness-critical: placing is exact whatever the preview shows, since both come from `pendingOrigin()`.
+**Notes.** The 4096-cell cap is a guess rather than a measurement. Worth doing with F-027, when the bundled library starts handing people patterns larger than a glider.
+**As built.** As proposed, with one change of ownership. The proposal put the texture in `Renderer2D`; it went into `App` instead, beside the pending pattern, and `drawOverlay` takes a texture exactly as `draw` already does. That keeps the new GL handle out of a class whose move protection was hard enough to get right once (IMP-007, BUG-007), and it reuses `core::GpuGrid` rather than adding a second way to make and fill a state texture — the cell-type handling, the VRAM guard and the move safety all came free. The trade-off the entry worried about therefore did not have to be paid.
+Both draws now go through one private `drawPass`, so the grid and its overlay cannot drift in how they map a pixel to a cell. The shader gained an `overlay` flag and a `tint`: in overlay mode anything outside the pattern discards rather than painting background, and so does a cell the pattern leaves empty, which is what lets the grid show through. On a hex lattice the pattern's placement is shifted by `View2D::toCellSpace`, since an axial offset is a skewed vector and that mapping already exists in one place.
+The 4096-cell cap is gone. A 160x160 pattern — 25,600 cells, six times the old limit — draws in full and in the palette's own colours, so a multi-state pattern now looks like what it will become. What stayed in ImGui is the footprint outline, which has to be visible where the pattern is empty and so cannot come from the cells.
+Assignments to the pending pattern now go through one `setPending`, which bumps a serial the preview compares against, so the texture is re-uploaded when the pattern changes and not while it is merely being moved about. Eight call sites were routed through it; that is what makes "the preview cannot show the previous pattern" structural rather than remembered.
+BUG-016 came out of this: the new texture is a GL handle on `App` and was being destroyed after `CloseWindow()`.
+
+### IMP-009: ImGui's default font has no em dash, so seven interface strings show a question mark
+**Status:** applied 2026-09-23
+**Found:** 2026-09-22 (F-029, reading a screenshot of the new editor window)
+**Location:** `src/ui/app.cpp` (font setup); the strings are in `src/ui/panels.cpp`
+**Effort:** trivial
+**Description.** Dear ImGui's default font is built with the Basic Latin and Latin-1 Supplement ranges only. An em dash is U+2014 and a bullet U+2022, both in General Punctuation, so neither has a glyph and each renders as `?`. Seven rendered strings are affected — the tooltips on `N`, `R`, `F` and the CPU-path selector, the 3D slice-mode line, and two log messages about a pattern being ready to place. It has been there since the tooltips were written and was never noticed because tooltips are transient and the log panel is usually closed. The reason the rest of the interface looks right is that the separators use `·`, U+00B7, which is inside Latin-1 and does have a glyph. British English is a documentation convention rather than an interface one, so this is purely cosmetic: the strings read correctly, one character is wrong.
+**Proposal.** Build the font atlas with a glyph range that includes General Punctuation, which is one `ImFontGlyphRangesBuilder` call or an explicit range array at font load, and then the existing strings need no editing at all. The alternative — rewriting seven strings to use a hyphen — is smaller but has to be remembered every time a string is written, which is how this arrived.
+**Trade-offs.** A wider range makes the atlas texture larger, by a few hundred glyphs at one font size, which is nothing against the volume texture. Against that, doing nothing costs a `?` in strings nobody reads twice.
+**Notes.** Found by comparing a screenshot against the source rather than by reading the source: the two characters are indistinguishable from a hyphen and a full stop at a glance in an editor. The new editor window (F-029) was written to use `·` and a hyphen, so it is not in the count.
+**As built.** Not as proposed, because the proposal was wrong. It assumed the glyphs were in the font and only the atlas's glyph range excluded them, so that widening the range would fix every string untouched. Probing the font says otherwise: ProggyClean has the en dash (U+2013), the middle dot and the rest of Latin-1, and simply does not contain an em dash or a bullet. No glyph range can rasterise a glyph that is not there, and the entry's own reasoning about why this was the better of the two options was therefore resting on nothing.
+What was done achieves the same end differently. At start-up each missing character is pointed at one the font does have — `AddRemapChar(0x2014, 0x2013)` and `AddRemapChar(0x2022, 0x00B7)` — so an em dash draws as an en dash and a bullet as a middle dot. That keeps the property the proposal was after and the string edits were not: every existing string is fixed at once, and so is every string not written yet. The substitutes are narrower than the originals and nobody will notice; both read as what the text meant.
+One thing worth keeping: `ImFont::IsGlyphInFont` answers false for every character, the letter A included, when called at set-up. It has to be called after a frame has been drawn, or the probe says the font is empty and the reader concludes something false about it. That cost a wrong measurement before it was spotted.
+The hyphen substituted into the editor's tooltip while this was open has been put back to an em dash.
 
 ## Declined
 

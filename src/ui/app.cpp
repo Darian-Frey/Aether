@@ -40,6 +40,21 @@ int App::run() {
     int exitCode = 0;
     {
         rlImGuiSetup(true);
+        // ImGui's default font is ProggyClean, which carries Basic Latin and
+        // Latin-1 and little else: it has no em dash (U+2014) and no bullet
+        // (U+2022), so either drew as a question mark wherever the interface
+        // used one (IMP-009). Widening the atlas's glyph range does not help,
+        // because the glyphs are not in the font to be rasterised — probed
+        // rather than assumed. Pointing each at a glyph the font does have
+        // fixes every string at once, including the ones not written yet,
+        // which editing seven strings would not: an en dash reads as a dash
+        // and a middle dot reads as a separator, and both are what the text
+        // meant anyway.
+        if (ImGuiIO& io = ImGui::GetIO(); !io.Fonts->Fonts.empty()) {
+            ImFont* font = io.Fonts->Fonts[0];
+            font->AddRemapChar(0x2014, 0x2013);   // em dash  -> en dash
+            font->AddRemapChar(0x2022, 0x00B7);   // bullet   -> middle dot
+        }
         // Keep the layout ImGui remembers out of whatever directory the
         // binary was launched from, which is where it lands by default.
         iniPath_ = configDirectory() + "/imgui.ini";
@@ -103,7 +118,7 @@ int App::run() {
                 ss << in.rdbuf();
                 auto parsed = sim::parsePattern(ss.str());
                 if (const auto* e = std::get_if<sim::PatternError>(&parsed)) log_.error("pattern: " + e->message);
-                else pending_.emplace(std::get<sim::Pattern>(std::move(parsed)));
+                else setPending(std::get<sim::Pattern>(std::move(parsed)));
             }
         }
         if (exitCode == 0 && !opts_.load.empty()) {
@@ -178,6 +193,10 @@ int App::run() {
                 renderer_->draw(sim_->texture(), sim_->spec(), view_, viewport_,
                                 GetRenderWidth(), GetRenderHeight(), ramp);
             }
+            // The preview's cells are a GL pass like the grid's, so they go
+            // after it and before ImGui; its outline is an ImGui rectangle and
+            // goes with the rest of them.
+            drawPatternPreviewCells();
             rlImGuiBegin();
             drawPatternPreview();   // background draw list: behind the panels, over the grid
             drawSelection();
@@ -199,6 +218,7 @@ int App::run() {
         sim_.reset();
         renderer_.reset();
         renderer3d_.reset();
+        previewGrid_.reset();   // a GL handle like the rest: before CloseWindow
     }
     CloseWindow();
     return exitCode;

@@ -48,6 +48,8 @@ std::variant<Renderer2D, core::Error> Renderer2D::create() {
         out.background = GetShaderLocation(sh, "background");
         out.lattice    = GetShaderLocation(sh, "lattice");
         out.decayFrom  = GetShaderLocation(sh, "decayFrom");
+        out.overlay    = GetShaderLocation(sh, "overlay");
+        out.tint       = GetShaderLocation(sh, "tint");
         // raylib allocated locs[]; we keep only the id and free its table.
         RL_FREE(sh.locs);
         return std::nullopt;
@@ -103,18 +105,39 @@ void Renderer2D::setPalette(const Palette& p) {
 
 void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
                       const Rect& vp, int frameWidth, int frameHeight, unsigned int states) {
+    drawPass(stateTexture, spec, view, vp, frameWidth, frameHeight, states, false, {0.0, 0.0}, Rgba{});
+}
+
+void Renderer2D::drawOverlay(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
+                             const Rect& vp, int frameWidth, int frameHeight, unsigned int states,
+                             double cellX, double cellY, Rgba tint) {
+    // The shift is in cell space, not in cells: on a hex lattice an axial
+    // offset is a skewed vector, and `toCellSpace` is the one place that
+    // mapping lives (SPEC §3). Doing the arithmetic here rather than in the
+    // shader keeps the shader's transform identical for both passes.
+    drawPass(stateTexture, spec, view, vp, frameWidth, frameHeight, states, true,
+             view.toCellSpace(cellX, cellY), tint);
+}
+
+void Renderer2D::drawPass(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
+                          const Rect& vp, int frameWidth, int frameHeight, unsigned int states,
+                          bool isOverlay, std::pair<double, double> originShift, Rgba tintColour) {
     const auto [ox, oy] = view.snappedOrigin(vp);
     const float frame[2]    = {static_cast<float>(frameWidth), static_cast<float>(frameHeight)};
     const float viewport[4] = {vp.x, vp.y, vp.w, vp.h};
-    const float origin[2]   = {static_cast<float>(ox), static_cast<float>(oy)};
+    const float origin[2]   = {static_cast<float>(ox - originShift.first),
+                               static_cast<float>(oy - originShift.second)};
     const float zoom        = static_cast<float>(view.zoom);
     const float grid[2]     = {static_cast<float>(spec.width), static_cast<float>(spec.height)};
     const int   nStates     = static_cast<int>(states);
     const int   age         = cfg_.ageShade ? 1 : 0;
     const int   lattice     = view.lattice == Lattice::Hex ? 1 : 0;
     const int   decayFrom   = cfg_.decayFrom ? static_cast<int>(*cfg_.decayFrom) : -1;
+    const int   overlay     = isOverlay ? 1 : 0;
     const float bg[4]       = {cfg_.background.r / 255.0f, cfg_.background.g / 255.0f,
                                cfg_.background.b / 255.0f, cfg_.background.a / 255.0f};
+    const float tint[4]     = {tintColour.r / 255.0f, tintColour.g / 255.0f,
+                               tintColour.b / 255.0f, tintColour.a / 255.0f};
 
     // A float grid is a different sampler type, so it is a different program.
     const Program& prog = spec.cell_type == core::CellType::F32 ? owned_.continuous : owned_.discrete;
@@ -145,6 +168,8 @@ void Renderer2D::draw(unsigned int stateTexture, const core::GridSpec& spec, con
     rlSetUniform(prog.background, bg, RL_SHADER_UNIFORM_VEC4, 1);
     rlSetUniform(prog.lattice, &lattice, RL_SHADER_UNIFORM_INT, 1);
     rlSetUniform(prog.decayFrom, &decayFrom, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(prog.overlay, &overlay, RL_SHADER_UNIFORM_INT, 1);
+    rlSetUniform(prog.tint, tint, RL_SHADER_UNIFORM_VEC4, 1);
     rlSetUniformSampler(prog.state, stateTexture);
     rlSetUniformSampler(prog.palette, owned_.paletteTex);
 

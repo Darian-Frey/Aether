@@ -165,9 +165,10 @@ void App::drawEditor() {
     if (ImGui::Button("Place in grid")) {
         // Through F-012's placement path, so it is previewed under the cursor
         // and journalled like any other grid mutation (D-018).
-        pending_ = pad.toPattern();
-        pending_->name = editorSaveAs_[0] != '\0' ? std::optional<std::string>(editorSaveAs_.data())
-                                                  : std::optional<std::string>("scratch pad");
+        sim::Pattern p = pad.toPattern();
+        p.name = editorSaveAs_[0] != '\0' ? std::optional<std::string>(editorSaveAs_.data())
+                                          : std::optional<std::string>("scratch pad");
+        setPending(std::move(p));
         log_.info("pattern editor: click the grid to place the pad");
     }
     ImGui::EndDisabled();
@@ -181,7 +182,7 @@ void App::drawEditor() {
         } else {
             log_.info(std::format("pattern editor: took {}x{} onto the pad",
                                   pending_->width, pending_->height));
-            pending_.reset();
+            setPending(std::nullopt);
         }
     }
     editorHint("copy the pending pattern onto the pad, so anything the Patterns "

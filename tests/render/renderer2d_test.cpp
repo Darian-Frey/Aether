@@ -138,3 +138,106 @@ TEST_CASE("hex rendering colours each hex from its axial cell", "[gpu][render][h
     UnloadImage(img);
     UnloadRenderTexture(target);
 }
+
+// --- The pattern preview's overlay pass (IMP-008) ---------------------------
+
+TEST_CASE("an overlay draws its own cells and lets the grid through elsewhere", "[gpu][render]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // A grid of state 1 everywhere, so anything the overlay does not cover is
+    // a known colour and anything it does cover is visibly different.
+    const core::GridSpec spec{2, 8, 6, 1};
+    core::HostGrid host(spec);
+    for (uint32_t y = 0; y < 6; ++y) {
+        for (uint32_t x = 0; x < 8; ++x) host.set(x, y, 0, 1);
+    }
+    auto gpu = std::get<core::GpuGrid>(core::GpuGrid::create(spec, core::queryVram()));
+    gpu.upload(host.current());
+
+    // A 2x2 pattern with one live cell, so the empty three prove the discard.
+    const core::GridSpec pspec{2, 2, 2, 1};
+    core::HostGrid pat(pspec);
+    pat.set(0, 0, 0, 2);
+    auto pgpu = std::get<core::GpuGrid>(core::GpuGrid::create(pspec, core::queryVram()));
+    pgpu.upload(pat.current());
+
+    auto r = render::Renderer2D::create();
+    if (const auto* e = std::get_if<core::Error>(&r)) FAIL(e->message);
+    auto& renderer = std::get<render::Renderer2D>(r);
+    render::Palette pal;
+    pal.entries[0] = {10, 20, 30, 255};
+    pal.entries[1] = {200, 200, 200, 255};   // the grid
+    pal.entries[2] = {0, 0, 255, 255};       // the pattern's live cell
+    renderer.setPalette(pal);
+    renderer.setBackground({7, 7, 7, 255});
+
+    render::View2D view;
+    view.zoom = 2.0;
+    view.centre_x = 4.0;
+    view.centre_y = 3.0;
+    const Rect vp{0, 0, 16, 12};
+
+    RenderTexture2D target = LoadRenderTexture(16, 12);
+    BeginTextureMode(target);
+    ClearBackground(BLACK);
+    renderer.draw(gpu.current(), spec, view, vp, 16, 12, 3);
+    // The pattern's cell (0,0) onto grid cell (3,2), with no tint, so the
+    // comparison is against the palette colour rather than a blend.
+    renderer.drawOverlay(pgpu.current(), pspec, view, vp, 16, 12, 3, 3.0, 2.0, Rgba{0, 0, 0, 0});
+    EndTextureMode();
+    Image img = LoadImageFromTexture(target.texture);
+
+    // Grid cell (3,2) is the pattern's live cell: the overlay's colour wins.
+    // 0.85 alpha over the grid's 200-grey, so it is mostly blue but not pure.
+    const Rgba covered = pixel(img, 6, 4);
+    CHECK(covered.b > covered.r);
+    CHECK(covered.b > 200);
+    CHECK(covered.r < 60);
+
+    // Grid cell (4,2) is under the pattern's empty cell (1,0): untouched.
+    CHECK(pixel(img, 8, 4) == Rgba{200, 200, 200, 255});
+    // As is (3,3), under the pattern's empty (0,1).
+    CHECK(pixel(img, 6, 6) == Rgba{200, 200, 200, 255});
+    // And a cell well outside the pattern's footprint.
+    CHECK(pixel(img, 0, 0) == Rgba{200, 200, 200, 255});
+
+    UnloadImage(img);
+    UnloadRenderTexture(target);
+}
+
+TEST_CASE("an overlay does not alter the grid it is drawn over", "[gpu][render]") {
+    GlContext gl;
+    requireGl(gl);
+    const core::GridSpec spec{2, 16, 16, 1};
+    core::HostGrid host(spec);
+    for (uint32_t i = 0; i < 16; ++i) host.set(i, i, 0, 1);
+    auto gpu = std::get<core::GpuGrid>(core::GpuGrid::create(spec, core::queryVram()));
+    gpu.upload(host.current());
+
+    const core::GridSpec pspec{2, 4, 4, 1};
+    core::HostGrid pat(pspec);
+    for (uint32_t i = 0; i < 4; ++i) pat.set(i, 0, 0, 1);
+    auto pgpu = std::get<core::GpuGrid>(core::GpuGrid::create(pspec, core::queryVram()));
+    pgpu.upload(pat.current());
+
+    auto renderer = std::get<render::Renderer2D>(render::Renderer2D::create());
+    render::View2D view;
+    view.fit(16, 16, Rect{0, 0, 64, 64});
+    RenderTexture2D target = LoadRenderTexture(64, 64);
+    for (int i = 0; i < 5; ++i) {
+        BeginTextureMode(target);
+        renderer.draw(gpu.current(), spec, view, Rect{0, 0, 64, 64}, 64, 64, 2);
+        renderer.drawOverlay(pgpu.current(), pspec, view, Rect{0, 0, 64, 64}, 64, 64, 2,
+                             5.0, 5.0, Rgba{150, 200, 255, 60});
+        EndTextureMode();
+    }
+    // Rendering never mutates simulation state, overlay included (invariant 6).
+    std::vector<uint8_t> back(spec.cellCount());
+    gpu.download(back);
+    CHECK(back == std::vector<uint8_t>(host.current().begin(), host.current().end()));
+    std::vector<uint8_t> pback(pspec.cellCount());
+    pgpu.download(pback);
+    CHECK(pback == std::vector<uint8_t>(pat.current().begin(), pat.current().end()));
+    UnloadRenderTexture(target);
+}

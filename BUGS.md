@@ -203,3 +203,14 @@ What settled it was the interface. The same rule at 512² in the window is perfe
 **Notes.** Both calls were redundant. `InvisibleButton` had already advanced the cursor past the pad, and `Dummy` had already reserved and advanced past each plane of the neighbourhood diagram — that is what makes `Dummy` the right tool for hand-drawn content and it was doing its job. Removing both is the whole fix; the hover readout also gained an else branch so that a frame on the fringe still submits a line and the layout does not jump.
 Made visible rather than caused by two things landing the same day: the neighbourhood diagram was new, and the legend under it had just been made conditional, which is what let a frame reach the end of the loop with nothing following the cursor move.
 **Resolution (2026-09-22).** Both `SetCursorScreenPos` calls removed, an `else` added to the hover readout. Verified by A/B rather than by reasoning: the calls were put back and the same 120-frame run produced 117 errors, then removed again for 0.
+
+### BUG-016: the preview texture outlived the GL context and segfaulted on exit
+**Status:** fixed
+**Found:** 2026-09-23 (IMP-008, first run with a pattern open)
+**Fixed:** 2026-09-23
+**Location:** `src/ui/app.cpp` (`App::run` teardown), `src/ui/app.hpp` (`previewGrid_`)
+**Severity:** medium
+**Description.** IMP-008 gave `App` a `core::GpuGrid` to hold the pending pattern as a state texture. `App::run` resets `sim_`, `renderer_` and `renderer3d_` before `CloseWindow()` precisely because a GL handle destroyed after context teardown segfaults; the new member was not added to that list, so it was destroyed in `~App()` instead, after the context was gone. Any run that opened a pattern crashed on exit. Nothing was lost — the crash is after the last frame and after any screenshot — but a process that segfaults on the way out is not something to ship, and a user would reasonably read it as the pattern having broken something.
+**Reproduction.** `aether --pattern some.rle --frames 30`, then let it exit. Backtrace: `GpuGrid::~GpuGrid` inside `App::~App` inside `main`.
+**Notes.** The rule this breaks is already written down, in CLAUDE.md's pitfalls and in ATTACK_VECTORS: GL RAII objects must be destroyed inside the window's lifetime. It is worth noticing that having written the rule down did not prevent walking into it, because the rule is remembered rather than structural — nothing stops a GL-owning member being added to `App` without a matching reset. A `struct GlOwned { ... }` grouping every such member, reset in one place, would make the next one impossible rather than merely documented. That is a change to `App`'s shape and is the author's call, not something to fold into an improvement about pattern previews.
+**Resolution (2026-09-23).** `previewGrid_.reset()` added alongside the others before `CloseWindow()`. Confirmed by three clean runs; the crash was reproducible on every run before it.

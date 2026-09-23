@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
-> **Last reviewed:** 2026-09-21
-> **Why this status:** Phases 1–4 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions, Lua, codegen, rule library); Phase 5 (continuous states) not yet started.
+> **Last reviewed:** 2026-09-23
+> **Why this status:** Phases 1–5 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions, Lua, codegen, rule library, continuous states); Phase 6 (presentation and release) under way — patterns and the editor are done, the release checklist is not.
 
 # Aether
 
@@ -53,7 +53,7 @@ The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Nig
 
 ### Patterns and seeding
 
-The Patterns section lists what is in `patterns/` — gliders, a Gosper gun, a Wireworld loop, a Brian's Brain glider, a cyclic spiral seed, a hex oscillator and a 3D shell — or opens any `.rle` or `.pattern` file. A chosen pattern follows the cursor as an outline until you click, so it goes where you meant; one the running rule cannot take is greyed in the list, and says why. Shift-drag the grid to select a region, and the Patterns section will write it back out as a file: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not, so hexagonal, 3D and continuous patterns are not squeezed into a format that cannot hold them.
+The Patterns section lists what is in `patterns/` — gliders, a Gosper gun, a Wireworld loop, a Brian's Brain glider, a cyclic spiral seed, a hex oscillator and a 3D shell — or opens any `.rle` or `.pattern` file. A chosen pattern follows the cursor until you click, drawn in the colours it will become rather than written into the grid, so you can see it against what is already there before committing to it; one the running rule cannot take is greyed in the list, tinted red under the cursor, and says why. Shift-drag the grid to select a region, and the Patterns section will write it back out as a file: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not, so hexagonal, 3D and continuous patterns are not squeezed into a format that cannot hold them.
 
 The same selection is what **Seed region** fills, at the density weights in the Grid section and leaving everything outside it alone; **Seed** does the whole grid, and in 3D **Seed slice** does the one the brush is painting on. Every one of these is recorded, so a session replays a paste or a partial reseed exactly as it happened.
 

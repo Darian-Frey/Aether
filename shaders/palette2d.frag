@@ -29,6 +29,13 @@ uniform int   ageShade;
 uniform int   decayFrom;    // first state of the ageing tail, or -1
 uniform vec4  background;
 uniform int   lattice;      // 0 square, 1 hexagonal (axial storage, pointy-topped)
+// Overlay mode (F-012's pattern preview, IMP-008). The same pass over a
+// pattern's own cells rather than the grid's: anything outside the pattern,
+// and any cell the pattern leaves empty, is discarded so the grid shows
+// through. `tint` is mixed in by its own alpha, which is what makes a preview
+// look provisional and a refused one look wrong.
+uniform int   overlay;      // 0 normal, 1 preview
+uniform vec4  tint;
 
 const float HEX_A = 0.5;
 const float HEX_B = 0.86602540378443865;   // sqrt(3)/2
@@ -60,6 +67,8 @@ void main() {
         idx = ivec2(floor(cell));
     }
     if (idx.x < 0 || idx.y < 0 || idx.x >= int(gridSize.x) || idx.y >= int(gridSize.y)) {
+        // An overlay covers only itself: outside it there is a grid to see.
+        if (overlay == 1) discard;
         finalColor = background;
         return;
     }
@@ -68,15 +77,19 @@ void main() {
     // a ramp across the states it was built for and interpolated between
     // entries. `states` is the width of that ramp (SPEC §1, D-020).
     float v = clamp(texelFetch(stateTex, idx, 0).r, 0.0, 1.0);
+    if (overlay == 1 && v <= 0.0) discard;
     float pos = v * float(states - 1);
     int lo = int(floor(pos));
     int hi = min(lo + 1, states - 1);
     vec4 c = mix(texelFetch(paletteTex, ivec2(lo, 0), 0),
                  texelFetch(paletteTex, ivec2(hi, 0), 0), pos - float(lo));
-    finalColor = vec4(c.rgb, 1.0);
+    finalColor = overlay == 1 ? vec4(mix(c.rgb, tint.rgb, tint.a), 0.85) : vec4(c.rgb, 1.0);
     return;
 #else
     uint s = texelFetch(stateTex, idx, 0).r;
+    // A pattern's empty cells are not part of the pattern: showing them would
+    // erase whatever the pattern is about to land on.
+    if (overlay == 1 && s == 0u) discard;
     vec4 c = texelFetch(paletteTex, ivec2(int(s), 0), 0);
     if (ageShade == 1) {
         // With an ageing tail, darken only the tail: a rule whose states are
@@ -89,6 +102,8 @@ void main() {
             c.rgb *= mix(1.0, 0.3, t);
         }
     }
-    finalColor = vec4(c.rgb, 1.0);   // palette alpha is the 3D opacity; 2D is opaque
+    // Palette alpha is the 3D opacity, so 2D is opaque — except an overlay,
+    // which is meant to be seen through.
+    finalColor = overlay == 1 ? vec4(mix(c.rgb, tint.rgb, tint.a), 0.85) : vec4(c.rgb, 1.0);
 #endif
 }
