@@ -32,11 +32,20 @@ constexpr float kTransportHeight = 46.0f;
 
 }  // namespace
 
-int App::run() {
+App::GlWindow::GlWindow(int width, int height, const char* title) {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(opts_.windowWidth, opts_.windowHeight, "Aether");
-    if (!IsWindowReady()) return 1;
+    InitWindow(width, height, title);
+    ready_ = IsWindowReady();
+}
+
+App::GlWindow::~GlWindow() {
+    if (ready_) CloseWindow();
+}
+
+int App::run() {
+    window_.emplace(opts_.windowWidth, opts_.windowHeight, "Aether");
+    if (!window_->ready()) return 1;
     if (opts_.screensaver) {
         // The monitor can only be asked once there is a window on it, so the
         // size is set here rather than through a config flag: fullscreen at
@@ -297,14 +306,14 @@ int App::run() {
             if (lastFrame) break;
         }
 
+        // ImGui is shut down here rather than left to a destructor because it
+        // writes its layout through `iniPath_`, which is a member declared
+        // below the GL objects and therefore destroyed before them.
         rlImGuiShutdown();
-        sim_.reset();
-        renderer_.reset();
-        renderer3d_.reset();
-        previewGrid_.reset();   // a GL handle like the rest: before CloseWindow
-        spaceTime_.reset();
     }
-    CloseWindow();
+    // No resets: `window_` is declared above every GL-owning member, so they
+    // are all destroyed before it is (IMP-010). The window outlives `run()`
+    // by as long as the App does, which is until the caller drops it.
     return exitCode;
 }
 

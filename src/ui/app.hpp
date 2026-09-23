@@ -137,6 +137,32 @@ private:
 
     Options opts_;
 
+    // --- The GL context, and why it is declared here -------------------------
+    //
+    // Every object below this line that owns a GL handle must be destroyed
+    // while the context still exists, or the process segfaults on the way out.
+    // That used to be a list of `.reset()` calls in `run()`, kept correct by
+    // remembering to add to it, and it was forgotten twice in consecutive
+    // features (BUG-016, then F-005's `spaceTime_`). It is now the language's
+    // job: members are destroyed in reverse declaration order, so anything
+    // declared *after* `window_` is gone before the window closes, and a new
+    // GL object needs no teardown entry because there is no longer a teardown
+    // to forget (IMP-010).
+    //
+    // The one rule left is that this stays above the members it protects. It
+    // is the first thing in the class for that reason.
+    class GlWindow {
+    public:
+        GlWindow(int width, int height, const char* title);
+        ~GlWindow();
+        GlWindow(const GlWindow&) = delete;
+        GlWindow& operator=(const GlWindow&) = delete;
+        bool ready() const { return ready_; }
+    private:
+        bool ready_ = false;
+    };
+    std::optional<GlWindow> window_;
+
     std::optional<sim::Simulation>    sim_;
     std::optional<render::Renderer2D> renderer_;
     std::optional<render::Renderer3D> renderer3d_;
