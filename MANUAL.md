@@ -213,6 +213,8 @@ return {
 
 That is the cyclic cellular automaton: each state is eaten by the next, and spirals form out of noise. `transition` is called once per table entry while the rule is built, so a rule with thousands of entries can be described in a few lines instead of listed.
 
+[LUA.md](LUA.md) is the cookbook: every kind of transition, continuous rules, the sandbox and its budgets, the error messages, and recipes.
+
 ---
 
 ## Dimensions and lattices
@@ -480,6 +482,7 @@ Rules and patterns are searched for in `$AETHER_RULES` / `$AETHER_PATTERNS`, the
 
 ### Where to look next
 
+- [LUA.md](LUA.md) — writing rules in Lua in detail, with worked examples
 - [SPEC.md](SPEC.md) — the exact grammar, the table layouts, the mutation semantics, the session format
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the modules fit together
 - [DECISIONS.md](DECISIONS.md) — why it is built this way, and what would change each choice

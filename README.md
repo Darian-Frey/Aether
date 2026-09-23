@@ -50,7 +50,7 @@ states 2; neighbourhood hex 1;      a table block: count conditions,
   1: n(1) < 3 or n(1) > 4 -> 0;     and decay N for an ageing tail
 ```
 
-Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at compile time, and returns a table describing the rule, computing the transition rather than tabulating it.
+Or pick Lua in the same panel, or pass `--lua rule.lua`: a script runs once, at compile time, and returns a table describing the rule, computing the transition rather than tabulating it. The [Lua cookbook](LUA.md) covers that from Life to Lenia.
 
 The Library section lists the bundled rules — Life, HighLife, Seeds, Day & Night, Diamoeba, Brian's Brain, Star Wars, Wireworld, a cyclic CA, a hexagonal Life, two of Bays' 3D rules, a fading Life, three of Wolfram's elementary rules and Langton's self-reproducing loops. `--rule @wireworld` loads one by name, and rules you write save back into `rules/`.
 
@@ -154,6 +154,7 @@ aether/
 ## Documentation
 
 - [Manual](MANUAL.md) — how it all works, with worked examples
+- [Lua cookbook](LUA.md) — writing rules in Lua, from Life to Lenia
 - [Features](FEATURES.md) — capabilities, priorities, acceptance criteria
 - [Roadmap](ROADMAP.md) — phased plan
 - [Architecture](ARCHITECTURE.md) — module boundaries and data flow
