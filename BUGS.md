@@ -24,25 +24,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-### BUG-018: F1 opens the key list in 3D only
-**Status:** open
-**Found:** 2026-09-23 (writing MANUAL.md, checking the shortcut rather than repeating the README)
-**Location:** `src/ui/canvas.cpp` (`updateCanvas`, the 2D branch)
-**Severity:** low
-**Description.** The README has said "**Keys** lists the shortcuts, and F1 opens it" since it was written, and the Keys section itself offers `F1` or `?`. Neither works in two dimensions. `updateCanvas` has two keyboard branches, one per dimensionality, and `KEY_F1 || KEY_SLASH` appears only in the 3D one — every other shortcut is in both. The section can still be opened by clicking its header, so nothing is unreachable; the documented way in simply does not work in the mode almost everyone uses.
-**Reproduction.** Run 2D and press F1 or `?`: nothing. Run `--size 32x32x32` with a 3D rule and press F1: the Keys section opens.
-**Notes.** One line, duplicated into the 2D branch beside the other shared shortcuts. It is worth asking why the two branches share thirteen keys by copy rather than by a common block, since that is the mechanism by which this went missing and would be the mechanism for the next one; that is a larger change than the fix and is the author's to weigh.
-Found while writing the manual, because a documented shortcut is the kind of claim that should be tried rather than copied from the README that also asserts it. The manual now says what is true and points here.
-
-### BUG-017: `--rule @name` works interactively and not headlessly
-**Status:** open
-**Found:** 2026-09-23 (writing MANUAL.md, checking every example rather than assuming it)
-**Location:** `src/ui/headless.cpp` (`runHeadless`), `src/main.cpp` (`usage`)
-**Severity:** low
-**Description.** `--help` lists `--rule R` once, for every invocation, and says "@name loads from the library". That holds for the window, where `App::run` searches `rules/` and resolves the name before compiling. It does not hold for `aether headless`, which passes `opts.rule` straight to the DSL parser and gets `rule: 1:1: unexpected character '@'`. The same flag, documented once, behaves differently depending on the subcommand — and it fails in the path where a user is least likely to be watching, since headless is what goes in a script.
-**Reproduction.** `aether headless --rule @wireworld --generations 5 --save w.aether` exits 1 with the parse error. `aether --rule @wireworld --frames 5` runs.
-**Notes.** The library loader is `rule::loadLibrary` plus `rule::compileLibraryRule`, both already in `aether_rule` and both already used by `App`; `runHeadless` would need the same four lines and the same search path. The alternative is to narrow the help text to say the library is a window feature, which is smaller but leaves a scripted run unable to name a bundled rule — including Langton's loops, whose 219 clauses are not something anybody will paste onto a command line.
-Found while writing the manual, which is the first thing to have tried every documented invocation in one sitting. Logged rather than fixed, per the maintenance rule; the manual documents what is true today and points here.
+*None.*
 
 ## Fixed
 
@@ -230,6 +212,47 @@ Made visible rather than caused by two things landing the same day: the neighbou
 **Reproduction.** `aether --pattern some.rle --frames 30`, then let it exit. Backtrace: `GpuGrid::~GpuGrid` inside `App::~App` inside `main`.
 **Notes.** The rule this breaks is already written down, in CLAUDE.md's pitfalls and in ATTACK_VECTORS: GL RAII objects must be destroyed inside the window's lifetime. It is worth noticing that having written the rule down did not prevent walking into it, because the rule is remembered rather than structural — nothing stops a GL-owning member being added to `App` without a matching reset. A `struct GlOwned { ... }` grouping every such member, reset in one place, would make the next one impossible rather than merely documented. That is a change to `App`'s shape and is the author's call, not something to fold into an improvement about pattern previews.
 **Resolution (2026-09-23).** `previewGrid_.reset()` added alongside the others before `CloseWindow()`. Confirmed by three clean runs; the crash was reproducible on every run before it.
+
+### BUG-017: `--rule @name` works interactively and not headlessly
+**Status:** fixed
+**Found:** 2026-09-23 (writing MANUAL.md, checking every example rather than assuming it)
+**Fixed:** 2026-09-23
+**Location:** `src/ui/headless.cpp` (`runHeadless`), `src/ui/app.cpp` (the search path)
+**Severity:** low
+**Description.** `--help` lists `--rule R` once, for every invocation, and says "@name loads from the library". That holds for the window, where `App::run` searches `rules/` and resolves the name before compiling. It does not hold for `aether headless`, which passes `opts.rule` straight to the DSL parser and gets `rule: 1:1: unexpected character '@'`. The same flag, documented once, behaves differently depending on the subcommand — and it fails in the path where a user is least likely to be watching, since headless is what goes in a script.
+**Reproduction.** `aether headless --rule @wireworld --generations 5 --save w.aether` exits 1 with the parse error. `aether --rule @wireworld --frames 5` runs.
+**Notes.** The library loader is `rule::loadLibrary` plus `rule::compileLibraryRule`, both already in `aether_rule` and both already used by `App`; `runHeadless` would need the same four lines and the same search path. The alternative is to narrow the help text to say the library is a window feature, which is smaller but leaves a scripted run unable to name a bundled rule — including Langton's loops, whose 219 clauses are not something anybody will paste onto a command line.
+Found while writing the manual, which is the first thing to have tried every documented invocation in one sitting. Logged rather than fixed, per the maintenance rule; the manual documents what is true today and points here.
+**Resolution (2026-09-23).** `runHeadless` resolves `@name` the way the window does, through `rule::loadLibrary` and `rule::compileLibraryRule`, so a Lua rule works by name as readily as a DSL one. The search path was the part worth being careful about: it had been written inline inside `App::run`, and a second copy in `headless.cpp` would have been a new way for the two to disagree — which is the shape of this bug, not merely its cause. It is now `ui::ruleSearchPath()`, with `patternSearchPath()` extracted beside it since they were the same four lines twice.
+The rule also decides the dimensionality here, as it already did in the window: `--rule @rule110 --size 512x512` gives a 1D grid of 512 and `--rule @life-3d-4555 --size 32x32` a 32³ volume, each announced rather than silently reshaped.
+Guarded by `library.*` under CTest, and guarded by comparison rather than by exit code: the same rule named and spelled out, same seed, same extent, fifty generations, and `compare` settles whether `@life` really is `B3/S23`. An unknown name is refused as an unknown name rather than handed to the parser to report as a stray `@`.
+
+### BUG-018: F1 opens the key list in 3D only
+**Status:** fixed
+**Found:** 2026-09-23 (writing MANUAL.md, checking the shortcut rather than repeating the README)
+**Fixed:** 2026-09-23
+**Location:** `src/ui/canvas.cpp` (`updateCanvas`, the 2D branch)
+**Severity:** low
+**Description.** The README has said "**Keys** lists the shortcuts, and F1 opens it" since it was written, and the Keys section itself offers `F1` or `?`. Neither works in two dimensions. `updateCanvas` has two keyboard branches, one per dimensionality, and `KEY_F1 || KEY_SLASH` appears only in the 3D one — every other shortcut is in both. The section can still be opened by clicking its header, so nothing is unreachable; the documented way in simply does not work in the mode almost everyone uses.
+**Reproduction.** Run 2D and press F1 or `?`: nothing. Run `--size 32x32x32` with a 3D rule and press F1: the Keys section opens.
+**Notes.** One line, duplicated into the 2D branch beside the other shared shortcuts. It is worth asking why the two branches share thirteen keys by copy rather than by a common block, since that is the mechanism by which this went missing and would be the mechanism for the next one; that is a larger change than the fix and is the author's to weigh.
+Found while writing the manual, because a documented shortcut is the kind of claim that should be tried rather than copied from the README that also asserts it. The manual now says what is true and points here.
+**Resolution (2026-09-23).** Fixed by removing the duplication rather than by adding the missing line to it. `updateCanvas` kept two near-identical keyboard blocks, one per dimensionality, and the thirteen shortcuts common to both are now written once above the `is3D()` branch; each branch keeps only what is genuinely its own, which for 3D is the slice controls and for 2D is nothing. A shortcut that belongs to both dimensionalities now has one home and cannot be added to half of them.
+Reading that function to make this change is what turned up BUG-019, which had been live for two days in the same block.
+
+### BUG-019: placing a pattern in 2D kills painting for the rest of the session
+**Status:** fixed
+**Found:** 2026-09-23 (fixing BUG-018, reading the function the shortcut lives in)
+**Fixed:** 2026-09-23
+**Location:** `src/ui/canvas.cpp` (`App::updateCanvas`)
+**Severity:** high
+**Description.** BUG-012's fix added `swallowLeft_`, set when a pattern is placed and cleared when the left button comes up, so that one click could not both place and daub. The clear was put inside the `if (is3D())` branch instead of above it. In three dimensions everything works. In two — where patterns are actually placed, since placement is 2D only — the flag is set and never cleared, and `if (swallowLeft_) return;` at the top of the paint path then refuses every left click for the remainder of the run. Place one pattern and the brush is dead until you restart.
+The same misplacement stranded the `Esc` cancel in the 3D branch, so a pending pattern cannot be cancelled by the key that the Keys list and the Patterns panel both say cancels it. Only clicking *Cancel* works.
+**Reproduction.** Run 2D, open a pattern from the Patterns section, click the grid to place it, then try to draw. Nothing happens, and nothing is logged.
+**Notes.** Found by brace-counting rather than by eye: the indentation in that region is misleading — the hoisted blocks are written at four spaces as though they were at function level, while the braces put them at depth one, inside the 3D branch. The compiler is satisfied either way. It arrived in the BUG-012 fix on 2026-09-21 and has been live since; the fix was confirmed working at the time, but what was confirmed was that placing no longer daubs, which is true, and not that painting still worked afterwards, which it did not.
+This is the second defect in a fortnight caused by `updateCanvas` keeping two near-identical keyboard blocks, one per dimensionality, and it is the mechanism BUG-018's notes asked about. Thirteen shortcuts are duplicated between them by copy; a key or a guard added to one and not the other is invisible until somebody presses it.
+**Resolution (2026-09-23).** The `swallowLeft_` clear and the `Esc` cancel are now above the `is3D()` branch, where the comments on both had always said they should be, so they run whatever the dimensionality. Fixed together with BUG-018 by giving the shared shortcuts one home instead of two copies, since that duplication is what produced both.
+Verified structurally rather than by hand: brace-counting the function now puts the help toggle, the Esc cancel and the `swallowLeft_` clear above the branch, where before two of them were inside it. The behaviour itself — place a pattern, then paint; press Esc with one pending — needs a mouse and a keyboard, which a scripted run does not have, so it is worth a minute of somebody's hands.
 
 ## Won't Fix
 

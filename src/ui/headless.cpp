@@ -2,6 +2,7 @@
 
 #include "render/renderer2d.hpp"
 #include "rule/dsl.hpp"
+#include "rule/library.hpp"
 #include "sim/fill.hpp"
 #include "sim/session.hpp"
 #include "sim/simulation.hpp"
@@ -9,6 +10,7 @@
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <format>
@@ -132,7 +134,21 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
         rule::DslContext ctx;
         ctx.dimensions = opts.dimensions;
         rule::RuleIR ir;
-        if (opts.ruleIsLua) {
+        if (!opts.ruleIsLua && opts.rule.starts_with("@")) {
+            // `--rule @name` means the same thing here as it does in the
+            // window, and looks in the same places (BUG-017). `@` is not
+            // valid in any notation, so there is nothing to disambiguate.
+            const std::string wanted = opts.rule.substr(1);
+            const auto library = rule::loadLibrary(ruleSearchPath());
+            const auto it = std::find_if(library.begin(), library.end(),
+                                         [&](const rule::LibraryRule& r) { return r.id == wanted; });
+            if (it == library.end()) {
+                return fail(std::format("no rule '{}' in the library ({} found)", wanted, library.size()));
+            }
+            auto built = rule::compileLibraryRule(*it, ctx.boundary);
+            if (const auto* e = std::get_if<std::string>(&built)) return fail(wanted + ": " + *e);
+            ir = std::get<rule::RuleIR>(std::move(built));
+        } else if (opts.ruleIsLua) {
             rule::LuaContext lctx;
             lctx.dimensions = ctx.dimensions;
             auto r = rule::compileLua(opts.rule, lctx);
@@ -143,9 +159,20 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
             if (!parsed) return fail(std::format("rule: {}:{}: {}", parsed.error->line, parsed.error->column, parsed.error->message));
             ir = *parsed.ir;
         }
+
+        // The rule decides the dimensionality, as it does in the window: a
+        // library rule carries its own, and an elementary rule is 1D whatever
+        // `--size` said. Say so rather than silently reshaping the grid.
+        uint32_t width = opts.width, height = opts.height, depth = opts.depth;
+        if (ir.dimensions != opts.dimensions) {
+            if (ir.dimensions < 3) depth = 1;
+            if (ir.dimensions < 2) height = 1;
+            if (ir.dimensions == 3 && depth == 1) depth = height = width;
+            std::printf("rule is %uD; grid is %ux%ux%u\n", ir.dimensions, width, height, depth);
+        }
         // The grid's storage follows the rule: a continuous rule needs float
         // cells, and Simulation refuses the pair if they disagree.
-        const core::GridSpec spec{ctx.dimensions, opts.width, opts.height, opts.depth, ir.cell_type};
+        const core::GridSpec spec{ir.dimensions, width, height, depth, ir.cell_type};
         auto made = sim::Simulation::create(spec, ir,
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);

@@ -85,3 +85,30 @@ add_test(NAME frames.final_matches_last
     COMMAND ${CMAKE_COMMAND} -E compare_files
             ${AETHER_FRAMES_DIR}/frame_000004.png ${AETHER_FRAMES_DIR}/final.png)
 set_tests_properties(frames.final_matches_last PROPERTIES DEPENDS frames.dump)
+
+# BUG-017: `--rule @name` meant one thing in the window and another in
+# `headless`. Naming a rule and spelling it out must give the same run, which
+# `compare` can settle exactly — `rules/life.rule` is B3/S23 and nothing else,
+# so the two sessions agree cell for cell or the name resolved to the wrong
+# thing. The search path is shared between the two entry points for the same
+# reason; this is what would notice if it stopped being.
+set(AETHER_LIBRARY_DIR ${CMAKE_BINARY_DIR}/library_test)
+file(MAKE_DIRECTORY ${AETHER_LIBRARY_DIR})
+add_test(NAME library.by_name
+    COMMAND aether headless --rule @life --size 64x48 --seed 3 --generations 50
+            --save ${AETHER_LIBRARY_DIR}/named.aether)
+add_test(NAME library.spelled_out
+    COMMAND aether headless --rule B3/S23 --size 64x48 --seed 3 --generations 50
+            --save ${AETHER_LIBRARY_DIR}/spelled.aether)
+add_test(NAME library.name_matches_notation
+    COMMAND aether compare ${AETHER_LIBRARY_DIR}/named.aether ${AETHER_LIBRARY_DIR}/spelled.aether)
+set_tests_properties(library.by_name library.spelled_out PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(library.name_matches_notation
+                     PROPERTIES DEPENDS "library.by_name;library.spelled_out")
+
+# A rule that is not there is refused by name rather than handed to the parser,
+# which would report it as a stray '@'.
+add_test(NAME library.unknown_name_is_refused
+    COMMAND aether headless --rule @nosuchrule --generations 1 --save ${AETHER_LIBRARY_DIR}/x.aether)
+set_tests_properties(library.unknown_name_is_refused PROPERTIES
+                     WILL_FAIL TRUE)

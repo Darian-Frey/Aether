@@ -26,7 +26,7 @@ cmake --build build -j
 
 ### In the window
 
-Pause, step, burst and the rate live in the bar across the top, with the generation count and the running rule beside them. The left column holds everything else in sections, closed until you want them; **Keys** lists the shortcuts.
+Pause, step, burst and the rate live in the bar across the top, with the generation count and the running rule beside them. The left column holds everything else in sections, closed until you want them; **Keys** lists the shortcuts, and F1 opens it.
 
 | | |
 |---|---|

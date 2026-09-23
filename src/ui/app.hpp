@@ -32,6 +32,14 @@
 
 namespace aether::ui {
 
+// Where a bundled library might be: an override, the working directory, then
+// beside and above the binary, so a build tree and an install both work
+// without configuration. Shared because the window and `aether headless` must
+// look in the same places — a rule that `--rule @name` finds in one and not
+// in the other is BUG-017, and two copies of this list is how that happens.
+std::vector<std::string> ruleSearchPath();
+std::vector<std::string> patternSearchPath();
+
 struct Options {
     std::string rule   = "B3/S23";
     bool        ruleIsLua = false;

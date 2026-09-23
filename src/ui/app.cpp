@@ -43,6 +43,18 @@ App::GlWindow::~GlWindow() {
     if (ready_) CloseWindow();
 }
 
+std::vector<std::string> ruleSearchPath() {
+    const std::string exeDir = GetApplicationDirectory();
+    const char* env = std::getenv("AETHER_RULES");
+    return {env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"};
+}
+
+std::vector<std::string> patternSearchPath() {
+    const std::string exeDir = GetApplicationDirectory();
+    const char* env = std::getenv("AETHER_PATTERNS");
+    return {env ? env : "", "patterns", exeDir + "patterns", exeDir + "../patterns"};
+}
+
 int App::run() {
     window_.emplace(opts_.windowWidth, opts_.windowHeight, "Aether");
     if (!window_->ready()) return 1;
@@ -113,16 +125,9 @@ int App::run() {
         cellMutationBlock_ = static_cast<int>(opts_.cellMutationBlock);
 
         std::strncpy(sessionPath_.data(), "session.aether", sessionPath_.size() - 1);
-        // Where a rule library might be: an override, the working directory,
-        // then beside and above the binary, so a build tree and an install
-        // both work without configuration.
-        const std::string exeDir = GetApplicationDirectory();
-        const char* env = std::getenv("AETHER_RULES");
-        library_ = rule::loadLibrary({env ? env : "", "rules", exeDir + "rules", exeDir + "../rules"});
+        library_ = rule::loadLibrary(ruleSearchPath());
         if (!library_.empty()) log_.info(std::format("{} rules in the library", library_.size()));
-        const char* patEnv = std::getenv("AETHER_PATTERNS");
-        patternLibrary_ = sim::loadPatternLibrary({patEnv ? patEnv : "", "patterns",
-                                                   exeDir + "patterns", exeDir + "../patterns"});
+        patternLibrary_ = sim::loadPatternLibrary(patternSearchPath());
         if (!patternLibrary_.empty()) {
             log_.info(std::format("{} patterns in the library", patternLibrary_.size()));
         }

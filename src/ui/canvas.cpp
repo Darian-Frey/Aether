@@ -70,37 +70,49 @@ void App::updateCanvas(double /*dt*/) {
     const bool overViewport = m.x >= viewport_.x && m.y >= viewport_.y &&
                               m.x < viewport_.x + viewport_.w && m.y < viewport_.y + viewport_.h;
 
-    if (is3D()) {
-        if (!io.WantCaptureKeyboard) {
-            auto& sch = sim_->scheduler();
-            if (IsKeyPressed(KEY_SPACE)) sch.setPaused(!sch.paused());
-            if (IsKeyPressed(KEY_N)) sch.requestSingleStep();
-            if (IsKeyPressed(KEY_F)) fitView();
-            if (IsKeyPressed(KEY_E)) { showEditor_ = !showEditor_; if (showEditor_) ensureScratch(); }
-            if (IsKeyPressed(KEY_F1) || IsKeyPressed(KEY_SLASH)) showHelp_ = !showHelp_;
-            if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
-            if (IsKeyPressed(KEY_C)) sim_->clear();
-            if (IsKeyPressed(KEY_S)) sliceMode_ = !sliceMode_;
-            // Above the mouse-capture return below, so a pattern can be cancelled
-        // with the cursor anywhere, including over the panel that opened it.
+    // --- Shortcuts that do not depend on how many dimensions there are -------
+    //
+    // These used to be written out once per branch below, thirteen of them
+    // duplicated by copy, and twice that has gone wrong: F1 was added to the
+    // 3D branch only (BUG-018), and the `swallowLeft_` clear and the Esc
+    // cancel were hoisted into it rather than above it, which left painting
+    // dead in 2D after any pattern was placed (BUG-019). A key that belongs
+    // to both now has one home.
+    if (!io.WantCaptureKeyboard) {
+        auto& sch = sim_->scheduler();
+        if (IsKeyPressed(KEY_SPACE)) sch.setPaused(!sch.paused());
+        if (IsKeyPressed(KEY_N)) sch.requestSingleStep();
+        if (IsKeyPressed(KEY_F)) fitView();
+        if (IsKeyPressed(KEY_E)) { showEditor_ = !showEditor_; if (showEditor_) ensureScratch(); }
+        if (IsKeyPressed(KEY_F1) || IsKeyPressed(KEY_SLASH)) showHelp_ = !showHelp_;
+        if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
+        if (IsKeyPressed(KEY_C)) sim_->clear();
+        if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET)) brush_.radius = std::min(64, brush_.radius + 1);
+        for (int k = 0; k <= 9; ++k) {
+            if (IsKeyPressed(KEY_ZERO + k) && k < sim_->rule().states) brush_.state = static_cast<uint8_t>(k);
+        }
+        // Above both mouse-capture returns, so a pattern can be cancelled with
+        // the cursor anywhere, including over the panel that opened it.
         if (pending_ && IsKeyPressed(KEY_ESCAPE)) {
             setPending(std::nullopt);
             log_.info("pattern cancelled");
         }
-        if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
-            if (IsKeyPressed(KEY_RIGHT_BRACKET)) brush_.radius = std::min(64, brush_.radius + 1);
+    }
+    // Likewise above both returns, or a button released over a panel leaves
+    // the flag set and swallows the next click on the canvas.
+    if (swallowLeft_ && !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) swallowLeft_ = false;
+
+    if (is3D()) {
+        // The slice controls are the only keys that mean anything solely here.
+        if (!io.WantCaptureKeyboard) {
+            if (IsKeyPressed(KEY_S)) sliceMode_ = !sliceMode_;
             const int ext = static_cast<int>(sliceAxis_ == 0 ? sim_->spec().width : sliceAxis_ == 1 ? sim_->spec().height : sim_->spec().depth);
             if (IsKeyPressed(KEY_COMMA))  sliceIndex_ = std::max(0, sliceIndex_ - 1);
             if (IsKeyPressed(KEY_PERIOD)) sliceIndex_ = std::min(ext - 1, sliceIndex_ + 1);
-            for (int k = 0; k <= 9; ++k) {
-                if (IsKeyPressed(KEY_ZERO + k) && k < sim_->rule().states) brush_.state = static_cast<uint8_t>(k);
-            }
         }
-        // Cleared above the mouse-capture return, or a button released over a
-    // panel would leave it set and swallow the next click on the canvas.
-    if (swallowLeft_ && !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) swallowLeft_ = false;
 
-    if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
+        if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
         const float wheel = GetMouseWheelMove();
         if (wheel != 0.0f && overViewport) orbit_.zoom(wheel > 0 ? 0.85 : 1.18);
         const bool orbitButton = IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
@@ -120,22 +132,6 @@ void App::updateCanvas(double /*dt*/) {
             lastPaintCell_.reset();
         }
         return;
-    }
-
-    // --- Keyboard (when ImGui does not want it) ------------------------------
-    if (!io.WantCaptureKeyboard) {
-        auto& sch = sim_->scheduler();
-        if (IsKeyPressed(KEY_SPACE)) sch.setPaused(!sch.paused());
-        if (IsKeyPressed(KEY_N)) sch.requestSingleStep();
-        if (IsKeyPressed(KEY_F)) fitView();
-        if (IsKeyPressed(KEY_E)) { showEditor_ = !showEditor_; if (showEditor_) ensureScratch(); }
-        if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
-        if (IsKeyPressed(KEY_C)) sim_->clear();
-        if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
-        if (IsKeyPressed(KEY_RIGHT_BRACKET)) brush_.radius = std::min(64, brush_.radius + 1);
-        for (int k = 0; k <= 9; ++k) {
-            if (IsKeyPressed(KEY_ZERO + k) && k < sim_->rule().states) brush_.state = static_cast<uint8_t>(k);
-        }
     }
 
     if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;

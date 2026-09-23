@@ -63,7 +63,7 @@ Three regions: a **transport bar** across the top, a **panel column** down the l
 
 The transport bar holds play/pause, single step, burst, the rate slider, and readouts for the generation, the achieved generations per second and the frame rate. It never scrolls away. At the right it names the running rule and which backend is executing it.
 
-The left column is a stack of collapsing sections, ordered roughly by when you need them. Each is described below; the **Keys** section at the bottom lists every shortcut. (`F1` and `?` open it too, but only in 3D — BUG-018.)
+The left column is a stack of collapsing sections, ordered roughly by when you need them. Each is described below; the **Keys** section at the bottom lists every shortcut, and `F1` or `?` opens it.
 
 ### Rule
 
@@ -296,6 +296,8 @@ aether replay IN OUT [--to G] [--cpu]
 aether compare A B
 ```
 
+`--rule @name` works here as it does in the window, so a scripted run can name a bundled rule rather than spelling it out — which matters for Langton's loops, whose 219 clauses are not something to paste onto a command line. The rule decides the dimensionality: `--rule @rule110 --size 512x512` gives a 1D grid of 512, and it says so rather than reshaping quietly.
+
 `--png` writes the final grid; `--frame-dir` writes a numbered sequence, `--frame-every` generations apart, at `--frame-scale` pixels per cell. Images render through the same palette pass the window uses, so a headless frame and a screenshot of the same generation agree.
 
 ```bash
@@ -305,8 +307,6 @@ ffmpeg -framerate 30 -i frames/frame_%06d.png life.mp4
 ```
 
 A headless image dump is 2D only: a picture of a volume needs a camera, clip planes and an opacity, which a flag list does not choose for you. The session and pattern formats carry 3D data losslessly for anything that wants it.
-
-> **One inconsistency to know about.** `--rule @name` loads a bundled rule in the window but **not** in `headless` — there it reports `unexpected character '@'`. Spell the rule out, or `--lua` the file. Recorded as BUG-017.
 
 ---
 
@@ -438,7 +438,7 @@ Five thousand generations with both mutations running, replayed from the initial
 | `[` / `]` | brush radius |
 | `Ctrl+Enter` | compile the rule |
 | `E` | the pattern editor's scratch pad |
-| `F1` or `?` | the key list — 3D only, see BUG-018 |
+| `F1` or `?` | the key list |
 | Left drag | paint |
 | Shift+drag | select a region |
 | Left click | place a pending pattern |
@@ -452,7 +452,7 @@ Five thousand generations with both mutations running, replayed from the initial
 
 | Option | |
 |---|---|
-| `--rule R` | B/S, B/S/C, `W<n>`, or a table block; `@name` loads from the library (window only, BUG-017) |
+| `--rule R` | B/S, B/S/C, `W<n>`, or a table block; `@name` loads from the library |
 | `--lua FILE` | a Lua script returning a rule table |
 | `--size W[xH[xD]]` | one number is 1D, two 2D, three 3D |
 | `--cpu` | start on the CPU reference path |
