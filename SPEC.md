@@ -513,15 +513,17 @@ Measured on the target machine (ThinkPad P15 Gen 2i, NVIDIA T1200 4 GB).
 | 3D volume render, 256³ | ≥ 30 fps | F-019 |
 | Rule mutation event, table backend | < 1 ms | F-015 |
 | Rule mutation event, codegen backend, cache miss | < 250 ms | F-015 |
-| Cell mutation at `p = 0` | < 2% throughput cost vs disabled (measured none, 2026-09-11; `p > 0` costs ~10%) | F-016 |
+| Cell mutation at `p = 0` | < 2% throughput cost vs disabled | F-016 |
 | VRAM, 256³ `u8` grid pair | ≤ 40 MB | AV-001 |
 
-These are acceptance thresholds, not aspirations. Baselines go in `BENCHMARKS.md` when it is created in Phase 6.
+These are acceptance thresholds, not aspirations. **Baselines are in [BENCHMARKS.md](BENCHMARKS.md)**, with the method, the noise floor and the commands to reproduce them; every threshold above was met when they were last taken (2026-09-25).
+
+At `p = 0` cell mutation costs nothing rather than little: a threshold of zero makes both steppers skip the branch, so it is not a cheap mutation but no mutation. With `p > 0` the cost is real — 15% of the rate at `p = 0.02`, 1024², measured 2026-09-25.
 
 ---
 
 
-**Continuous (measured 2026-09-17, T1200).** A kernel rule at 512² runs 231 generations per second at radius 13 (728 neighbours) and 2,174 at radius 4 (80 neighbours) — very nearly linear in the neighbour count, since the convolution is the whole cost. A 10,000-generation run at 512² therefore takes about 43 seconds at the larger radius.
+**Continuous.** A kernel rule's cost is very nearly linear in the neighbour count, the convolution being the whole of it: at 512² a radius-13 kernel (728 neighbours) runs about nine times slower than a radius-4 one (80 neighbours). [BENCHMARKS.md](BENCHMARKS.md) carries the figures; a 10,000-generation run at 512² and radius 13 takes about three quarters of a minute.
 ## 13. Rendering
 
 **2D.** The state texture is sampled directly by a fragment shader and mapped through a 256-entry palette texture. Pan and zoom are a transform on texture coordinates; at 1:1 zoom the mapping is pixel-exact with nearest sampling. Optional age shading darkens by state index for generations rules.

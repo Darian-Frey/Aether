@@ -144,6 +144,7 @@ aether/
 │   ├── ui/          Control panel, drawing canvas
 │   └── main.cpp
 ├── docs/images/     Screenshots used by the README and the manual
+├── scripts/         benchmark.sh and the fixtures it measures with
 ├── shaders/         Compute and fragment shaders, plus codegen templates
 ├── rules/           Bundled rule library
 ├── patterns/        Bundled pattern library
@@ -163,6 +164,7 @@ aether/
 - [Attack vectors](ATTACK_VECTORS.md) — failure modes and detection
 - [Bugs](BUGS.md) — realised defects
 - [Improvements](IMPROVEMENTS.md) — candidate refactors
+- [Benchmarks](BENCHMARKS.md) — measured baselines against every performance target
 - [Changelog](CHANGELOG.md) — version history
 - [Claude handoff](CLAUDE.md) — AI session entry point
 - [Build](BUILD.md) — prerequisites, dependency pins, GPU selection
