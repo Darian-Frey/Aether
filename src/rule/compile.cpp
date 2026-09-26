@@ -7,6 +7,12 @@
 namespace aether::rule {
 
 Backend selectBackend(const RuleIR& ir) {
+    // A rule over more than one field cannot be a table: an f32 field has no
+    // finite signature to index on, and a table yields one value where such a
+    // rule writes several. That is a consequence of the form rather than a
+    // tuning choice, so it is not the threshold D-004 puts out of bounds
+    // (D-022).
+    if (!ir.fields.empty()) return Backend::Codegen;
     if (!std::holds_alternative<Table>(ir.transition)) return Backend::Codegen;
     const uint32_t N = neighbourCount(ir.dimensions, ir.neighbourhood);
     const auto size = tableSize(ir.kind, ir.states, N);

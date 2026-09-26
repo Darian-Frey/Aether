@@ -572,3 +572,36 @@ The front ends choose the form, since nothing downstream can infer it:
 - Nothing in the engine changes. This is a scope decision, and the code it declines to write is described rather than begun.
 
 **Reversal conditions.** Take option A when a rule family other than SmoothLife wants several kernels, or when Phase 7's multi-field grids are being designed — a resource field and a second convolution are neighbouring ideas and would be better decided together than apart. Revisiting for SmoothLife alone would be paying a schema change for one rule.
+
+---
+
+### D-022 A multi-field rule is an expression per written field, and runs on codegen
+**Decided:** 2026-09-27
+**Recorded:** 2026-09-27
+**Status:** Accepted
+**Authors:** Shane Hartley (with Claude, session 2026-09-27)
+**Related:** F-031, F-032, F-033, F-036, D-004, D-019, AV-010, AV-018, SPEC.md §4, §5, §6
+
+**Context.** D-019 admitted multi-field grids as Phase 7's substrate and settled the shape of the storage: a site may carry more than one field, each its own texture, because that is additive where a fattened cell record would have been a rewrite. It did not settle how a rule over such a grid is *written*, or which backend executes it, and F-031 cannot be built without both.
+
+Two facts decide most of it. A lookup table maps a finite signature to **one** state, and F-031 asks for neither of those things: an `f32` auxiliary field has no finite signature to index on, and a rule must be able to write several fields from one reading of its neighbourhood — the resource bookkeeping of F-032 depends on consumption and the state change being decided together, or AV-018's conservation cannot be reasoned about at all.
+
+**Options.**
+- **A. An expression per written field; any rule declaring fields goes to codegen.** Chosen. Auxiliary fields are read through new expression operators, and each field a rule writes carries its own tree. `selectBackend` sends a rule with fields to codegen for the same reason it already sends a `Kernel` there: the table form cannot express it. Everything about the table backend is untouched, and a rule with no declared fields compiles to exactly the bytes it compiles to today.
+- **B. Generalise the table as well, indexing over the product of finite field signatures and yielding a tuple.** Rejected. It buys LUT throughput for the all-discrete case and costs a rewrite of the seven places a table kind must agree — `tableSize`, `TableLayout`, `sim::stepCell`, the `AETHER_KIND` branch in `lut_step.comp`, `compileLut`'s auxiliary buffer, `ir_json` and the validator — in exchange for a case Phase 7 does not obviously contain, since every rule the ecosystem note describes is arithmetic over quantities rather than a lookup over signatures. The index space also grows multiplicatively in the fields, which is AV-010 with a new multiplier.
+- **C. One transition per field, each stepped in turn.** Rejected. It needs no multi-output transition and no new operators, and it cannot write two fields consistently from one neighbourhood: a cell that consumes resource *and* changes state has to decide both from the same read, or the two decisions are made against different worlds. It also costs a dispatch per field per generation.
+
+**Decision.** Option A.
+
+- A `Field { name, cell_type }` list enters the IR. It describes the *auxiliary* fields only, so an empty list is today's grid exactly and no existing rule's `ir_hash` moves.
+- Reading is two new operators, one for a field at this site and one for a field at a named neighbour. They sit beside `Self` and `Neighbour`, which keep their meanings.
+- Writing is an expression per field. The state's transition stays where it is; auxiliary fields carry their own trees, and a field a rule does not write keeps its value.
+- `selectBackend` returns codegen whenever the IR declares a field. That is a consequence of the form rather than a tuning choice, so it is not the tuning constant D-004 and AV-007 put out of bounds.
+
+**Consequences.**
+- A discrete multi-field rule cannot use the table backend even where it could in principle be tabulated. Accepted: the rules this phase is for are arithmetic over quantities, and the measured cost of codegen against the table is about half the throughput (BENCHMARKS.md), not an order.
+- SPEC §6's contract widens by two operators and by a function per written field. The prohibition on division in generated float code stands and now matters more, since a resource field is exactly where somebody will want to divide (AV-015).
+- The CPU oracle gains the same two operators and the same multi-output shape, and the equivalence suite gains a multi-field fixture. The twins in `rule/glsl.cpp` and `cpu_step.cpp` stay twins.
+- A rule that reads a field it did not declare is a validation error rather than a read of zero, on the same reasoning as every other index the validator bounds.
+
+**Reversal conditions.** Take option B if a multi-field rule family turns up whose transitions really are lookups over small finite signatures and whose throughput matters — the ecosystem features in the register are not that. Nothing here forecloses it: the table would be an additional form, not a replacement, and this decision is what would have to be superseded rather than worked around.

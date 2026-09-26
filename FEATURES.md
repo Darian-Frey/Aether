@@ -289,7 +289,8 @@ Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Every feature h
 - A rule reads any field at its own site and at its neighbours, and writes only fields at its own site
 - Field declarations live in the IR; a session records every field, and a session naming one field loads unchanged
 - Both execution paths, with a multi-field fixture in the equivalence suite
-**Status:** Not started
+**Status:** In progress. **Step 1 of 5 done 2026-09-27**: the IR. `Field { name, cell_type, write }` enters `RuleIR`, two operators read a field at this site and at a neighbour, the validator types them from the field's declared cell type and bounds both indices, the hash and the JSON carry fields, and `selectBackend` sends any rule declaring one to codegen (D-022). A rule that declares no field hashes and serialises exactly as before, which is the whole of the additive claim; the mechanism is that the empty list contributes no bytes, and `ir_test.cpp`'s pinned pre-F-031 hash still passing is the evidence that it holds.
+Nothing executes a field yet. The remaining steps: the CPU oracle, the codegen backend and its shader, `Simulation` and the session format, then a multi-field fixture in the equivalence suite and a way to author one.
 **Notes:** Added 2026-09-16 by D-019 as the substrate the rest of this section rests on. Chosen over widening the cell into a record because it is additive: SPEC §1 still says a cell holds one value, and what gained a dimension is the site rather than the cell.
 
 ### F-032 Abiotic resource field

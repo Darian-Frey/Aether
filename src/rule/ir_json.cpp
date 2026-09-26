@@ -81,7 +81,10 @@ json expressionToJson(const Expression& e) {
 }
 
 std::optional<ExprOp> parseExprOp(const std::string& s) {
-    for (int i = 0; i <= static_cast<int>(ExprOp::Select); ++i) {
+    // Bounded by the last operator rather than by `Select`, which it happened
+    // to be until F-031 added two after it. A hard-coded end here fails by
+    // refusing to parse a rule this very file just wrote.
+    for (int i = 0; i <= static_cast<int>(ExprOp::FieldNeighbour); ++i) {
         const auto op = static_cast<ExprOp>(i);
         if (toString(op) == s) return op;
     }
@@ -122,6 +125,17 @@ json irToJson(const RuleIR& ir) {
             sets.push_back(states);
         }
         j["counted"] = sets;
+    }
+    // Written only when there are any, so a single-field rule's JSON is byte
+    // for byte what it was before F-031 (D-022).
+    if (!ir.fields.empty()) {
+        json fields = json::array();
+        for (const Field& f : ir.fields) {
+            json entry = {{"name", f.name}, {"cell_type", std::string(core::toString(f.cell_type))}};
+            if (f.write) entry["write"] = expressionToJson(*f.write);
+            fields.push_back(entry);
+        }
+        j["fields"] = fields;
     }
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         j["transition"] = {{"form", "table"}, {"entries", base64Encode(t->entries)}, {"size", t->entries.size()}};
@@ -164,6 +178,25 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
         if (!kd) return std::string("unknown kind");
         ir.kind = *kd;
 
+        if (j.contains("fields")) {
+            if (!j.at("fields").is_array()) return "fields must be an array";
+            for (const json& f : j.at("fields")) {
+                if (!f.is_object() || !f.contains("name")) return "a field needs a name";
+                Field field;
+                field.name = f.at("name").get<std::string>();
+                const auto ct = core::parseCellType(f.value("cell_type", "u8"));
+                if (!ct) return std::format("field '{}' has an unknown cell_type", field.name);
+                field.cell_type = *ct;
+                if (f.contains("write")) {
+                    auto e = expressionFromJson(f.at("write"));
+                    if (const auto* bad = std::get_if<std::string>(&e)) {
+                        return std::format("field '{}': {}", field.name, *bad);
+                    }
+                    field.write = std::get<Expression>(std::move(e));
+                }
+                ir.fields.push_back(std::move(field));
+            }
+        }
         if (j.contains("counted")) {
             for (const json& set : j.at("counted")) {
                 StateSet states;

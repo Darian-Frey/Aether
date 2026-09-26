@@ -85,10 +85,23 @@ RuleIR {
   boundary      : "wrap" | "zero" | "mirror"
   kind          : Kind
   counted       : [StateSet]?      // counted_totalistic only: one set per state
+  fields        : [Field]?         // auxiliary fields beyond the state (F-031)
   transition    : Table | Expression | Kernel
   metadata      : { name?, author?, source_notation? }
 }
+
+Field {
+  name          : string           // unique within the rule
+  cell_type     : "u8" | "f32"
+  write         : Expression?      // absent: the field keeps its value
+}
 ```
+
+**Fields** *(added 2026-09-27, F-031, D-022)*. A site carries the state and any number of declared auxiliary fields, each stored as its own texture. A cell still holds one value — SPEC §1 is unchanged — and what gained a dimension is the site, which is what makes this additive: an absent or empty `fields` list is the grid this engine has always had, contributes nothing to `ir_hash`, and writes nothing into the JSON, so every rule and every session written before it is untouched and `ir_version` stays at 1.
+
+A rule reads a field with the `field` and `field_neighbour` operators of §6, at its own site and at its neighbours, and writes only fields at its own site — the gather boundary of D-019. Each field it writes carries its own expression, whose type must match the field's cell type; a field with no `write` keeps its value, which is how a read-only field costs nothing to say. A field a rule never declared cannot be read: there would be no cell type to give the node, so the validator refuses it rather than reading zero.
+
+**A rule that declares a field compiles to the codegen backend**, whatever its `kind` and whatever its table would have cost. This is a consequence of the form rather than a tuning choice and is therefore not the threshold of §5: a table maps a finite signature to one state, an `f32` field has no finite signature, and such a rule writes several values where a table yields one (D-022).
 
 **Kind** determines both the transition form and the lookup-table indexing scheme:
 
@@ -216,6 +229,8 @@ float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 `ExprOp::Self` names whichever value the expression is a function of, and its type follows: the own state, an integer, in a transition expression; the convolution result, a float, in a `Kernel`'s growth expression. Typing it as an integer everywhere made every useful growth function ill-typed, since the numeric operators require both operands to share a type — so the only growth expressions that validated were those that ignored the convolution entirely (BUG-010, corrected 2026-09-16).
 
 `nbr` holds the neighbours in the canonical order of §3. The generator emits one statement per node of the expression arena, in arena order — children precede parents, so a single forward pass suffices and no node is evaluated twice.
+
+**Auxiliary fields** *(added 2026-09-27, F-031, D-022)*. `ExprOp::FieldSelf` reads declared field `a` at this site and `ExprOp::FieldNeighbour` reads field `a` at neighbour `b`; both take their type from the field's declared cell type, so reading a `u8` field is an integer and reading an `f32` one is a float. A rule that declares fields emits a function per written field rather than one function, each over the same neighbourhood read, so that two fields decided from one reading of the world are decided against the same world — which is what makes the conservation of AV-018 something that can be reasoned about at all. Every other rule in this section stands unchanged, and the prohibition on division in generated float code matters more here than anywhere: a resource field is exactly where a rule will want to divide (AV-015).
 
 Requirements on generated code:
 

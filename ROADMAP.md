@@ -116,10 +116,10 @@ F-002 was closed in the same pass. Its third acceptance point — bit-identical 
 
 ## Phase 7 — Ecosystem
 **Goal:** Cells that inherit a rule, compete for a resource and are selected rather than merely mutated.
-**Status:** Not started
+**Status:** In progress — started 2026-09-27 with D-022 and the IR half of F-031
 **Features delivered:** F-031, F-032, F-033, F-034, F-035, F-036
 **Deliverables:**
-- [ ] Multi-field grids: a site carries the state plus declared auxiliary fields, each its own texture, additive in the IR and the session format (F-031)
+- [ ] Multi-field grids: a site carries the state plus declared auxiliary fields, each its own texture, additive in the IR and the session format (F-031). **Step 1 of 5 done 2026-09-27**: field declarations, the two read operators, typing and validation, hash and JSON, and codegen selection. The CPU oracle, the shader, the session and a multi-field fixture remain
 - [ ] Abiotic resource field: patchy noise seeding, regeneration toward a carrying capacity, optional diffusion, consumed at a cell's own site (F-032)
 - [ ] Per-cell genome with inheritance at birth — majority, random parent or crossover — with per-gene mutation, all drawn from stream B (F-033)
 - [ ] Hard cell lifespan alongside the soft decay of F-025 (F-034)

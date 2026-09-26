@@ -7,6 +7,7 @@ add_executable(aether_tests
     rule/neighbourhood_test.cpp
     rule/table_layout_test.cpp
     rule/ir_test.cpp
+    rule/fields_test.cpp
     rule/dsl_test.cpp
     rule/decay_test.cpp
     rule/elementary_test.cpp

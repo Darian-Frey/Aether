@@ -44,6 +44,8 @@ std::string_view toString(NeighbourhoodType v) {
 
 std::string_view toString(ExprOp v) {
     switch (v) {
+        case ExprOp::FieldSelf:      return "field";
+        case ExprOp::FieldNeighbour: return "field_neighbour";
         case ExprOp::Self:         return "self";
         case ExprOp::Neighbour:    return "neighbour";
         case ExprOp::Count:        return "count";
@@ -103,12 +105,18 @@ struct ExprContext {
     // rather than the own state, which is an integer (BUG-010). Nothing else
     // about the check changes.
     bool     selfIsFloat = false;
+    // The declared auxiliary fields, in order. A FieldSelf or FieldNeighbour
+    // naming an index past this is an error rather than a read of zero: there
+    // would be no cell type to give the node, so it could not be typed at all
+    // (F-031, D-022).
+    std::span<const CellType> fieldTypes = {};
 };
 
 int arity(ExprOp op) {
     switch (op) {
         case ExprOp::Self: case ExprOp::Neighbour: case ExprOp::Count:
         case ExprOp::IntLiteral: case ExprOp::FloatLiteral:
+        case ExprOp::FieldSelf: case ExprOp::FieldNeighbour:
             return 0;
         case ExprOp::Not:
             return 1;
@@ -173,6 +181,24 @@ ExprType checkExpression(const Expression& e, const ExprContext& ctx,
                     fail(i, std::format("neighbour index {} out of range (N = {})", n.a, ctx.neighbours));
                 } else {
                     types[i] = ExprType::Int;
+                }
+                break;
+            case ExprOp::FieldSelf:
+                if (n.a >= ctx.fieldTypes.size()) {
+                    fail(i, std::format("field {} is not declared (the rule declares {})",
+                                        n.a, ctx.fieldTypes.size()));
+                } else {
+                    types[i] = ctx.fieldTypes[n.a] == CellType::F32 ? ExprType::Float : ExprType::Int;
+                }
+                break;
+            case ExprOp::FieldNeighbour:
+                if (n.a >= ctx.fieldTypes.size()) {
+                    fail(i, std::format("field {} is not declared (the rule declares {})",
+                                        n.a, ctx.fieldTypes.size()));
+                } else if (n.b >= ctx.neighbours) {
+                    fail(i, std::format("neighbour index {} out of range (N = {})", n.b, ctx.neighbours));
+                } else {
+                    types[i] = ctx.fieldTypes[n.a] == CellType::F32 ? ExprType::Float : ExprType::Int;
                 }
                 break;
             case ExprOp::Count:
@@ -260,10 +286,10 @@ void checkResultLiterals(const Expression& e, uint16_t states,
 }  // namespace
 
 std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states,
-                                      bool selfIsFloat) {
+                                      bool selfIsFloat, std::span<const CellType> fieldTypes) {
     std::vector<Diagnostic> ignored;
     std::vector<ExprType> types;
-    checkExpression(e, {neighbours, states, selfIsFloat}, "", ignored, &types);
+    checkExpression(e, {neighbours, states, selfIsFloat, fieldTypes}, "", ignored, &types);
     return types;
 }
 
@@ -342,6 +368,41 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
 
     const uint32_t N = neighbourCount(ir.dimensions, ir.neighbourhood);
 
+    // --- Auxiliary fields (F-031, D-022) ------------------------------------
+    //
+    // Checked before the transition, because the transition's own field reads
+    // are typed against this list and an unchecked list would type them wrong
+    // rather than refuse them.
+    std::vector<CellType> fieldTypes;
+    fieldTypes.reserve(ir.fields.size());
+    for (size_t f = 0; f < ir.fields.size(); ++f) {
+        const Field& field = ir.fields[f];
+        if (field.name.empty()) {
+            err(std::format("field {} has no name", f));
+        }
+        for (size_t g = 0; g < f; ++g) {
+            if (ir.fields[g].name == field.name) {
+                err(std::format("two fields are named '{}'", field.name));
+                break;
+            }
+        }
+        fieldTypes.push_back(field.cell_type);
+    }
+    // A second pass, so that a field's write expression may read any field
+    // including ones declared after it: the fields of a site are simultaneous,
+    // and making the order matter would be an accident of how it was written.
+    for (size_t f = 0; f < ir.fields.size(); ++f) {
+        const Field& field = ir.fields[f];
+        if (!field.write) continue;
+        const std::string where = std::format("field '{}'", field.name);
+        const ExprType t = checkExpression(*field.write, {N, ir.states, false, fieldTypes}, where, out);
+        const ExprType want = field.cell_type == CellType::F32 ? ExprType::Float : ExprType::Int;
+        if (t != ExprType::Invalid && t != want) {
+            err(std::format("{} holds {} cells, so its expression must produce {}",
+                            where, toString(field.cell_type), want == ExprType::Float ? "a float" : "an integer"));
+        }
+    }
+
     // Rule 4: signature must fit a u64.
     if (ir.kind == Kind::NonTotalistic && N > 64) {
         err(std::format("non-totalistic neighbourhood has {} neighbours; the limit is 64", N));
@@ -367,7 +428,7 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
         }
     } else if (const auto* expr = std::get_if<Expression>(&ir.transition)) {
         // Rule 6.
-        const ExprType t = checkExpression(*expr, {N, ir.states}, "transition", out);
+        const ExprType t = checkExpression(*expr, {N, ir.states, false, fieldTypes}, "transition", out);
         if (t != ExprType::Invalid && t != ExprType::Int) {
             err("transition expression must produce an integer state");
         }
@@ -387,7 +448,7 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
             }
         }
         // The growth function sees only the convolution result (Self).
-        const ExprType t = checkExpression(kernel->growth, {0, 0, true}, "growth", out);
+        const ExprType t = checkExpression(kernel->growth, {0, 0, true, fieldTypes}, "growth", out);
         if (t != ExprType::Invalid && t != ExprType::Float) {
             err("growth expression must produce a float");
         }
@@ -460,6 +521,18 @@ uint64_t irHash(const RuleIR& ir) {
         h.integer(static_cast<uint32_t>(ir.counted.size()));
         for (const StateSet& set : ir.counted) {
             for (uint32_t word : set.bits) h.integer(word);
+        }
+    }
+    // As with `counted`: a rule that declares no field hashes exactly as it
+    // did before fields existed, which is what keeps every session and every
+    // lineage entry written before F-031 valid (D-022).
+    if (!ir.fields.empty()) {
+        h.integer(static_cast<uint32_t>(ir.fields.size()));
+        for (const Field& f : ir.fields) {
+            h.bytes(f.name.data(), f.name.size());
+            h.integer(f.cell_type);
+            h.integer(static_cast<uint8_t>(f.write.has_value()));
+            if (f.write) hashExpression(h, *f.write);
         }
     }
     h.integer(static_cast<uint8_t>(ir.transition.index()));

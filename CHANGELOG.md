@@ -4,6 +4,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 
 ## [Unreleased]
 
+### Added
+- Phase 7 begins. D-022 settles how a multi-field rule is written and which backend runs it: an expression per written field, and codegen for any rule that declares one — a table maps a finite signature to one state, and F-031 needs neither, since an `f32` field has no finite signature and such a rule writes several values at once (2026-09-27).
+- The IR half of multi-field grids (F-031, step 1 of 5): `Field { name, cell_type, write }` in `RuleIR`, the `field` and `field_neighbour` operators, typing from the declared cell type, both indices bounded, hash and JSON, and `selectBackend` routing. A rule declaring no field is byte-for-byte the rule it was — the empty list contributes nothing to either — so `ir_version` stays at 1 (2026-09-27).
+
 ### Fixed
 - The bundled Lenia rule is under test on both execution paths (F-002). The library sweep added for 0.1.0 excluded continuous rules on the grounds that `continuous_test.cpp` covered them; it did not — that file builds its own fixtures and had never loaded a bundled rule, so the one continuous rule in the library was in no equivalence test at all. It now is: every bundled `f32` rule, three boundaries, 1000 generations, with and without cell mutation, compared bitwise on both GPUs. It passes, and passed first time, so nothing was wrong — but nothing was checking either (2026-09-27).
 

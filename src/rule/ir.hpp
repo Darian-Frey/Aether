@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -71,6 +72,12 @@ enum class ExprOp : uint8_t {
     And, Or,                   // (a, b) Bool
     Not,                       // (a)    Bool
     Select,                    // (a ? b : c), b and c same type
+    // Auxiliary fields (F-031, D-022). `a` is the field index, and the field's
+    // declared cell type decides whether the node is Int or Float — which is
+    // why a field a rule never declared is a validation error rather than a
+    // read of zero: there would be no type to give it.
+    FieldSelf,                 // field[a] at this site
+    FieldNeighbour,            // field[a] at neighbour b, canonical order
 };
 
 struct ExprNode {
@@ -100,7 +107,8 @@ enum class ExprType : uint8_t { Int, Float, Bool, Invalid };
 // thing Self is: the convolution result inside a growth expression, the own
 // state everywhere else (BUG-010).
 std::vector<ExprType> expressionTypes(const Expression& e, uint32_t neighbours, uint16_t states,
-                                      bool selfIsFloat = false);
+                                      bool selfIsFloat = false,
+                                      std::span<const CellType> fieldTypes = {});
 
 // Convolution kernel plus growth function. Specified from v1 (D-010),
 // implemented in Phase 5. Backends reject it until then.
@@ -116,6 +124,27 @@ struct Kernel {
 };
 
 using Transition = std::variant<Table, Expression, Kernel>;
+
+// --- Fields (F-031, D-022) ---------------------------------------------------
+//
+// A site may carry more than one value: the state, which every rule has and
+// which keeps the storage and the layout it has always had, plus any number of
+// declared auxiliary fields, each its own texture. D-019 chose this over
+// widening the cell into a record because it is additive — SPEC §1 still says
+// a cell holds one value, and what gained a dimension is the site.
+//
+// An empty list is exactly the grid this engine has had since Phase 1, so
+// every existing rule hashes to what it hashed to before.
+struct Field {
+    std::string    name;                        // how a front end refers to it
+    CellType       cell_type = CellType::U8;
+    // A rule need not write every field it declares; one it leaves alone keeps
+    // its value, which is what makes a read-only field (the resource of F-032
+    // seen by a rule that does not consume it) cost nothing to express.
+    std::optional<Expression> write;
+
+    bool operator==(const Field&) const = default;
+};
 
 // --- The IR ------------------------------------------------------------------
 
@@ -142,6 +171,9 @@ struct RuleIR {
     // For CountedTotalistic: which states each own state counts. One entry
     // per state; empty for every other kind.
     std::vector<StateSet> counted;
+    // Auxiliary fields, beyond the state. Empty for every rule written before
+    // F-031 and for every rule that wants one field, which is most of them.
+    std::vector<Field>    fields;
     Transition    transition    = Table{};
     Metadata      metadata      = {};
 
