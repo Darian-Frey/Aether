@@ -7,8 +7,14 @@
 //   AETHER_KIND      0 outer-totalistic, 1 totalistic, 2 non-totalistic,
 //                    3 expression (aether_rule is prepended), 5 counted-totalistic
 //   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
+//   AETHER_FIELDS    number of declared auxiliary fields, 0 when there are none
 //
-// shaders/hash.glsl is prepended before this file.
+// shaders/hash.glsl is prepended before this file. For a rule with fields, so
+// are three generated blocks in this order: rule/glsl's struct and functions,
+// then sim/gpu_step's field images with aether_gather_fields and
+// aether_store_fields over them (F-031, D-022). This file only calls them,
+// which is why it needs no knowledge of how many fields there are beyond the
+// one `#if` below.
 //
 // Every loop below is bounded by one of those constants. Index arithmetic
 // mirrors rule/table_layout.cpp and boundary handling mirrors
@@ -76,6 +82,14 @@ void writeCell(ivec3 p, uint v) {
 #endif
 }
 
+// Fields ride on the expression kind and only on it (D-022). A rule that got
+// here with fields and a table kind would have its writes quietly dropped,
+// because `fld` is gathered inside the expression branch; this makes it a
+// compile error instead.
+#if AETHER_FIELDS > 0 && AETHER_KIND != 3
+#error auxiliary fields require the expression kind
+#endif
+
 void main() {
     ivec3 gid = ivec3(gl_GlobalInvocationID);
     if (gid.x >= int(width) || gid.y >= int(height) || gid.z >= int(depth)) return;
@@ -83,17 +97,36 @@ void main() {
     uint own = readCell(gid);
 
     uint nbr[AETHER_N];
+#if AETHER_FIELDS > 0
+    // The resolved coordinates are kept only when a field has to be gathered
+    // from them, so that a rule without fields costs exactly what it did. A
+    // negative x marks "reads as zero", the same sentinel resolveCoord returns.
+    ivec3 ncoord[AETHER_N];
+#endif
     for (uint i = 0u; i < uint(AETHER_N); ++i) {
         int nx = resolveCoord(gid.x + off[4u * i + 0u], int(width));
         int ny = resolveCoord(gid.y + off[4u * i + 1u], int(height));
         int nz = resolveCoord(gid.z + off[4u * i + 2u], int(depth));
-        nbr[i] = (nx < 0 || ny < 0 || nz < 0) ? 0u : readCell(ivec3(nx, ny, nz));
+        bool outside = nx < 0 || ny < 0 || nz < 0;
+        nbr[i] = outside ? 0u : readCell(ivec3(nx, ny, nz));
+#if AETHER_FIELDS > 0
+        ncoord[i] = outside ? ivec3(-1) : ivec3(nx, ny, nz);
+#endif
     }
 
 #if AETHER_KIND == 3
     // Expression form: aether_rule is generated from the IR and prepended
     // to this file by the stepper (SPEC §6).
+#if AETHER_FIELDS > 0
+    // One gather, handed to the transition and to every field's function, so
+    // that everything this cell decides it decides against one reading of the
+    // world (D-022). Outside a zero boundary a field reads zero, as state 0
+    // does, which aether_gather_fields does from the sentinel above.
+    AetherFields fld = aether_gather_fields(gid, ncoord);
+    uint next = aether_rule(own, nbr, fld);
+#else
     uint next = aether_rule(own, nbr);
+#endif
 #else
     uint index;
 #if AETHER_KIND == 5
@@ -151,4 +184,12 @@ void main() {
         }
     }
     writeCell(gid, next);
+#if AETHER_FIELDS > 0
+    // Every declared field is written, including one the rule does not write:
+    // the destination textures are last generation's, so carrying a value
+    // forward is a copy. Cell mutation above has already moved `next` and does
+    // not reach a field (SPEC §9.2, AV-018), so this reads `fld` and not the
+    // mutated state.
+    aether_store_fields(gid, own, nbr, fld);
+#endif
 }

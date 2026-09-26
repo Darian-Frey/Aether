@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace aether::sim {
@@ -19,6 +20,15 @@ namespace {
 int32_t wrapAdd(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) + static_cast<uint32_t>(b)); }
 int32_t wrapSub(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) - static_cast<uint32_t>(b)); }
 int32_t wrapMul(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) * static_cast<uint32_t>(b)); }
+
+// Flush-to-zero on subnormals, the twin of the same statement in
+// rule/glsl.cpp. GLSL does not require support for values below FLT_MIN and
+// both GPUs here flush them, so the oracle must too or a decaying float
+// expression parts company with the shader (BUG-021, SPEC §6). The comparison
+// is on the magnitude, so a negative subnormal goes to zero as well.
+float flushSubnormal(float v) {
+    return std::fabs(v) < std::numeric_limits<float>::min() ? 0.0f : v;
+}
 
 // Everything an expression can read, gathered before the walk so that
 // evalArena knows nothing about grids, boundaries or field storage. It became a
@@ -84,6 +94,7 @@ void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
                 v = in.fieldNbr[size_t{node.a} * in.neighbours + node.b];
                 break;
         }
+        if (types[i] == rule::ExprType::Float) v.f = flushSubnormal(v.f);
         scratch[i] = v;
     }
 }
@@ -159,7 +170,7 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
         // can do and the two paths must agree bit for bit (AV-007). A double
         // here would be more accurate and would disagree with the shader,
         // which is the worse of the two.
-        float conv = rule.selfWeight * t.ownValue;
+        float conv = flushSubnormal(rule.selfWeight * t.ownValue);
         for (uint32_t i = 0; i < N; ++i) {
             const rule::Offset& o = rule.offsets[i];
             const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
@@ -168,11 +179,15 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
             // Outside a zero boundary the cell is empty, which contributes
             // nothing, exactly as state 0 does on the discrete path.
             const float v = (nx && ny && nz) ? valueAt(*nx, *ny, *nz) : 0.0f;
-            conv += rule.weights[i] * v;
+            // Each partial sum flushed, exactly as continuous_step.comp does
+            // it: a weight times a near-zero value is where this reaches the
+            // subnormal range (BUG-021).
+            const float term = flushSubnormal(rule.weights[i] * v);
+            conv = flushSubnormal(conv + term);
         }
         t.convolution = conv;
         t.increment = evalGrowth(rule.expression, rule.expressionTypes, t.convolution, scratch.expr);
-        const float raw = t.ownValue + t.increment;
+        const float raw = flushSubnormal(t.ownValue + t.increment);
         t.nextValue = raw < 0.0f ? 0.0f : (raw > 1.0f ? 1.0f : raw);   // SPEC §1
         if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
             t.nextValue = mutatedValue(hash32(x, y, z, generation, mutation.seedB));

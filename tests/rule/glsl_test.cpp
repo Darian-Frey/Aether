@@ -104,3 +104,57 @@ TEST_CASE("generation is deterministic and refuses what it cannot compile", "[gl
     auto notAState = generateGlsl(expressionRule(boolean));
     CHECK(std::holds_alternative<GlslError>(notAState));
 }
+
+TEST_CASE("a rule with fields generates a struct and a function apiece", "[glsl][fields]") {
+    // F-031, D-022. What is under test is the *shape*: the struct, the third
+    // parameter, and one function per written field. That the shape computes
+    // the right numbers is the both-paths case in tests/sim/fields_step_test.cpp,
+    // which is the only thing that can say so.
+    Expression state;
+    state.nodes = {{ExprOp::FieldSelf, 0}, {ExprOp::IntLiteral, 0, 0, 0, 1}, {ExprOp::Add, 0, 1}};
+    RuleIR ir = expressionRule(state, 4);
+
+    Field counter;
+    counter.name = "counter";
+    Expression bump;
+    bump.nodes = {{ExprOp::FieldSelf, 0}, {ExprOp::IntLiteral, 0, 0, 0, 1}, {ExprOp::Add, 0, 1}};
+    counter.write = bump;
+
+    Field heat;
+    heat.name = "heat";
+    heat.cell_type = CellType::F32;
+    Expression decay;
+    decay.nodes = {{ExprOp::FieldSelf, 1}, {ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f}, {ExprOp::Mul, 0, 1}};
+    heat.write = decay;
+
+    Field carried;                      // declared, never written
+    carried.name = "carried";
+
+    ir.fields = {counter, heat, carried};
+    const std::string out = generate(ir);
+
+    CHECK(out.find("struct " + glslFieldsStruct()) != std::string::npos);
+    CHECK(out.find(glslFieldSelfMember(0)) != std::string::npos);
+    CHECK(out.find(glslFieldNbrMember(2)) != std::string::npos);   // still a member
+    CHECK(out.find(glslFieldsStruct() + " fld") != std::string::npos);
+    CHECK(out.find("int " + glslFieldFunction(0)) != std::string::npos);
+    CHECK(out.find("float " + glslFieldFunction(1)) != std::string::npos);
+    // A field the rule never writes gets no function: carrying its value
+    // forward is a copy, and the copy belongs to whoever owns the storage.
+    CHECK(out.find(glslFieldFunction(2)) == std::string::npos);
+    // The u8 clamp is the width of the storage, not a state range.
+    CHECK(out.find("clamp(t2, 0, 255)") != std::string::npos);
+    // Float code is precise and flushes subnormals (AV-015, BUG-021).
+    CHECK(out.find("precise float") != std::string::npos);
+    CHECK(out.find(glslSubnormalMin()) != std::string::npos);
+}
+
+TEST_CASE("a rule with no fields generates what it always generated", "[glsl][fields]") {
+    // The whole of F-031's additive claim, on this side of it: no struct, no
+    // third parameter, and no flush where there is no float to flush.
+    const auto ir = *parseDsl("states 16; neighbourhood moore 1; 0: n(1) == 3 and n(2) == 0 -> 1;").ir;
+    const std::string out = generate(ir);
+    CHECK(out.find(glslFieldsStruct()) == std::string::npos);
+    CHECK(out.find("uint aether_rule(uint self, uint nbr[8]) {") != std::string::npos);
+    CHECK(out.find(glslSubnormalMin()) == std::string::npos);
+}

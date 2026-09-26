@@ -105,19 +105,9 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
 
     // An expression has no finite table, so it goes to codegen (D-004).
     if (const auto* expression = std::get_if<Expression>(&ir.transition)) {
-        // A multi-field rule has no GLSL yet: SPEC §6's shape for it is a
-        // function per written field, which is F-031's step 3 along with the
-        // shader that declares the field samplers. Generating a single
-        // function that reads fields would emit identifiers nothing declares,
-        // so the text is left empty and `GpuStepper::setRule` refuses the rule
-        // outright — a refusal where the rule cannot run rather than a shader
-        // that fails to link. The CPU oracle is complete either way.
-        std::string generated;
-        if (ir.fields.empty()) {
-            auto glsl = generateGlsl(ir);
-            if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
-            generated = std::get<std::string>(std::move(glsl));
-        }
+        auto glsl = generateGlsl(ir);
+        if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
+        std::string generated = std::get<std::string>(std::move(glsl));
         const uint32_t nbrs = neighbourCount(ir.dimensions, ir.neighbourhood);
         return CompiledRule{
             .backend       = Backend::Codegen,

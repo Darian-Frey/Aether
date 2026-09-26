@@ -57,6 +57,17 @@ Every threshold is met. The two with the least headroom are the 3D ones, which i
 | Continuous 512², kernel radius 4 (80 neighbours) | 1,977 gen/s | 124 gen/s | 16× |
 | Continuous 512², kernel radius 13 (728 neighbours) | 225 gen/s | 13 gen/s | 17× |
 
+**Re-measured 2026-09-26, after BUG-021.** Fixing that defect required SPEC §6's fourth agreement rule — a subnormal float is flushed to zero after every float operation — and its cost falls on the continuous rows, which are the float-heaviest thing here. Measured by the same two-point method on the T1200 rather than assumed, in two stages, because the fix landed in two:
+
+| | recorded above | expressions flushed | convolution flushed too |
+|---|---|---|---|
+| Continuous 512², radius 4 | 1,977 gen/s | 2,089 | **1,961** |
+| Continuous 512², radius 13 | 225 gen/s | 226 | **213** |
+
+Flushing the generated expressions costs nothing measurable, which is the expected shape: a growth function is a handful of operations against a convolution of eighty or 728. Flushing the convolution's partial sums costs the radius-13 row **5.3%** against the recorded figure, outside the 4% noise floor and therefore a real change; radius 4 loses 0.8%, inside it. The inner loop is where the work is and where the flush is now done per iteration, so this is the cost landing where it should.
+
+It is paid deliberately. The alternative is a continuous rule whose two paths agree only as long as the field never decays towards zero, which is a promise about the rules that happen to be bundled rather than about the engine (AV-015). No SPEC §12 threshold covers the continuous path, so nothing is at risk; the figure is recorded here so that a later reading of 213 is not mistaken for a regression. The 2,089 in the middle column is 5.7% *above* the recorded figure and cannot be an effect of adding work — it is the noise floor showing itself, and the reason the table above is left as the 0.1.0 measurement rather than revised on one run.
+
 The CPU reference is the same on both, as it must be — it is the same code on the same processor, and the row is there to show that the harness is measuring what it claims to.
 
 **The integrated GPU misses one threshold.** 3D at 256³ manages 6 gen/s against a target of 30. Everything else clears: 2D is 310 gen/s against 200, which is comfortable but not by much. SPEC §12 is a T1200 document and the integrated figures are recorded for contrast rather than as a second acceptance run, but it is worth knowing that a 3D grid at full size is not usable on the integrated GPU rather than merely slower.

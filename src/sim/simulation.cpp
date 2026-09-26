@@ -93,6 +93,17 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
         return core::Error{std::format("grid holds {} cells but the rule is {}",
                                        core::toString(spec().cell_type), core::toString(ir.cell_type))};
     }
+    // A Simulation is the state field and nothing else until F-031's step 4
+    // gives it field storage, a place in the session and a journal. Both
+    // steppers execute a multi-field rule now, and both want a buffer pair per
+    // field that this class cannot hand them: on the GPU that is a shader with
+    // field images bound to nothing, which reads zero and steps on, and a rule
+    // that quietly runs as though its fields were absent is AV-007 exactly.
+    // Refused here rather than left to produce a plausible-looking grid.
+    if (!ir.fields.empty()) {
+        return core::Error{std::format("rule declares {} auxiliary field(s), which a session cannot carry yet",
+                                       ir.fields.size())};
+    }
     auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
     rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
@@ -348,6 +359,15 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.counters_.rule_mutations = s.ruleMutationsApplied;
     sim.counters_.rule_mutations_skipped = s.ruleMutationsSkipped;
 
+    // The same refusal installRule makes, because this path bypasses it. No
+    // session written by this engine can hold a field rule — nothing can
+    // install one — but a session is external data and `ir_json` will read a
+    // field list back happily, which is the whole reason the check is here
+    // rather than trusted to the writer (F-031 step 4, AV-016).
+    if (!s.rule.fields.empty()) {
+        return core::Error{std::format("session's rule declares {} auxiliary field(s), which cannot be resumed yet",
+                                       s.rule.fields.size())};
+    }
     // The current rule, compiled; lineage already holds it, so bypass the append.
     auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};

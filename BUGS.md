@@ -264,6 +264,20 @@ Nothing is wrong in the code and no ID is affected. What is affected is the one 
 **Notes.** Logged rather than corrected, per the convention: eleven dates across six documents, one of them the *Recorded* line of an accepted decision, is the author's call and not a tidy-up. The likely mechanism is that the session took its date from somewhere other than the clock and then propagated it consistently, which is why every entry agrees with every other and none agrees with the day.
 F-031 step 2 is dated 2026-09-26, the day it was written, rather than being made to match its predecessor. Whichever way this is settled, it wants settling in one pass across all six files rather than one entry at a time.
 
+### BUG-021: a subnormal float diverges between the oracle and the shader
+**Status:** fixed
+**Found:** 2026-09-26 (F-031 step 3, the first CPU/GPU comparison of a multi-field rule)
+**Fixed:** 2026-09-26
+**Location:** `src/rule/glsl.cpp` (`emitNodes`), `src/sim/cpu_step.cpp` (`evalArena`), SPEC §6
+**Severity:** high
+**Description.** Generated float code can produce a subnormal — a value below `FLT_MIN`, about 1.18e-38 — and GLSL does not require an implementation to support them. Both GPUs here flush a subnormal result to zero; C++ does not. The two paths then disagree, and the disagreement is not a rounding difference of an ULP but a value against zero, which compounds from the next generation on.
+Found by the first multi-field equivalence comparison. The field's rule was `heat' = (heat + heat_east) * 0.5`, which halves whatever it is given: after 120 generations one cell reached `1.0e-38`, the oracle kept it and the shader had already made it zero. Neither is wrong on its own terms, which is the whole of AV-015 — being more accurate than the shader is the same defect as being less.
+**Reproduction.** `tests/sim/fields_step_test.cpp`, the both-paths case. Before the fix it failed at generation 120 on cell 24 of field 1, on both the iGPU and the T1200, with and without cell mutation.
+**Notes.** Not new with F-031. Any `f32` expression can reach the subnormal range, so the continuous path has carried this since Phase 5 — `rules/lenia.lua` never triggered it because a Lenia field holds itself in `[0, 1]` and its growth arithmetic does not decay towards zero, and the 10,000-generation comparison that passed at 512² is evidence about that rule rather than about the arithmetic. It would have waited for the first continuous rule that damps.
+**Resolution (2026-09-26).** Flush-to-zero on subnormals, applied explicitly after every float operation in both twins, and recorded as SPEC §6's fourth agreement rule. Defining it here rather than deferring to the driver makes it robust in both directions: a driver that flushes finds the value already zero, and one that does not gets the same zero the oracle produced. A driver that flushes an *input* cannot matter either, because no input is ever subnormal by the time it is read.
+It reaches further than the generated expressions, which is the part worth recording. Three float computations sit outside them and all three had to be covered: the convolution's running sum and each `weight × value` term, which is the likeliest place of all to reach the subnormal range; and `self + increment`, the last operation before the clamp, which is exactly where a value that is decaying to nothing lands. Fixing only the expression temporaries would have left the continuous path divergent while reading as though it were fixed — so the number is written once, in `rule/glsl.hpp`, and `sim/gpu_step` turns it into the `AETHER_FTZ` macro both shaders use.
+The cost is one compare and select per float operation, which falls on the continuous path's inner loop. Measured rather than assumed — see BENCHMARKS.md's note of 2026-09-26.
+
 ## Won't Fix
 
 *None.*

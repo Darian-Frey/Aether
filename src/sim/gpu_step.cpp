@@ -1,6 +1,7 @@
 #include "sim/gpu_step.hpp"
 
 #include "core/gl.hpp"
+#include "rule/glsl.hpp"
 #include "sim/shaders.hpp"
 
 #include <raylib.h>
@@ -26,6 +27,76 @@ constexpr uint32_t kLocal3D[3] = {4, 4, 4};
 
 uint32_t groups(uint32_t extent, uint32_t local) {
     return (extent + local - 1) / local;
+}
+
+// Image units. 0 and 1 are the state's pair; a field's pair follows, read at
+// 2 + 2f and written at 3 + 2f. GL guarantees only eight units to a compute
+// shader, which is what bounds the number of fields (see setRule).
+constexpr uint32_t kStateUnits = 2;
+uint32_t fieldReadUnit(size_t f)  { return kStateUnits + 2u * static_cast<uint32_t>(f); }
+uint32_t fieldWriteUnit(size_t f) { return kStateUnits + 2u * static_cast<uint32_t>(f) + 1u; }
+
+// The GLSL a multi-field rule needs around the functions rule/glsl generated:
+// the field images, a loader apiece, and the two entry points lut_step.comp
+// calls. It lives here rather than in rule/ because image bindings are this
+// file's business and not the IR's (F-031, D-022). Every name shared with the
+// other generator comes from rule/glsl.hpp; nothing here spells one.
+std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions) {
+    const bool is3D = dimensions == 3;
+    const char* suffix = is3D ? "3D" : "2D";
+    // imageLoad/imageStore take the coordinate the image's dimensionality
+    // wants, and a 1D or 2D grid is a 2D image (see readCell in the shader).
+    const std::string coord = is3D ? "p" : "p.xy";
+    const uint32_t N = rule.neighbourCount();
+
+    std::string out;
+    for (size_t f = 0; f < rule.fields.size(); ++f) {
+        const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
+        const char* format  = isFloat ? "r32f" : "r8ui";
+        const std::string image = std::format("{}image{}", isFloat ? "" : "u", suffix);
+        out += std::format("layout({}, binding = {}) uniform readonly  {} aether_fsrc{};\n",
+                           format, fieldReadUnit(f), image, f);
+        out += std::format("layout({}, binding = {}) uniform writeonly {} aether_fdst{};\n",
+                           format, fieldWriteUnit(f), image, f);
+    }
+    for (size_t f = 0; f < rule.fields.size(); ++f) {
+        out += std::format("{} aether_fload{}(ivec3 p) {{ return {}(imageLoad(aether_fsrc{}, {}).r); }}\n",
+                           rule::glslFieldType(rule.fields[f].cell_type), f,
+                           rule::glslFieldType(rule.fields[f].cell_type), f, coord);
+    }
+
+    // The gather. A negative x is the sentinel the shader's resolveCoord
+    // produces for "outside a zero boundary", where a field reads zero exactly
+    // as state 0 does.
+    out += std::format("{} aether_gather_fields(ivec3 p, ivec3 n[{}]) {{\n", rule::glslFieldsStruct(), N);
+    out += std::format("    {} f;\n", rule::glslFieldsStruct());
+    for (size_t f = 0; f < rule.fields.size(); ++f) {
+        const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
+        out += std::format("    f.{} = aether_fload{}(p);\n", rule::glslFieldSelfMember(f), f);
+        out += std::format("    for (int i = 0; i < {}; ++i) f.{}[i] = (n[i].x < 0) ? {} : aether_fload{}(n[i]);\n",
+                           N, rule::glslFieldNbrMember(f), isFloat ? "0.0" : "0", f);
+    }
+    out += "    return f;\n}\n";
+
+    // The store. A field the rule writes goes through its generated function;
+    // one it does not is copied from the gather, because the destination
+    // texture is last generation's and would otherwise be read back as the
+    // cell's own great-grandparent.
+    out += std::format("void aether_store_fields(ivec3 p, uint own, uint nbr[{}], {} fld) {{\n",
+                       N, rule::glslFieldsStruct());
+    for (size_t f = 0; f < rule.fields.size(); ++f) {
+        const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
+        const std::string value = rule.fields[f].write
+                                      ? std::format("{}(own, nbr, fld)", rule::glslFieldFunction(f))
+                                      : std::format("fld.{}", rule::glslFieldSelfMember(f));
+        if (isFloat) {
+            out += std::format("    imageStore(aether_fdst{}, {}, vec4({}, 0.0, 0.0, 0.0));\n", f, coord, value);
+        } else {
+            out += std::format("    imageStore(aether_fdst{}, {}, uvec4(uint({}), 0u, 0u, 0u));\n", f, coord, value);
+        }
+    }
+    out += "}\n";
+    return out;
 }
 
 unsigned int makeSsbo(const void* data, size_t bytes) {
@@ -75,10 +146,20 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key, const
     if (dims == 3) src += "#define AETHER_3D 1\n";
     src += std::format("#define AETHER_N {}\n#define AETHER_S {}\n#define AETHER_KIND {}\n#define AETHER_BOUNDARY {}\n",
                        N, S, static_cast<int>(kind), static_cast<int>(boundary));
+    // Always defined, so the shader's `#if AETHER_FIELDS > 0` does not rest on
+    // how the preprocessor treats an unknown identifier.
+    src += std::format("#define AETHER_FIELDS {}\n", rule.fields.size());
+    // SPEC §6's fourth agreement rule, for the float arithmetic the shaders do
+    // themselves rather than through a generated function — the convolution.
+    // The number comes from rule/glsl so that it is written once (BUG-021).
+    src += std::format("#define AETHER_FTZ(v) ((abs(v) < {}) ? 0.0 : (v))\n", rule::glslSubnormalMin());
     src += shaders::kHashGlsl;
     // A generated rule arrives as the function the step calls (SPEC §6):
     // aether_rule for a table-less discrete rule, aether_rule_f for a kernel.
     if (rule.backend == rule::Backend::Codegen) src += rule.glsl;
+    // Then the field images and the two entry points over them, which must
+    // follow rule.glsl because they call the functions in it.
+    if (!rule.fields.empty()) src += fieldSupportGlsl(rule, dims);
     src += "#line 1\n";
     const bool continuous = kind == rule::Kind::Continuous;
     src += continuous ? shaders::kContinuousStepComp : shaders::kLutStepComp;
@@ -99,11 +180,24 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
         return core::Error{std::format("rule is {}D but the grid is {}D", rule.dimensions, spec.dimensions)};
     }
     if (!rule.fields.empty()) {
-        // F-031 step 3. The oracle executes these; the shader has no field
-        // samplers and the generator emits no function for a field write, so
-        // the rule is refused here rather than allowed to run as though the
-        // fields were not there (AV-007 is exactly that failure).
-        return core::Error{"the GPU path does not carry auxiliary fields yet"};
+        // Each field needs a read unit and a write unit on top of the state's
+        // two, and GL_MAX_IMAGE_UNITS is only guaranteed to be eight. Asked
+        // rather than assumed, and refused rather than left to a link error
+        // whose message would name a binding number instead of a field.
+        GLint maxUnits = 8;
+        glGetIntegerv(GL_MAX_IMAGE_UNITS, &maxUnits);
+        const size_t needed = kStateUnits + 2 * rule.fields.size();
+        if (needed > static_cast<size_t>(maxUnits)) {
+            return core::Error{std::format(
+                "{} fields need {} image units and this driver offers {}",
+                rule.fields.size(), needed, maxUnits)};
+        }
+        if (rule.kind == rule::Kind::Continuous) {
+            // compileRule refuses this already; repeated here because the
+            // continuous shader has no field hooks at all and a change that
+            // relaxed the other refusal should trip on this one.
+            return core::Error{"a continuous rule cannot carry auxiliary fields"};
+        }
     }
     const bool continuous = rule.kind == rule::Kind::Continuous;
     if ((spec.cell_type == core::CellType::F32) != continuous) {
@@ -145,6 +239,10 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     cfg_.locSelfWeight = continuous ? rlGetLocationUniform(cfg_.program, "selfWeight") : -1;
     cfg_.selfWeight = rule.selfWeight;
     cfg_.continuous = continuous;
+    cfg_.fieldFormats.clear();
+    for (const rule::CompiledField& f : rule.fields) {
+        cfg_.fieldFormats.push_back(f.cell_type == core::CellType::F32 ? GL_R32F : GL_R8UI);
+    }
     cfg_.target = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     cfg_.width = spec.width; cfg_.height = spec.height; cfg_.depth = spec.depth;
     const uint32_t* local = spec.dimensions == 3 ? kLocal3D : kLocal2D;
@@ -154,9 +252,11 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     return std::nullopt;
 }
 
-void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
+void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture,
+                     std::span<const FieldTextures> fields) {
     assert(cfg_.program != 0 && "setRule before step");
     assert(srcTexture != dstTexture && "step must not read the texture it writes (AV-004)");
+    assert(fields.size() == cfg_.fieldFormats.size() && "one texture pair per declared field");
 
     rlEnableShader(cfg_.program);
     // Per-step values as uniforms (see the shader for why not a buffer).
@@ -173,6 +273,11 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture) {
     const unsigned int format = cfg_.continuous ? GL_R32F : GL_R8UI;
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  format);
     glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, format);
+    for (size_t f = 0; f < fields.size(); ++f) {
+        assert(fields[f].src != fields[f].dst && "a field must not be read and written at once (AV-004)");
+        glBindImageTexture(fieldReadUnit(f),  fields[f].src, 0, GL_TRUE, 0, GL_READ_ONLY,  cfg_.fieldFormats[f]);
+        glBindImageTexture(fieldWriteUnit(f), fields[f].dst, 0, GL_TRUE, 0, GL_WRITE_ONLY, cfg_.fieldFormats[f]);
+    }
     rlBindShaderBuffer(owned_.paramsSsbo, 0);
     rlBindShaderBuffer(owned_.offsetsSsbo, 1);
     rlBindShaderBuffer(owned_.compsSsbo, 2);

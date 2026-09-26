@@ -230,7 +230,18 @@ float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 
 `nbr` holds the neighbours in the canonical order of §3. The generator emits one statement per node of the expression arena, in arena order — children precede parents, so a single forward pass suffices and no node is evaluated twice.
 
-**Auxiliary fields** *(added 2026-09-27, F-031, D-022)*. `ExprOp::FieldSelf` reads declared field `a` at this site and `ExprOp::FieldNeighbour` reads field `a` at neighbour `b`; both take their type from the field's declared cell type, so reading a `u8` field is an integer and reading an `f32` one is a float. A rule that declares fields emits a function per written field rather than one function, each over the same neighbourhood read, so that two fields decided from one reading of the world are decided against the same world — which is what makes the conservation of AV-018 something that can be reasoned about at all. Every other rule in this section stands unchanged, and the prohibition on division in generated float code matters more here than anywhere: a resource field is exactly where a rule will want to divide (AV-015).
+**Auxiliary fields** *(added 2026-09-27, F-031, D-022; the generated shape below from 2026-09-26)*. The functions a multi-field rule generates take one further parameter, a struct gathered once per cell and handed to all of them:
+
+```glsl
+struct AetherFields { int f0_self; int f0_nbr[N]; float f1_self; float f1_nbr[N]; /* … */ };
+uint  aether_rule(uint self, uint nbr[N], AetherFields fld);
+int   aether_field_0(uint self, uint nbr[N], AetherFields fld);   // a u8 field
+float aether_field_1(uint self, uint nbr[N], AetherFields fld);   // an f32 field
+```
+
+Everything still arrives as a parameter, so requirement 2 below holds unchanged, and one gather shared by every function is what makes "decided against one reading of the world" true rather than merely intended. A rule declaring no field generates exactly what it generated before: no struct, no third parameter. The struct is *filled* by code the GPU stepper generates, because image bindings are its business and not the generator's; the two agree on every name by both calling the helpers in `rule/glsl.hpp` rather than by both spelling them.
+
+ `ExprOp::FieldSelf` reads declared field `a` at this site and `ExprOp::FieldNeighbour` reads field `a` at neighbour `b`; both take their type from the field's declared cell type, so reading a `u8` field is an integer and reading an `f32` one is a float. A rule that declares fields emits a function per written field rather than one function, each over the same neighbourhood read, so that two fields decided from one reading of the world are decided against the same world — which is what makes the conservation of AV-018 something that can be reasoned about at all. Every other rule in this section stands unchanged, and the prohibition on division in generated float code matters more here than anywhere: a resource field is exactly where a rule will want to divide (AV-015).
 
 Three further rules settle what a field *write* produces, and the CPU oracle obeys them from 2026-09-26:
 
@@ -247,11 +258,12 @@ Requirements on generated code:
 3. Deterministic across drivers: no `fma` reassociation assumptions, no reliance on undefined-precision built-ins. For float code this is enforced rather than hoped for (2026-09-17): every float temporary of a generated growth function is declared `precise`, which forbids the compiler both contracting `a*b+c` into an fma and reassociating a sum. **Generated float code must not divide**, either: GLSL permits float division 2.5 ULP of error where C++ is correctly rounded, so a front end lowering a division must compute the reciprocal on the host and emit a multiply (AV-015).
 4. Integer arithmetic only for `u8` rules. Float appears only in the `f32` path.
 
-Three rules settle cases where C++ and GLSL would otherwise differ, and the CPU interpreter obeys all three so the two paths agree (2026-09-15):
+Four rules settle cases where C++ and GLSL would otherwise differ, and the CPU interpreter obeys all four so the two paths agree (2026-09-15, the fourth added 2026-09-26):
 
 - **Division and modulo by zero yield zero.** A zero divisor is undefined in GLSL and a trap in C++, so neither is allowed to happen: both are emitted and interpreted as `(b == 0) ? 0 : a / b`.
 - **Integer arithmetic is 32-bit and wraps.** `IntLiteral` values are validated to fit `int32` (§4), and the interpreter computes through unsigned arithmetic so that overflow wraps exactly as GLSL's does rather than being undefined.
 - **The result is clamped to `0 … S-1`.** Nothing can prove in general that an arithmetic tree stays in range, and a cell outside the state range would index past the next generation's count array. The clamp is the last statement of the generated function.
+- **A subnormal float is flushed to zero, after every float operation.** GLSL does not require an implementation to support values below `FLT_MIN` (about 1.18e-38) and both GPUs measured here flush them; C++ does not. A float expression that decays therefore parted company with the oracle — a value against zero, not a rounding difference, and compounding from the next generation on (BUG-021). Both sides now flush explicitly, which holds whatever the driver does: one that flushes finds the value already zero, one that does not gets the zero the oracle produced, and an implementation that flushes an *input* cannot matter because no input is subnormal by the time it is read. The statement is `v = (abs(v) < FLT_MIN) ? 0.0 : v;` in the generated code and `std::fabs(v) < std::numeric_limits<float>::min()` in the interpreter; the number itself is written in one place, `rule/glsl.hpp`, and reaches the shaders as the `AETHER_FTZ` macro. It applies to the float arithmetic a shader does for itself as well as to generated code: the convolution's running sum and each `weight × value` term, which is the likeliest place of all to reach the range, and `self + increment`, the last operation before the clamp and where a field decaying to nothing arrives.
 
 Where an expression counts neighbours by state, the function begins by filling a `cnt` array of `S` entries with one statically bounded loop. It is emitted only when some node asks for a count.
 

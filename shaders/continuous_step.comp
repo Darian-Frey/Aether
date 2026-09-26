@@ -84,13 +84,21 @@ void main() {
     // reassociating the sum. Without it the shader is *more* accurate than the
     // oracle and therefore disagrees with it, which is the worse outcome
     // (SPEC §6, AV-007).
+    // Every partial sum is flushed, the twin of the same loop in
+    // sim/cpu_step.cpp. A weight times a near-zero value is where this
+    // arithmetic reaches the subnormal range, and a driver that flushes there
+    // while the oracle does not is BUG-021.
     precise float conv = selfWeight * own;
+    conv = AETHER_FTZ(conv);
     for (uint i = 0u; i < uint(AETHER_N); ++i) {
         int nx = resolveCoord(gid.x + off[4u * i + 0u], int(width));
         int ny = resolveCoord(gid.y + off[4u * i + 1u], int(height));
         int nz = resolveCoord(gid.z + off[4u * i + 2u], int(depth));
         float v = (nx < 0 || ny < 0 || nz < 0) ? 0.0 : readCell(ivec3(nx, ny, nz));
-        conv += weight[i] * v;
+        precise float term = weight[i] * v;
+        term = AETHER_FTZ(term);
+        conv += term;
+        conv = AETHER_FTZ(conv);
     }
 
     // Generated from the growth expression: the increment, applied and

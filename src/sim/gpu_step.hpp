@@ -14,9 +14,18 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <tuple>
+#include <vector>
 
 namespace aether::sim {
+
+// One auxiliary field's texture pair for a step, matching the host side's
+// `sim::FieldReads`/`FieldWrites` pair (F-031).
+struct FieldTextures {
+    unsigned int src = 0;
+    unsigned int dst = 0;
+};
 
 class GpuStepper {
 public:
@@ -37,7 +46,11 @@ public:
     // One generation: reads `src`, writes `dst`, then a memory barrier so
     // the result is visible to the next dispatch, to samplers and to
     // download. The two must be distinct textures. Does not swap.
-    void step(unsigned int srcTexture, unsigned int dstTexture);
+    // `fields` is the auxiliary field pairs in the rule's declaration order
+    // and must be as long as the rule's field list (F-031); a rule that
+    // declares none takes the default and reads as it always did.
+    void step(unsigned int srcTexture, unsigned int dstTexture,
+              std::span<const FieldTextures> fields = {});
 
     // One generation on a GpuGrid, then swap.
     void step(core::GpuGrid& grid);
@@ -79,6 +92,9 @@ private:
         uint32_t     width = 0, height = 0, depth = 0;
         uint64_t     generation = 0;
         CellMutation mutation;
+        // The internal format of each declared field, in declaration order,
+        // so that step() binds R8UI or R32F without consulting the rule again.
+        std::vector<unsigned int> fieldFormats;
     };
     Owned  owned_;
     Config cfg_;
