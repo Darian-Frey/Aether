@@ -512,6 +512,8 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
                  ... ],
   "generation": 4210,
   "state":     { "encoding": "rle" | "bytes" | "raw", "data": "..." },   // convenience: cells at `generation`
+  "fields":    [ { "name": "energy", "cell_type": "u8",                 // auxiliary fields at `generation`
+                   "encoding": "rle" | "bytes" | "raw", "data": "..." } ],   // absent when the rule declares none
   "counters":  { "rule_mutations": 16, "rule_mutations_skipped": 0 }
 }
 ```
@@ -523,6 +525,14 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
 **Determinism contract.** Given `grid`, `initial`, `rng.seed_a`, `rng.seed_b` and `journal`, replaying from generation 0 reproduces the grid at any generation bit-for-bit, on either execution path, on any machine meeting the build requirements. `rule`, `mutation`, `lineage`, `generation`, `state`, `stream_a_state` and `counters` are conveniences derivable from those five; they are stored so that a session resumes instantly and displays its history without replaying. `aether replay` re-derives them and `aether compare` checks them; the CTest `replay.*` cases do exactly this across processes.
 
 **Lineage entries** carry `origin` (`initial` | `user` | `mutation` | `rewind`) and `journal_index`, the journal length when the entry was made. The initial and pinned entries store the full IR; other table-form entries store a `delta` of `[index, value]` pairs against the previous entry plus their `metadata`. Every entry stores its `ir_hash` and the loader verifies it after reconstruction.
+
+**Auxiliary fields** *(added 2026-09-26, F-031)*. The `fields` key is present only when the rule declares fields, so a session written before F-031 — and every session of a rule that declares none — is byte-for-byte the file it was. Entries are in the rule's declaration order and as long as `rule.ir.fields`; each carries its `name` and `cell_type` beside the buffer so that a loader checks the list against the rule rather than trusting position, since a disagreement would otherwise read one field's bytes as another's. The buffers use the same three encodings as `state`, over the field's own bytes.
+
+There is no `initial` for a field. A field starts at zero and the rule writes it from the state, so generation 0 is derivable and replay reconstructs it by zeroing — which is also why a field needs no journal event: nothing outside the step loop writes one. Painting, filling and placing a pattern are all about states and leave a field alone. When field seeding arrives (F-032) a field gains an initial buffer here and an event in the journal, and the determinism contract below gains it as a sixth input.
+
+A session whose `state` is stored but whose `fields` are missing is partial rather than empty, and is refused: a session this engine wrote always records a field its rule declares, so resuming from zeros the saved run did not have would silently be a different run.
+
+The sidecar holds the state's initial cells, then the state's current cells, then each field's current cells in declaration order. Whether it is used is decided per buffer group rather than in total — the state's buffer against the 4 MB threshold as it always was, and the fields' total against the same threshold separately — so which files get a sidecar is unchanged for a rule without fields.
 
 **Cell encoding.** Two inline forms: `rle` is byte run-length pairs `(count ≤ 255, value)`, base64; `bytes` is the buffer itself, base64 (2026-09-16). `raw` names the sidecar. All three work on the grid's raw bytes rather than its cells, so an `f32` grid encodes its float bytes through the same path with no separate case; the decoded length is checked against `bytesPerBuffer()`, which equals the cell count only for `u8` (2026-09-16).
 

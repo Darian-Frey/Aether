@@ -280,6 +280,19 @@ std::string sessionToJson(const Session& s) {
         const EncodedCells state = encodeCells(s.current);
         j["state"] = {{"encoding", state.encoding}, {"data", state.data}};
     }
+    // Written only when there are fields, so a rule that declares none produces
+    // the same bytes it has produced since F-020 (F-031).
+    if (!s.fields.empty()) {
+        json fields = json::array();
+        for (const SessionField& f : s.fields) {
+            const EncodedCells cells = encodeCells(f.current);
+            fields.push_back({{"name", f.name},
+                              {"cell_type", std::string(core::toString(f.cell_type))},
+                              {"encoding", cells.encoding},
+                              {"data", cells.data}});
+        }
+        j["fields"] = fields;
+    }
     return j.dump(1);
 }
 
@@ -351,6 +364,25 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.ruleMutationsApplied = j["counters"].value("rule_mutations", uint64_t{0});
             s.ruleMutationsSkipped = j["counters"].value("rule_mutations_skipped", uint64_t{0});
         }
+        // Absent for every session written before F-031, which is what makes
+        // one load unchanged.
+        if (j.contains("fields")) {
+            for (const json& f : j.at("fields")) {
+                SessionField sf;
+                sf.name = f.at("name").get<std::string>();
+                const auto ft = core::parseCellType(f.at("cell_type").get<std::string>());
+                if (!ft) return SessionError{std::format("field '{}' has an unknown cell_type", sf.name)};
+                sf.cell_type = *ft;
+                const auto encoding = f.at("encoding").get<std::string>();
+                if (encoding != "raw") {   // raw: filled in by loadSession from the sidecar
+                    const size_t bytes = s.spec.cellCount() * core::cellBytes(sf.cell_type);
+                    auto cells = decodeCells(encoding, f.at("data").get<std::string>(), bytes);
+                    if (const auto* e = std::get_if<SessionError>(&cells)) return *e;
+                    sf.current = std::move(std::get<std::vector<uint8_t>>(cells));
+                }
+                s.fields.push_back(std::move(sf));
+            }
+        }
         if (j.contains("state") && j["state"].at("encoding") != "raw") {
             auto cells = decodeCells(j["state"].at("encoding").get<std::string>(),
                                      j["state"].at("data").get<std::string>(), s.spec.bytesPerBuffer());
@@ -385,20 +417,31 @@ std::variant<std::vector<uint8_t>, SessionError> readFile(const std::string& pat
 }  // namespace
 
 std::optional<SessionError> saveSession(const std::string& path, const Session& s) {
-    if (s.spec.bytesPerBuffer() > kInlineByteLimit) {
-        // Sidecar for big grids: initial then current, raw bytes.
+    if (usesSidecar(s)) {
+        // Sidecar for big grids: initial, then current, then each field's
+        // current — the order sidecarBytes documents and loadSession reads.
         Session copy = s;
         std::vector<uint8_t> raw = s.initial;
         raw.insert(raw.end(), s.current.begin(), s.current.end());
+        for (const SessionField& f : s.fields) raw.insert(raw.end(), f.current.begin(), f.current.end());
         if (auto e = writeFile(path + ".grid", raw.data(), raw.size())) return e;
         copy.initial.clear();
         copy.current.clear();
+        for (SessionField& f : copy.fields) f.current.clear();
         std::string text = sessionToJson(copy);
         // Patch the encodings to point at the sidecar.
+        const std::string name = std::filesystem::path(path + ".grid").filename().string();
         json j = json::parse(text);
-        j["initial"] = {{"encoding", "raw"}, {"data", std::filesystem::path(path + ".grid").filename().string()}};
-        if (!s.current.empty()) j["state"] = {{"encoding", "raw"}, {"data", std::filesystem::path(path + ".grid").filename().string()}, {"offset", s.initial.size()}};
+        j["initial"] = {{"encoding", "raw"}, {"data", name}};
+        if (!s.current.empty()) j["state"] = {{"encoding", "raw"}, {"data", name}, {"offset", s.initial.size()}};
         else j.erase("state");
+        size_t offset = s.initial.size() + s.current.size();
+        for (size_t i = 0; i < s.fields.size(); ++i) {
+            j["fields"][i]["encoding"] = "raw";
+            j["fields"][i]["data"] = name;
+            j["fields"][i]["offset"] = offset;
+            offset += s.fields[i].current.size();
+        }
         text = j.dump(1);
         return writeFile(path, text.data(), text.size());
     }
@@ -425,14 +468,38 @@ std::variant<Session, SessionError> loadSession(const std::string& path) {
             const size_t n = s.spec.bytesPerBuffer();
             if (r.size() < n) return SessionError{"sidecar is shorter than the grid"};
             s.initial.assign(r.begin(), r.begin() + static_cast<std::ptrdiff_t>(n));
+            size_t offset = n;
             if (j.contains("state") && r.size() >= 2 * n) {
                 s.current.assign(r.begin() + static_cast<std::ptrdiff_t>(n), r.begin() + static_cast<std::ptrdiff_t>(2 * n));
+                offset = 2 * n;
+            }
+            // Then each field, in declaration order. Read by walking the same
+            // order the writer used rather than by trusting the offsets it
+            // recorded, which are there for a reader outside this engine.
+            for (SessionField& f : s.fields) {
+                const size_t bytes = s.spec.cellCount() * core::cellBytes(f.cell_type);
+                if (r.size() < offset + bytes) {
+                    return SessionError{std::format("sidecar is shorter than field '{}'", f.name)};
+                }
+                f.current.assign(r.begin() + static_cast<std::ptrdiff_t>(offset),
+                                 r.begin() + static_cast<std::ptrdiff_t>(offset + bytes));
+                offset += bytes;
             }
         } catch (const json::exception& e) {
             return SessionError{std::format("malformed session: {}", e.what())};
         }
     }
     return s;
+}
+
+uint64_t sessionFieldBytes(const Session& s) {
+    uint64_t total = 0;
+    for (const SessionField& f : s.fields) total += f.current.size();
+    return total;
+}
+
+bool usesSidecar(const Session& s) {
+    return s.spec.bytesPerBuffer() > kInlineByteLimit || sessionFieldBytes(s) > kInlineByteLimit;
 }
 
 }  // namespace aether::sim

@@ -506,34 +506,289 @@ TEST_CASE("a multi-field rule steps identically on both paths", "[sim][fields][g
     }
 }
 
-TEST_CASE("a Simulation refuses a field rule until it can carry one", "[sim][fields][gpu]") {
-    // A Simulation owns a GpuGrid whichever path it runs, so it needs a context
-    // even to be built on the CPU path.
+// --- Simulation and the session format (F-031 step 4) ------------------------
+
+namespace {
+
+// A field rule with something to watch: energy climbs where the cell is dead and
+// falls where it is alive, and the state turns on once the energy passes ten. It
+// therefore reaches a state neither the grid nor the field alone determines,
+// which is what makes a session round-trip worth checking.
+rule::RuleIR simFieldRule() {
+    rule::RuleIR ir = base();
+    ir.states = 4;
+
+    rule::Field energy;
+    energy.name = "energy";
+    {
+        Build b;
+        const uint32_t self = b.node(ExprOp::Self);
+        const uint32_t zero = b.lit(0);
+        const uint32_t dead = b.node(ExprOp::Eq, self, zero);
+        const uint32_t own  = b.node(ExprOp::FieldSelf, 0);
+        const uint32_t one  = b.lit(1);
+        const uint32_t up   = b.node(ExprOp::Add, own, one);
+        const uint32_t two  = b.lit(2);
+        const uint32_t down = b.node(ExprOp::Sub, own, two);
+        b.node(ExprOp::Select, dead, up, down);
+        energy.write = b.e;
+    }
+    ir.fields.push_back(energy);
+
+    Build b;
+    const uint32_t own  = b.node(ExprOp::FieldSelf, 0);
+    const uint32_t ten  = b.lit(10);
+    const uint32_t rich = b.node(ExprOp::Gt, own, ten);
+    const uint32_t one  = b.lit(1);
+    const uint32_t self = b.node(ExprOp::Self);
+    b.node(ExprOp::Select, rich, one, self);
+    ir.transition = b.e;
+    return ir;
+}
+
+std::vector<uint8_t> bytesOf(std::span<const uint8_t> b) { return {b.begin(), b.end()}; }
+
+}  // namespace
+
+TEST_CASE("a Simulation carries a field rule's storage", "[sim][fields][gpu]") {
     GlContext gl;
     requireGl(gl);
 
-    // Both steppers execute these now, and neither can be handed field buffers
-    // through Simulation until F-031 step 4. On the GPU that would be a shader
-    // with its field images bound to nothing, reading zero and stepping on — a
-    // rule running as though its fields were absent, which is AV-007. The
-    // refusal is at installRule and repeated on the resume path, which bypasses
-    // it; a session is external data whatever wrote it.
-    core::GridSpec spec = spec2d(16, 16);
-    auto made = sim::Simulation::create(spec, *rule::parseDsl("B3/S23").ir, sim::Path::Cpu, 1u);
+    const core::GridSpec spec = spec2d(16, 16);
+    auto made = sim::Simulation::create(spec, simFieldRule(), sim::Path::Gpu, 1u);
     REQUIRE(std::holds_alternative<sim::Simulation>(made));
     sim::Simulation& s = std::get<sim::Simulation>(made);
+    REQUIRE(s.fieldCount() == 1);
+    CHECK(s.fieldHost(0).spec().cell_type == core::CellType::U8);
+    CHECK(s.fieldHost(0).spec().width == spec.width);
 
-    rule::RuleIR ir = base();
-    rule::Field f;
-    f.name = "energy";
-    ir.fields.push_back(f);
+    // A field starts at zero, and the rule builds it from the state. Ten
+    // generations of a dead grid is ten units of energy everywhere.
+    for (int i = 0; i < 10; ++i) s.step();
+    s.syncToHost();
+    for (uint8_t v : s.fieldHost(0).current()) CHECK(v == 10);
+    // Which is not yet past ten, so nothing is alive.
+    for (uint8_t v : s.host().current()) CHECK(v == 0);
 
-    const auto err = s.setRule(ir);
-    REQUIRE(err.has_value());
-    CHECK(err->message.find("auxiliary field") != std::string::npos);
+    // The eleventh generation reads an energy of ten, which is not greater than
+    // ten either, so the twelfth is where the grid lights.
+    s.step();
+    s.step();
+    s.syncToHost();
+    for (uint8_t v : s.host().current()) CHECK(v == 1);
+}
 
-    // Refused whole: the rule that was running is still running, and nothing
-    // was appended to the lineage (AV-014, invariant 7).
-    CHECK(s.rule().fields.empty());
-    CHECK(s.lineage().size() == 1);
+TEST_CASE("switching paths mid-run carries the fields with the state", "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // setPath is the one place the two authority rules meet, and a sync that
+    // moved the state without the fields would not show up until the next
+    // commit wrote stale field bytes back over live ones.
+    const core::GridSpec spec = spec2d(24, 16);
+    const rule::RuleIR ir = simFieldRule();
+
+    auto pure = sim::Simulation::create(spec, ir, sim::Path::Cpu, 7u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(pure));
+    sim::Simulation& a = std::get<sim::Simulation>(pure);
+    a.fillRandom(std::vector<double>{0.5, 0.5, 0.0, 0.0});
+
+    auto mixed = sim::Simulation::create(spec, ir, sim::Path::Cpu, 7u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(mixed));
+    sim::Simulation& b = std::get<sim::Simulation>(mixed);
+    b.fillRandom(std::vector<double>{0.5, 0.5, 0.0, 0.0});
+
+    for (int i = 0; i < 20; ++i) a.step();
+    for (int i = 0; i < 7; ++i)  b.step();
+    REQUIRE_FALSE(b.setPath(sim::Path::Gpu).has_value());
+    for (int i = 0; i < 6; ++i)  b.step();
+    REQUIRE_FALSE(b.setPath(sim::Path::Cpu).has_value());
+    for (int i = 0; i < 7; ++i)  b.step();
+
+    a.syncToHost();
+    b.syncToHost();
+    CHECK(bytesOf(a.host().current()) == bytesOf(b.host().current()));
+    CHECK(bytesOf(a.fieldHost(0).current()) == bytesOf(b.fieldHost(0).current()));
+}
+
+TEST_CASE("a session round-trips a field rule's contents", "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    const core::GridSpec spec = spec2d(20, 12);
+    auto made = sim::Simulation::create(spec, simFieldRule(), sim::Path::Gpu, 3u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    s.fillRandom(std::vector<double>{0.6, 0.4, 0.0, 0.0});
+    for (int i = 0; i < 30; ++i) s.step();
+
+    const sim::Session saved = s.session();
+    REQUIRE(saved.fields.size() == 1);
+    CHECK(saved.fields[0].name == "energy");
+    CHECK(saved.fields[0].cell_type == core::CellType::U8);
+    CHECK(saved.fields[0].current.size() == spec.cellCount());
+
+    // Through the text, because that is what a file is.
+    const std::string text = sim::sessionToJson(saved);
+    CHECK(text.find("\"fields\"") != std::string::npos);
+    auto parsed = sim::sessionFromJson(text);
+    REQUIRE(std::holds_alternative<sim::Session>(parsed));
+    const sim::Session& back = std::get<sim::Session>(parsed);
+    REQUIRE(back.fields.size() == 1);
+    CHECK(back.fields[0].name == "energy");
+    CHECK(back.fields[0].current == saved.fields[0].current);
+
+    // And resumed, which is the thing the file is for.
+    auto resumed = sim::Simulation::resume(back, sim::Path::Gpu);
+    REQUIRE(std::holds_alternative<sim::Simulation>(resumed));
+    sim::Simulation& r = std::get<sim::Simulation>(resumed);
+    REQUIRE(r.fieldCount() == 1);
+    r.syncToHost();
+    s.syncToHost();
+    CHECK(bytesOf(r.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+    CHECK(bytesOf(r.host().current()) == bytesOf(s.host().current()));
+
+    // Stepping on from there stays in step with the run it came from.
+    for (int i = 0; i < 10; ++i) { s.step(); r.step(); }
+    s.syncToHost();
+    r.syncToHost();
+    CHECK(bytesOf(r.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+    CHECK(bytesOf(r.host().current()) == bytesOf(s.host().current()));
+}
+
+TEST_CASE("replay rebuilds a field from zero", "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // A field is not in the journal and has no initial buffer in the file: it
+    // starts at zero and the rule writes it from the state, so replay has to
+    // arrive at the same field the run did by doing the same arithmetic.
+    const core::GridSpec spec = spec2d(20, 12);
+    auto made = sim::Simulation::create(spec, simFieldRule(), sim::Path::Gpu, 11u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    s.fillRandom(std::vector<double>{0.5, 0.5, 0.0, 0.0});
+    for (int i = 0; i < 25; ++i) s.step();
+
+    sim::Session saved = s.session();
+    saved.current.clear();          // force the replay path rather than resume
+    saved.fields.clear();
+    saved.streamA.reset();
+
+    auto rebuilt = sim::Simulation::replay(saved, sim::Simulation::ReplayTarget{25}, sim::Path::Gpu);
+    REQUIRE(std::holds_alternative<sim::Simulation>(rebuilt));
+    sim::Simulation& r = std::get<sim::Simulation>(rebuilt);
+    r.syncToHost();
+    s.syncToHost();
+    CHECK(r.generation() == s.generation());
+    CHECK(bytesOf(r.host().current()) == bytesOf(s.host().current()));
+    CHECK(bytesOf(r.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+}
+
+TEST_CASE("a session whose fields disagree with its rule is refused", "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    const core::GridSpec spec = spec2d(8, 8);
+    auto made = sim::Simulation::create(spec, simFieldRule(), sim::Path::Cpu, 5u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    std::get<sim::Simulation>(made).step();
+    const sim::Session good = std::get<sim::Simulation>(made).session();
+
+    SECTION("a renamed field") {
+        sim::Session s = good;
+        s.fields[0].name = "not-energy";
+        const auto r = sim::Simulation::resume(s, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<core::Error>(r));
+        CHECK(std::get<core::Error>(r).message.find("not-energy") != std::string::npos);
+    }
+    SECTION("a missing field") {
+        sim::Session s = good;
+        s.fields.clear();
+        const auto r = sim::Simulation::resume(s, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<core::Error>(r));
+        CHECK(std::get<core::Error>(r).message.find("declares 1") != std::string::npos);
+    }
+    SECTION("a field of the wrong length") {
+        sim::Session s = good;
+        s.fields[0].current.pop_back();
+        const auto r = sim::Simulation::resume(s, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<core::Error>(r));
+        CHECK(std::get<core::Error>(r).message.find("wants") != std::string::npos);
+    }
+}
+
+TEST_CASE("a rule without fields writes the session it always wrote", "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // The additive claim on this side of it: no `fields` key at all, so a file
+    // written before F-031 and one written after are the same bytes.
+    const core::GridSpec spec = spec2d(12, 12);
+    auto made = sim::Simulation::create(spec, *rule::parseDsl("B3/S23").ir, sim::Path::Cpu, 2u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    s.fillRandom(std::vector<double>{0.5, 0.5});
+    s.step();
+
+    const sim::Session saved = s.session();
+    CHECK(saved.fields.empty());
+    CHECK(s.fieldCount() == 0);
+    const std::string text = sim::sessionToJson(saved);
+    CHECK(text.find("\"fields\"") == std::string::npos);
+
+    auto parsed = sim::sessionFromJson(text);
+    REQUIRE(std::holds_alternative<sim::Session>(parsed));
+    CHECK(std::get<sim::Session>(parsed).fields.empty());
+}
+
+TEST_CASE("a rule change keeps a field it redeclares and zeroes one it does not",
+          "[sim][fields][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    const core::GridSpec spec = spec2d(8, 8);
+    auto made = sim::Simulation::create(spec, simFieldRule(), sim::Path::Cpu, 9u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    for (int i = 0; i < 5; ++i) s.step();
+    REQUIRE(s.fieldHost(0).current()[0] == 5);
+
+    SECTION("the same list keeps what the fields hold") {
+        // The rule's transition changes and its field list does not, which is
+        // the shape every rule mutation has: the bookkeeping survives.
+        rule::RuleIR ir = simFieldRule();
+        Build b;
+        const uint32_t own  = b.node(ExprOp::FieldSelf, 0);
+        const uint32_t two  = b.lit(2);
+        const uint32_t rich = b.node(ExprOp::Gt, own, two);
+        const uint32_t one  = b.lit(1);
+        const uint32_t self = b.node(ExprOp::Self);
+        b.node(ExprOp::Select, rich, one, self);
+        ir.transition = b.e;
+        REQUIRE_FALSE(s.setRule(ir).has_value());
+        CHECK(s.fieldCount() == 1);
+        CHECK(s.fieldHost(0).current()[0] == 5);
+    }
+    SECTION("a different list starts again from zero") {
+        // Carrying the old bytes across a field that was retyped would be a
+        // guess about what they mean.
+        rule::RuleIR ir = simFieldRule();
+        ir.fields[0].cell_type = core::CellType::F32;
+        Build b;
+        const uint32_t own  = b.node(ExprOp::FieldSelf, 0);
+        const uint32_t half = b.flit(0.5f);
+        b.node(ExprOp::Mul, own, half);
+        ir.fields[0].write = b.e;
+        // The transition read that field as an integer, which it no longer is,
+        // so it goes back to reading the state.
+        Expression plain;
+        plain.nodes = {{ExprOp::Self}};
+        ir.transition = plain;
+        const auto err = s.setRule(ir);
+        if (err) FAIL(err->message);
+        REQUIRE(s.fieldCount() == 1);
+        CHECK(s.fieldHost(0).spec().cell_type == core::CellType::F32);
+        for (uint8_t v : s.fieldHost(0).current()) CHECK(v == 0);
+    }
 }

@@ -9,6 +9,12 @@
 // stale until syncToHost(); on the CPU path the host pair is the truth and
 // its current buffer is mirrored to the GPU after every step so the renderer
 // always has something to draw. Requires a GL 4.3 context.
+//
+// An auxiliary field (F-031) is under the same authority rule as the state and
+// swaps with it: syncToHost() and commitHost() move every field with the state,
+// which is what keeps the two symmetric — a sync that moved the state and left
+// the fields would have the next commit write stale field bytes back over live
+// ones.
 
 #pragma once
 
@@ -30,6 +36,7 @@
 #include <optional>
 #include <span>
 #include <variant>
+#include <vector>
 
 namespace aether::sim {
 
@@ -121,6 +128,18 @@ public:
     Path path() const { return path_; }
     std::optional<core::Error> setPath(Path p);   // syncs state across
 
+    // --- Auxiliary fields (F-031) ---------------------------------------------
+    // Storage exists for every field the rule declares and is reallocated when
+    // that list changes. A field starts at zero and is written by the rule from
+    // the state; nothing here seeds one, and none of the grid mutators below
+    // touches one — painting, filling and placing a pattern are all about
+    // states, and a field keeps its value through them. Seeding is F-032's.
+    size_t fieldCount() const { return fields_.size(); }
+    // The host copy of field `i`, under the same authority rule as host().
+    const core::HostGrid& fieldHost(size_t i) const { return fields_.at(i).host; }
+    core::HostGrid&       fieldHost(size_t i)       { return fields_.at(i).host; }
+    unsigned int fieldTexture(size_t i) const { return fields_.at(i).gpu.current(); }
+
     // --- State --------------------------------------------------------------
     const core::GridSpec& spec() const { return host_.spec(); }
     core::HostGrid& host() { return host_; }      // edit, then commitHost()
@@ -166,8 +185,23 @@ public:
     unsigned int textureTarget() const { return gpu_.target(); }
 
 private:
+    // One auxiliary field's storage. A field is a grid of one value per site, so
+    // it is a HostGrid and a GpuGrid of the field's cell type over the state's
+    // extents: no second storage class, and the ping-pong it needs is the one
+    // PingPong<T> everything else uses (invariant 3).
+    struct FieldStore {
+        core::HostGrid host;
+        core::GpuGrid  gpu;
+    };
+
     Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB);
     void resetOutOfRangeStates(uint16_t states);
+    // Storage for `declared`, or an error and nothing allocated. Returns the
+    // existing stores unchanged when the list is the same one they were built
+    // for, so a rule mutation — which never touches the field list — does not
+    // throw away what the fields hold.
+    std::variant<std::vector<FieldStore>, core::Error> makeFields(const std::vector<rule::Field>& declared);
+    bool fieldsMatch(const std::vector<rule::Field>& declared) const;
     std::optional<core::Error> installRule(const rule::RuleIR& ir, LineageOrigin origin, std::optional<size_t> rewoundFrom);
     void maybeMutateRule();
     void applyEvent(const Event& ev);
@@ -175,6 +209,12 @@ private:
 
     core::HostGrid host_;
     core::GpuGrid  gpu_;
+    std::vector<FieldStore> fields_;
+    // Refilled each step from fields_ and never resized there, so the step loop
+    // allocates nothing (invariant 8).
+    std::vector<FieldTextures>            fieldTextures_;
+    std::vector<std::span<const uint8_t>> fieldReads_;
+    std::vector<std::span<uint8_t>>       fieldWrites_;
     rule::RuleIR   ir_;
     rule::CompiledRule  lut_;
     GpuStepper     gpuStepper_;

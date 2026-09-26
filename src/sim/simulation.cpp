@@ -25,6 +25,30 @@ rule::CompiledRule emptyLut() {
 
 }  // namespace
 
+bool Simulation::fieldsMatch(const std::vector<rule::Field>& declared) const {
+    if (declared.size() != fields_.size()) return false;
+    for (size_t i = 0; i < declared.size(); ++i) {
+        if (declared[i].cell_type != fields_[i].host.spec().cell_type) return false;
+    }
+    return true;
+}
+
+std::variant<std::vector<Simulation::FieldStore>, core::Error>
+Simulation::makeFields(const std::vector<rule::Field>& declared) {
+    std::vector<FieldStore> made;
+    made.reserve(declared.size());
+    for (const rule::Field& f : declared) {
+        core::GridSpec fs = spec();
+        fs.cell_type = f.cell_type;
+        auto gpu = core::GpuGrid::create(fs, core::queryVram());
+        if (const auto* e = std::get_if<core::Error>(&gpu)) {
+            return core::Error{std::format("field '{}': {}", f.name, e->message)};
+        }
+        made.push_back(FieldStore{core::HostGrid(fs), std::get<core::GpuGrid>(std::move(gpu))});
+    }
+    return made;
+}
+
 Simulation::Simulation(core::HostGrid host, core::GpuGrid gpu, Path path, uint64_t seedA, uint64_t seedB)
     : host_(std::move(host)), gpu_(std::move(gpu)), lut_(emptyLut()), streamA_(seedA), path_(path), seedA_(seedA) {
     mutation_.seedB = seedB;
@@ -93,23 +117,31 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
         return core::Error{std::format("grid holds {} cells but the rule is {}",
                                        core::toString(spec().cell_type), core::toString(ir.cell_type))};
     }
-    // A Simulation is the state field and nothing else until F-031's step 4
-    // gives it field storage, a place in the session and a journal. Both
-    // steppers execute a multi-field rule now, and both want a buffer pair per
-    // field that this class cannot hand them: on the GPU that is a shader with
-    // field images bound to nothing, which reads zero and steps on, and a rule
-    // that quietly runs as though its fields were absent is AV-007 exactly.
-    // Refused here rather than left to produce a plausible-looking grid.
-    if (!ir.fields.empty()) {
-        return core::Error{std::format("rule declares {} auxiliary field(s), which a session cannot carry yet",
-                                       ir.fields.size())};
-    }
     auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
     rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
 
+    // Field storage, before anything is replaced. A list the current stores were
+    // already built for keeps them and everything in them, which is what makes a
+    // rule mutation — which never edits the field list — leave the fields alone.
+    // A list that differs is reallocated and starts at zero: preserving a field
+    // across a rule that renamed or retyped it would be a guess about what the
+    // old bytes mean (F-031).
+    std::optional<std::vector<FieldStore>> newFields;
+    if (!fieldsMatch(ir.fields)) {
+        auto made = makeFields(ir.fields);
+        if (const auto* e = std::get_if<core::Error>(&made)) return *e;
+        newFields = std::move(std::get<std::vector<FieldStore>>(made));
+    }
+
     // The GPU stepper keeps its previous rule if this fails.
     if (auto e = gpuStepper_.setRule(lut, spec())) return e;
+    if (newFields) {
+        fields_ = std::move(*newFields);
+        fieldTextures_.assign(fields_.size(), FieldTextures{});
+        fieldReads_.assign(fields_.size(), {});
+        fieldWrites_.assign(fields_.size(), {});
+    }
 
     // Everything that can fail has succeeded; commit, and record it. A rule
     // change that is not in the lineage is an incomplete operation
@@ -151,10 +183,32 @@ void Simulation::step() {
     if (path_ == Path::Gpu) {
         gpuStepper_.setGeneration(generation_);
         gpuStepper_.setCellMutation(mutation_);
-        gpuStepper_.step(gpu_);
+        if (fields_.empty()) {
+            gpuStepper_.step(gpu_);
+        } else {
+            // The field pairs swap with the state's, in the same generation, or
+            // one of them would be read a generation out of step with the other.
+            for (size_t f = 0; f < fields_.size(); ++f) {
+                fieldTextures_[f] = {fields_[f].gpu.current(), fields_[f].gpu.next()};
+            }
+            gpuStepper_.step(gpu_.current(), gpu_.next(), fieldTextures_);
+            gpu_.swap();
+            for (FieldStore& f : fields_) f.gpu.swap();
+        }
     } else {
-        cpuStep(lut_, host_, generation_, mutation_);
-        gpu_.upload(host_.current());   // keep the renderer's texture current
+        if (fields_.empty()) {
+            cpuStep(lut_, host_, generation_, mutation_);
+        } else {
+            for (size_t f = 0; f < fields_.size(); ++f) {
+                fieldReads_[f]  = fields_[f].host.current();
+                fieldWrites_[f] = fields_[f].host.next();
+            }
+            cpuStep(lut_, spec(), host_.current(), host_.next(), generation_, mutation_,
+                    fieldReads_, fieldWrites_);
+            host_.swap();
+            for (FieldStore& f : fields_) f.host.swap();
+        }
+        commitHost();   // keep the renderer's texture, and the fields, current
     }
     ++generation_;
 }
@@ -179,15 +233,24 @@ std::optional<core::Error> Simulation::setPath(Path p) {
 }
 
 void Simulation::syncToHost() {
-    if (path_ == Path::Gpu) gpu_.download(host_.current());
+    if (path_ != Path::Gpu) return;
+    gpu_.download(host_.current());
+    // Every field with the state. A sync that took the state and left the
+    // fields would leave the host halves describing two different generations,
+    // and the next commitHost would write the stale halves back over live ones.
+    for (FieldStore& f : fields_) f.gpu.download(f.host.current());
 }
 
 void Simulation::commitHost() {
     gpu_.upload(host_.current());
+    for (FieldStore& f : fields_) f.gpu.upload(f.host.current());
 }
 
 void Simulation::clear() {
     host_.clear();
+    // Clearing the grid clears what the rule was keeping about it. Leaving the
+    // fields would restart the run with the bookkeeping of the one before.
+    for (FieldStore& f : fields_) f.host.clear();
     commitHost();
     journal(generation_, EvClear{});
 }
@@ -280,6 +343,12 @@ Session Simulation::session() {
     s.rule = ir_;
     s.ruleMutationsApplied = counters_.rule_mutations;
     s.ruleMutationsSkipped = counters_.rule_mutations_skipped;
+    // syncToHost above has already brought the fields down on the GPU path.
+    for (size_t i = 0; i < fields_.size(); ++i) {
+        const auto cells = fields_[i].host.current();
+        s.fields.push_back(SessionField{ir_.fields[i].name, ir_.fields[i].cell_type,
+                                        std::vector<uint8_t>(cells.begin(), cells.end())});
+    }
     return s;
 }
 
@@ -359,15 +428,6 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.counters_.rule_mutations = s.ruleMutationsApplied;
     sim.counters_.rule_mutations_skipped = s.ruleMutationsSkipped;
 
-    // The same refusal installRule makes, because this path bypasses it. No
-    // session written by this engine can hold a field rule — nothing can
-    // install one — but a session is external data and `ir_json` will read a
-    // field list back happily, which is the whole reason the check is here
-    // rather than trusted to the writer (F-031 step 4, AV-016).
-    if (!s.rule.fields.empty()) {
-        return core::Error{std::format("session's rule declares {} auxiliary field(s), which cannot be resumed yet",
-                                       s.rule.fields.size())};
-    }
     // The current rule, compiled; lineage already holds it, so bypass the append.
     auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
@@ -375,6 +435,43 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
     sim.ir_ = s.rule;
     sim.lut_ = std::move(lut);
+
+    // Field storage for the *current* rule rather than the initial one, which
+    // create() built for: a rule change between the two could have changed the
+    // list (F-031).
+    if (!sim.fieldsMatch(s.rule.fields)) {
+        auto madeFields = sim.makeFields(s.rule.fields);
+        if (const auto* e = std::get_if<core::Error>(&madeFields)) return *e;
+        sim.fields_ = std::move(std::get<std::vector<FieldStore>>(madeFields));
+        sim.fieldTextures_.assign(sim.fields_.size(), FieldTextures{});
+        sim.fieldReads_.assign(sim.fields_.size(), {});
+        sim.fieldWrites_.assign(sim.fields_.size(), {});
+    }
+    // Then the saved contents, checked against the rule rather than trusted
+    // positionally: a session is external data whatever wrote it, and a field
+    // list that disagrees would read one field's bytes as another's (AV-016).
+    // A stored state without them is partial rather than empty — a session this
+    // engine wrote always records a field it declares — so it is refused rather
+    // than quietly resumed from zeros that the saved run did not have.
+    if (s.fields.size() != s.rule.fields.size()) {
+        return core::Error{std::format("session stores {} field(s) and its rule declares {}",
+                                       s.fields.size(), s.rule.fields.size())};
+    }
+    for (size_t i = 0; i < s.fields.size(); ++i) {
+        const SessionField& sf = s.fields[i];
+        const rule::Field&  rf = s.rule.fields[i];
+        if (sf.name != rf.name || sf.cell_type != rf.cell_type) {
+            return core::Error{std::format("session's field {} is '{}' ({}) and the rule's is '{}' ({})",
+                                           i, sf.name, core::toString(sf.cell_type),
+                                           rf.name, core::toString(rf.cell_type))};
+        }
+        auto cells = sim.fields_[i].host.current();
+        if (sf.current.size() != cells.size()) {
+            return core::Error{std::format("session's field '{}' holds {} bytes and the grid wants {}",
+                                           sf.name, sf.current.size(), cells.size())};
+        }
+        std::copy(sf.current.begin(), sf.current.end(), cells.begin());
+    }
 
     std::copy(s.current.begin(), s.current.end(), sim.host_.current().begin());
     sim.commitHost();
