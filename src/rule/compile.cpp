@@ -20,7 +20,49 @@ Backend selectBackend(const RuleIR& ir) {
     return Backend::Lut;
 }
 
+namespace {
+
+// The IR's fields with their write expressions typed once, here, so that
+// neither stepper infers a type and they cannot disagree about one.
+std::vector<CompiledField> compileFields(const RuleIR& ir, uint32_t neighbours) {
+    std::vector<CellType> types;
+    types.reserve(ir.fields.size());
+    for (const Field& f : ir.fields) types.push_back(f.cell_type);
+
+    std::vector<CompiledField> out;
+    out.reserve(ir.fields.size());
+    for (const Field& f : ir.fields) {
+        CompiledField c;
+        c.cell_type = f.cell_type;
+        if (f.write) {
+            c.write = *f.write;
+            c.writeTypes = expressionTypes(*f.write, neighbours, ir.states, false, types);
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+std::vector<CellType> fieldTypesOf(const RuleIR& ir) {
+    std::vector<CellType> types;
+    types.reserve(ir.fields.size());
+    for (const Field& f : ir.fields) types.push_back(f.cell_type);
+    return types;
+}
+
+}  // namespace
+
 std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
+    // Fields ride on an expression transition and only on one (F-031). A
+    // `Kernel` rule declaring a field validates, because the validator types a
+    // growth expression's field reads, but nothing yet says what a *neighbour*
+    // read means to a rule whose state is a float, and a table cannot express
+    // fields at all (D-022 option A). Refused here rather than answered by
+    // guesswork; that answer belongs with D-021's multi-kernel question.
+    if (!ir.fields.empty() && !std::holds_alternative<Expression>(ir.transition)) {
+        return CompileError{"a rule with auxiliary fields must have an expression transition"};
+    }
+
     if (const auto ds = validate(ir); !ds.empty()) {
         return CompileError{"invalid IR: " + ds.front().message};
     }
@@ -51,6 +93,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .expression    = kernel->growth,
             .expressionTypes = expressionTypes(kernel->growth, 0, 0, /*selfIsFloat=*/true),
             .glsl          = std::get<std::string>(std::move(glsl)),
+            .fields        = {},
             .weights       = std::move(rk.weights),
             .selfWeight    = rk.self,
         };
@@ -62,8 +105,19 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
 
     // An expression has no finite table, so it goes to codegen (D-004).
     if (const auto* expression = std::get_if<Expression>(&ir.transition)) {
-        auto glsl = generateGlsl(ir);
-        if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
+        // A multi-field rule has no GLSL yet: SPEC §6's shape for it is a
+        // function per written field, which is F-031's step 3 along with the
+        // shader that declares the field samplers. Generating a single
+        // function that reads fields would emit identifiers nothing declares,
+        // so the text is left empty and `GpuStepper::setRule` refuses the rule
+        // outright — a refusal where the rule cannot run rather than a shader
+        // that fails to link. The CPU oracle is complete either way.
+        std::string generated;
+        if (ir.fields.empty()) {
+            auto glsl = generateGlsl(ir);
+            if (const auto* e = std::get_if<GlslError>(&glsl)) return CompileError{e->message};
+            generated = std::get<std::string>(std::move(glsl));
+        }
         const uint32_t nbrs = neighbourCount(ir.dimensions, ir.neighbourhood);
         return CompiledRule{
             .backend       = Backend::Codegen,
@@ -79,8 +133,9 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .table         = {},
             .aux           = {},
             .expression    = *expression,
-            .expressionTypes = expressionTypes(*expression, nbrs, ir.states),
-            .glsl          = std::get<std::string>(std::move(glsl)),
+            .expressionTypes = expressionTypes(*expression, nbrs, ir.states, false, fieldTypesOf(ir)),
+            .glsl          = std::move(generated),
+            .fields        = compileFields(ir, nbrs),
         };
     }
 
@@ -112,6 +167,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
         .expression    = {},
         .expressionTypes = {},
         .glsl          = {},
+        .fields        = {},
     };
 
     if (ir.kind == Kind::OuterTotalistic) {

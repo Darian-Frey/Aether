@@ -19,7 +19,7 @@ rule::CompiledRule emptyLut() {
         .ir_hash = 0, .dimensions = 2, .states = 2, .kind = rule::Kind::OuterTotalistic,
         .neighbourhood = {}, .counted = {}, .boundary = rule::Boundary::Wrap, .offsets = {},
         .layout = rule::TableLayout(rule::Kind::OuterTotalistic, 2, 0), .table = {}, .aux = {},
-        .expression = {}, .expressionTypes = {}, .glsl = {},
+        .expression = {}, .expressionTypes = {}, .glsl = {}, .fields = {},
     };
 }
 

@@ -232,6 +232,14 @@ float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 
 **Auxiliary fields** *(added 2026-09-27, F-031, D-022)*. `ExprOp::FieldSelf` reads declared field `a` at this site and `ExprOp::FieldNeighbour` reads field `a` at neighbour `b`; both take their type from the field's declared cell type, so reading a `u8` field is an integer and reading an `f32` one is a float. A rule that declares fields emits a function per written field rather than one function, each over the same neighbourhood read, so that two fields decided from one reading of the world are decided against the same world — which is what makes the conservation of AV-018 something that can be reasoned about at all. Every other rule in this section stands unchanged, and the prohibition on division in generated float code matters more here than anywhere: a resource field is exactly where a rule will want to divide (AV-015).
 
+Three further rules settle what a field *write* produces, and the CPU oracle obeys them from 2026-09-26:
+
+- **A field the rule does not write keeps its value.** Both paths hold fields as a ping-pong pair alongside the state's, so the buffer being written is two generations old: keeping a value means copying it forward, every generation, for every declared field. A field left genuinely alone would reappear as its own great-grandparent.
+- **A `u8` field's result is clamped to `0 … 255` and an `f32` field's is written as computed.** The state's clamp is to `0 … S-1` because a state outside the range would index past the next generation's count array; a field indexes nothing, so the only clamp it gets is the one its storage forces. §1's `[0, 1]` range is a *continuous state's*, not a field's — a resource has no natural ceiling and neither has an `R32F` texture, and clamping one to `[0, 1]` would make the field useless for the thing F-032 wants it for.
+- **Cell mutation (§9.2) is the state's alone.** It does not touch a field. A field that drifted under mutation could not be conserved, which is the whole of AV-018.
+
+A field's expression is validated to produce the type its declared cell type calls for (§4), so neither path converts anything at the write: the value already has the shape the storage takes.
+
 Requirements on generated code:
 
 1. No loops with data-dependent bounds. Loops over the fixed neighbourhood are unrolled or statically bounded by `N`.

@@ -34,12 +34,6 @@ RuleIR base() {
     return ir;
 }
 
-Expression selfExpr() {
-    Expression e;
-    e.nodes = {{ExprOp::Self}};
-    return e;
-}
-
 std::string firstProblem(const RuleIR& ir) {
     const auto d = validate(ir);
     return d.empty() ? std::string{} : d.front().message;

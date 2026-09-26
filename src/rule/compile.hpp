@@ -13,6 +13,7 @@
 #include "rule/table_layout.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -27,6 +28,15 @@ Backend selectBackend(const RuleIR& ir);
 
 struct CompileError {
     std::string message;
+};
+
+// One auxiliary field, ready to execute (F-031, D-022). The IR's `Field`
+// with its write expression typed, so a stepper walks the same arena it walks
+// for the transition and nothing infers a type twice.
+struct CompiledField {
+    core::CellType            cell_type = core::CellType::U8;
+    std::optional<Expression> write;        // absent: the field keeps its value
+    std::vector<ExprType>     writeTypes;   // parallel to write->nodes
 };
 
 struct CompiledRule {
@@ -53,6 +63,10 @@ struct CompiledRule {
     Expression            expression;
     std::vector<ExprType> expressionTypes;
     std::string           glsl;
+
+    // Auxiliary fields in declaration order; empty for every rule that
+    // declares none, which is every rule written before F-031.
+    std::vector<CompiledField> fields;
 
     // Continuous only: the kernel resolved onto the offsets above, one weight
     // each, and the weight of the cell itself, which is never an offset

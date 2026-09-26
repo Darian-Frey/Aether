@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace aether::sim {
@@ -19,12 +20,24 @@ int32_t wrapAdd(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<
 int32_t wrapSub(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) - static_cast<uint32_t>(b)); }
 int32_t wrapMul(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) * static_cast<uint32_t>(b)); }
 
+// Everything an expression can read, gathered before the walk so that
+// evalArena knows nothing about grids, boundaries or field storage. It became a
+// struct when fields arrived (F-031): five spans passed positionally are five
+// chances to swap two of them at a call site and have it still compile.
+struct ExprInputs {
+    ExprValue                  self;
+    std::span<const uint8_t>   nbr;
+    std::span<const uint32_t>  counts;
+    std::span<const ExprValue> fieldSelf;   // one per declared field
+    std::span<const ExprValue> fieldNbr;    // field f at neighbour i: f*N + i
+    uint32_t                   neighbours = 0;   // N, the stride of fieldNbr
+};
+
 // Walks the arena in order, which is valid because every child precedes its
 // parent. The twin of rule/glsl.cpp: the two must agree on every rule, and
 // the backend equivalence test is what says they do (AV-007).
 void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
-               ExprValue self, std::span<const uint8_t> nbr,
-               std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
+               const ExprInputs& in, std::vector<ExprValue>& scratch) {
     const auto& nodes = e.nodes;
     scratch.resize(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -35,9 +48,9 @@ void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
         ExprValue v;
         const bool asFloat = types[i] == rule::ExprType::Float;
         switch (node.op) {
-            case rule::ExprOp::Self:         v = self; break;
-            case rule::ExprOp::Neighbour:    v.i = nbr[node.a]; break;
-            case rule::ExprOp::Count:        v.i = static_cast<int32_t>(counts[node.a]); break;
+            case rule::ExprOp::Self:         v = in.self; break;
+            case rule::ExprOp::Neighbour:    v.i = in.nbr[node.a]; break;
+            case rule::ExprOp::Count:        v.i = static_cast<int32_t>(in.counts[node.a]); break;
             case rule::ExprOp::IntLiteral:   v.i = static_cast<int32_t>(node.ival); break;
             case rule::ExprOp::FloatLiteral: v.f = node.fval; break;
             case rule::ExprOp::Add: if (asFloat) v.f = a.f + b.f; else v.i = wrapAdd(a.i, b.i); break;
@@ -63,28 +76,48 @@ void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
             case rule::ExprOp::Or:  v.b = a.b || b.b; break;
             case rule::ExprOp::Not: v.b = !a.b; break;
             case rule::ExprOp::Select: v = a.b ? b : c; break;
+            // The gathered value already has the member the field's declared
+            // cell type calls for, which is the same type the validator gave
+            // the node, so there is nothing to convert here (F-031).
+            case rule::ExprOp::FieldSelf:      v = in.fieldSelf[node.a]; break;
+            case rule::ExprOp::FieldNeighbour:
+                v = in.fieldNbr[size_t{node.a} * in.neighbours + node.b];
+                break;
         }
         scratch[i] = v;
     }
 }
 
-uint8_t evalExpression(const rule::CompiledRule& rule, uint8_t own, std::span<const uint8_t> nbr,
-                       std::span<const uint32_t> counts, std::vector<ExprValue>& scratch) {
-    ExprValue self;
-    self.i = own;
-    evalArena(rule.expression, rule.expressionTypes, self, nbr, counts, scratch);
+uint8_t evalExpression(const rule::CompiledRule& rule, const ExprInputs& in,
+                       std::vector<ExprValue>& scratch) {
+    evalArena(rule.expression, rule.expressionTypes, in, scratch);
     const int32_t result = scratch.back().i;
     const int32_t top = static_cast<int32_t>(rule.states) - 1;
     return static_cast<uint8_t>(result < 0 ? 0 : (result > top ? top : result));
+}
+
+// One field's write expression. The state's clamp is to the state range; a
+// field has no such range, so a u8 field clamps to the width of its storage
+// and an f32 field is written as computed — a resource has no natural ceiling
+// and neither has an R32F texture, so clamping one to [0,1] as SPEC §1 clamps
+// a continuous *state* would make the field useless (F-031).
+ExprValue evalFieldWrite(const rule::CompiledField& field, const ExprInputs& in,
+                         std::vector<ExprValue>& scratch) {
+    evalArena(*field.write, field.writeTypes, in, scratch);
+    ExprValue v = scratch.back();
+    if (field.cell_type != core::CellType::F32) {
+        v.i = v.i < 0 ? 0 : (v.i > 255 ? 255 : v.i);
+    }
+    return v;
 }
 
 }  // namespace
 
 float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType> types,
                  float convolution, std::vector<ExprValue>& scratch) {
-    ExprValue self;
-    self.f = convolution;
-    evalArena(growth, types, self, {}, {}, scratch);
+    ExprInputs in;
+    in.self.f = convolution;
+    evalArena(growth, types, in, scratch);
     return scratch.back().f;
 }
 
@@ -92,13 +125,16 @@ float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType>
 StepScratch::StepScratch(const rule::CompiledRule& rule)
     : neighbours(rule.neighbourCount()),
       counts(rule.states > 1 ? rule.states - 1u : 0u),
-      stateCounts(rule.backend == rule::Backend::Codegen ? rule.states : 0u) {}
+      stateCounts(rule.backend == rule::Backend::Codegen ? rule.states : 0u),
+      fieldSelf(rule.fields.size()),
+      fieldNbr(rule.fields.size() * rule.neighbourCount()),
+      fieldNext(rule.fields.size()) {}
 
 CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& spec,
                         std::span<const uint8_t> current,
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
-                        StepScratch& scratch) {
+                        StepScratch& scratch, FieldReads fields) {
     const uint32_t W = spec.width, H = spec.height, D = spec.depth;
     const uint32_t N = rule.neighbourCount();
     const uint16_t S = rule.states;
@@ -110,6 +146,7 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
     // A continuous rule reads floats out of the same bytes, convolves rather
     // than indexes, and produces an increment rather than a state.
     if (rule.kind == rule::Kind::Continuous) {
+        assert(rule.fields.empty() && "refused at compile time (F-031)");
         const std::span<const float> cells{reinterpret_cast<const float*>(current.data()),
                                            current.size() / sizeof(float)};
         auto valueAt = [&](uint32_t cx, uint32_t cy, uint32_t cz) -> float {
@@ -157,10 +194,51 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
     CellTransition t;
     t.own = cellAt(x, y, z);
 
+    // Auxiliary fields, read with the same boundary resolution as the state and
+    // from the same generation, so that everything a cell decides it decides
+    // against one reading of the world (F-031, D-022). Outside a zero boundary
+    // a field reads zero, exactly as state 0 does.
+    const size_t F = rule.fields.size();
+    if (F != 0) {
+        assert(fields.size() == F && "a multi-field rule needs its field buffers");
+        auto fieldAt = [&](size_t f, size_t idx) -> ExprValue {
+            ExprValue v;
+            if (rule.fields[f].cell_type == core::CellType::F32) {
+                float value = 0.0f;
+                std::memcpy(&value, fields[f].data() + idx * sizeof(float), sizeof(float));
+                v.f = value;
+            } else {
+                v.i = fields[f][idx];
+            }
+            return v;
+        };
+        const size_t here = (size_t{z} * H + y) * W + x;
+        for (size_t f = 0; f < F; ++f) scratch.fieldSelf[f] = fieldAt(f, here);
+        for (uint32_t i = 0; i < N; ++i) {
+            const rule::Offset& o = rule.offsets[i];
+            const auto nx = resolve(int64_t{x} + o.dx, W, rule.boundary);
+            const auto ny = resolve(int64_t{y} + o.dy, H, rule.boundary);
+            const auto nz = resolve(int64_t{z} + o.dz, D, rule.boundary);
+            const bool inside = nx && ny && nz;
+            const size_t idx = inside ? (size_t{*nz} * H + *ny) * W + *nx : 0;
+            for (size_t f = 0; f < F; ++f) {
+                scratch.fieldNbr[f * N + i] = inside ? fieldAt(f, idx) : ExprValue{};
+            }
+        }
+    }
+
+    ExprInputs in;
+    in.self.i = t.own;
+    in.nbr = nbr;
+    in.counts = scratch.stateCounts;
+    in.fieldSelf = scratch.fieldSelf;
+    in.fieldNbr = scratch.fieldNbr;
+    in.neighbours = N;
+
     if (rule.backend == rule::Backend::Codegen) {
         for (uint32_t& c : scratch.stateCounts) c = 0;
         for (uint32_t i = 0; i < N; ++i) ++scratch.stateCounts[nbr[i]];
-        t.fromRule = evalExpression(rule, t.own, nbr, scratch.stateCounts, scratch.expr);
+        t.fromRule = evalExpression(rule, in, scratch.expr);
     } else {
         switch (rule.kind) {
             case Kind::OuterTotalistic: {
@@ -199,6 +277,16 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
         t.fromRule = rule.table[t.tableIndex];
     }
 
+    // Each field's own expression, over the same gathered neighbourhood. A
+    // field the rule leaves alone keeps its value; cell mutation is the
+    // state's (SPEC §9.2) and does not touch a field, which is what keeps a
+    // resource conserved under drift (AV-018).
+    for (size_t f = 0; f < F; ++f) {
+        scratch.fieldNext[f] = rule.fields[f].write
+                                   ? evalFieldWrite(rule.fields[f], in, scratch.expr)
+                                   : scratch.fieldSelf[f];
+    }
+
     t.next = t.fromRule;
     if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
         t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
@@ -209,10 +297,23 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
 
 void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
-             uint64_t generation, CellMutation mutation) {
+             uint64_t generation, CellMutation mutation,
+             FieldReads fields, FieldWrites fieldsNext) {
     assert(current.data() != next.data() && "step must not read the buffer it writes (AV-004)");
     assert(current.size() == spec.bytesPerBuffer() && next.size() == spec.bytesPerBuffer());
     assert(rule.dimensions == spec.dimensions);
+
+    const size_t F = rule.fields.size();
+    assert(fields.size() == F && fieldsNext.size() == F && "one buffer pair per declared field");
+    for (size_t f = 0; f < F; ++f) {
+        // The same aliasing rule as the state's, for the same reason: a field
+        // read after it has been written this generation is a different
+        // automaton (AV-004).
+        assert(fields[f].data() != fieldsNext[f].data());
+        const size_t want = spec.cellCount() * core::cellBytes(rule.fields[f].cell_type);
+        assert(fields[f].size() == want && fieldsNext[f].size() == want);
+        (void)want;
+    }
 
     const uint32_t W = spec.width, H = spec.height, D = spec.depth;
 
@@ -228,16 +329,30 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
         for (uint32_t y = 0; y < H; ++y) {
             for (uint32_t x = 0; x < W; ++x) {
                 const CellTransition t =
-                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch);
+                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch, fields);
                 const size_t i = (size_t{z} * H + y) * W + x;
                 if (continuous) out[i] = t.nextValue;
                 else            next[i] = t.next;
+                // Every field is written every generation, including one the
+                // rule does not write: on a ping-pong pair the next buffer is
+                // last generation's, so keeping a value means copying it.
+                for (size_t f = 0; f < F; ++f) {
+                    const ExprValue& v = scratch.fieldNext[f];
+                    if (rule.fields[f].cell_type == core::CellType::F32) {
+                        std::memcpy(fieldsNext[f].data() + i * sizeof(float), &v.f, sizeof(float));
+                    } else {
+                        fieldsNext[f][i] = static_cast<uint8_t>(v.i);
+                    }
+                }
             }
         }
     }
 }
 
 void cpuStep(const rule::CompiledRule& rule, core::HostGrid& grid, uint64_t generation, CellMutation mutation) {
+    // A HostGrid is the state field alone, so this overload is for rules that
+    // declare none; field storage on the grid is F-031's step 4.
+    assert(rule.fields.empty() && "a multi-field rule needs the field-buffer overload");
     cpuStep(rule, grid.spec(), grid.current(), grid.next(), generation, mutation);
     grid.swap();
 }

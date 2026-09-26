@@ -31,6 +31,15 @@ struct ExprValue {
 float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType> types,
                  float convolution, std::vector<ExprValue>& scratch);
 
+// The auxiliary field buffers of one generation, in the rule's declaration
+// order (F-031). Each span is bytes whatever the field's cell type, exactly as
+// HostGrid's own buffers are, and holds spec.cellCount() values. An empty list
+// is the grid this engine had before F-031, which is why every one of these is
+// a defaulted argument: a caller that knows nothing about fields keeps its
+// meaning.
+using FieldReads  = std::span<const std::span<const uint8_t>>;
+using FieldWrites = std::span<const std::span<uint8_t>>;
+
 // Working room for a cell's transition, sized from the rule. Make one and
 // reuse it for every cell: the step loop allocates nothing (ARCHITECTURE
 // §Key invariants 8). After a stepCell call, `neighbours` and `counts` hold
@@ -42,6 +51,19 @@ struct StepScratch {
     std::vector<uint32_t>  counts;        // states 1..S-1, outer-totalistic
     std::vector<uint32_t>  stateCounts;   // states 0..S-1, expression rules
     std::vector<ExprValue> expr;          // the expression arena
+
+    // Auxiliary fields (F-031). Gathered and produced here rather than
+    // returned in CellTransition because a vector per cell is exactly the
+    // allocation invariant 8 forbids.
+    std::vector<ExprValue> fieldSelf;     // F entries: field f at this site
+    std::vector<ExprValue> fieldNbr;      // F*N entries: field f at neighbour i
+                                          // at f*N + i, canonical order
+    std::vector<ExprValue> fieldNext;     // F entries: what each field becomes.
+                                          // A field the rule does not write
+                                          // holds its own value, because on a
+                                          // ping-pong pair keeping a value
+                                          // means copying it rather than
+                                          // leaving it alone.
 };
 
 // What one cell's transition produced. Plain data, returned by value.
@@ -75,15 +97,21 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
                         std::span<const uint8_t> current,
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
-                        StepScratch& scratch);
+                        StepScratch& scratch, FieldReads fields = {});
 
 // One generation: reads `current`, writes `next`. The two must be distinct
 // buffers of spec.bytesPerBuffer() bytes; passing the same span twice is the
 // AV-004 defect and is rejected. Does not swap. `generation` is the index of
 // the generation being read; cell mutation hashes it (SPEC §9.2).
+// `fields` and `fieldsNext` are the auxiliary field pairs, one entry per
+// declared field, and must both be present when the rule declares any: a
+// field is read from the first and written to the second whether or not the
+// rule writes it, so the pair swaps with the state's pair and stays in step
+// with it.
 void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
-             uint64_t generation = 0, CellMutation mutation = {});
+             uint64_t generation = 0, CellMutation mutation = {},
+             FieldReads fields = {}, FieldWrites fieldsNext = {});
 
 // One generation on a HostGrid, then swap, so the result is grid.current().
 void cpuStep(const rule::CompiledRule& rule, core::HostGrid& grid,

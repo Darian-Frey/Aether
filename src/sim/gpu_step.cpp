@@ -98,6 +98,13 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     if (rule.dimensions != spec.dimensions) {
         return core::Error{std::format("rule is {}D but the grid is {}D", rule.dimensions, spec.dimensions)};
     }
+    if (!rule.fields.empty()) {
+        // F-031 step 3. The oracle executes these; the shader has no field
+        // samplers and the generator emits no function for a field write, so
+        // the rule is refused here rather than allowed to run as though the
+        // fields were not there (AV-007 is exactly that failure).
+        return core::Error{"the GPU path does not carry auxiliary fields yet"};
+    }
     const bool continuous = rule.kind == rule::Kind::Continuous;
     if ((spec.cell_type == core::CellType::F32) != continuous) {
         return core::Error{std::format("a {} grid cannot run a {} rule",

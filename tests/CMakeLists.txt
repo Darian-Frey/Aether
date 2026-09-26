@@ -22,6 +22,7 @@ add_executable(aether_tests
     rule/ir_json_test.cpp
     sim/boundary_test.cpp
     sim/cpu_step_test.cpp
+    sim/fields_step_test.cpp
     sim/continuous_test.cpp
     sim/pattern_test.cpp
     sim/pattern_library_test.cpp
