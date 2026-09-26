@@ -278,6 +278,19 @@ Found by the first multi-field equivalence comparison. The field's rule was `hea
 It reaches further than the generated expressions, which is the part worth recording. Three float computations sit outside them and all three had to be covered: the convolution's running sum and each `weight × value` term, which is the likeliest place of all to reach the subnormal range; and `self + increment`, the last operation before the clamp, which is exactly where a value that is decaying to nothing lands. Fixing only the expression temporaries would have left the continuous path divergent while reading as though it were fixed — so the number is written once, in `rule/glsl.hpp`, and `sim/gpu_step` turns it into the `AETHER_FTZ` macro both shaders use.
 The cost is one compare and select per float operation, which falls on the continuous path's inner loop. Measured rather than assumed — see BENCHMARKS.md's note of 2026-09-26.
 
+### BUG-022: the pattern editor steps a multi-field rule past the end of nothing
+**Status:** fixed
+**Found:** 2026-09-26 (F-031 step 5, adding the multi-field fixture to the equivalence sweep)
+**Fixed:** 2026-09-26
+**Location:** `src/sim/scratch.cpp` (`Scratch::make`, `Scratch::setRule`), `src/sim/inspect.hpp`
+**Severity:** high
+**Description.** `sim::Scratch` is the pattern editor's pad: one `HostGrid`, no field storage, because a pattern is states (SPEC §14). `ui/editor.cpp` opens the pad with the *running* rule, and F-031's step 4 had just made a multi-field rule installable in a `Simulation`. So pressing `E` with such a rule running compiled it into the pad and called `cpuStep` with no field buffers at all. `cpuStep` asserts that it has one pair per declared field — and an assert is compiled out of a Release build, which is what ships. The result is a read past an empty span: a segfault if the read lands badly, and cells computed from whatever was there if it does not, which is the worse of the two.
+Arrived with step 4 on 2026-09-26 and lived for one commit. It was not reachable before, because `Simulation::installRule` refused a field rule outright.
+**Reproduction.** Found by the equivalence sweep rather than by the interface: adding a multi-field fixture put a field rule into `fixtures()`, and the inspector cases iterate that list and call `sim::inspect` with a state grid and nothing else. `SIGSEGV`, in a build with asserts enabled, at the first cell.
+**Notes.** The mechanism is worth carrying: an `assert` is the house style for a precondition inside the engine and the aliasing check of AV-004 is one too, but it protects a debug build and documents a Release one. What actually keeps a caller honest is there being no way to reach the bad call, so the fix is a refusal at the boundary rather than a louder assert.
+Widening the pad to hold fields was the alternative and was rejected: a pattern is states, the pad exists to draw one, and a field the editor could paint but no format could carry would be a dead end. The inspector is the same boundary — it reads the pad, which is D-018's option B.
+**Resolution (2026-09-26).** `Scratch::make` and `Scratch::setRule` refuse a rule that declares auxiliary fields, with a message the editor logs, so opening the pad on a multi-field rule says so instead of crashing. `sim/inspect.hpp` records that it is state-only and why. The equivalence sweep's inspector cases skip fixtures with fields rather than being handed a rule they cannot describe.
+
 ## Won't Fix
 
 *None.*

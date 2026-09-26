@@ -605,3 +605,38 @@ Two facts decide most of it. A lookup table maps a finite signature to **one** s
 - A rule that reads a field it did not declare is a validation error rather than a read of zero, on the same reasoning as every other index the validator bounds.
 
 **Reversal conditions.** Take option B if a multi-field rule family turns up whose transitions really are lookups over small finite signatures and whose throughput matters — the ecosystem features in the register are not that. Nothing here forecloses it: the table would be an additional form, not a replacement, and this decision is what would have to be superseded rather than worked around.
+
+---
+
+### D-023 An expression is authored in Lua as a tree of `expr.*` calls
+**Decided:** 2026-09-26
+**Recorded:** 2026-09-26
+**Authors:** Shane Hartley (with Claude, session 2026-09-26)
+**Status:** Accepted
+**Related:** F-031, F-032, D-003, D-022, AV-008, SPEC.md §4, §6, §8
+
+**Context.** D-022 settled that a rule with auxiliary fields is an expression per written field and runs on codegen. F-031's last step needed a front end that could produce one, and neither front end could. The DSL writes B/S notation, table blocks and signature literals; a Lua script either enumerates a table by being called once per signature, or describes a `Kernel`. A field holds a quantity, so its next value is arithmetic over that quantity and not a lookup — which is precisely why D-022 rejected generalising the table — and nothing in either front end can say `energy + 1`.
+
+The IR's expression form is an arena in which every node's child precedes it. So the question is not whether a front end can reach that shape but how an author writes a tree without writing an arena by hand, which is what the tests had been doing and is not something to ask of anybody else.
+
+**Options.**
+- **A. A tree of constructor calls: `expr.add(expr.field("energy"), expr.int(1))`.** Chosen. Each call returns a plain Lua table, the script nests them, and the reader flattens the tree into the arena depth-first so children land before parents. Lua's own scoping does the rest: a subexpression named with `local` and used twice is one table used twice, and the reader keeps it as one node.
+- **B. Infix arithmetic through metatables, so a script writes `field("energy") + 1`.** Rejected, though it reads better. Lua's metamethods cannot overload `and`, `or` and `not` at all, and comparison metamethods must return a boolean rather than a node — so the operators a transition is mostly made of are exactly the ones that cannot be expressed this way, and a surface where half the tree is infix and half is calls is worse than one that is consistent. It also hides where a node is created, which matters when an error has to name one.
+- **C. An expression string parsed by the DSL front end, e.g. `write = "energy + 1"`.** Rejected. It puts a second parser behind the Lua front end and makes the DSL's grammar reachable from a place that is not the DSL, so a change to one silently changes the other. It also throws away the reason to be in Lua at all: a script can compute its constants, and a string cannot.
+- **D. Leave authoring to C++ and ship no front end for fields.** Rejected as the thing that makes F-032 unbuildable: a resource field nobody can write is a feature with no users.
+
+**Decision.** Option A.
+
+- `expr` is a table in the sandbox's `_ENV` holding one constructor per `ExprOp`. `and`, `or` and `not` are Lua keywords, so those three carry a trailing underscore; nothing else is renamed.
+- A field is referred to by **name**, not by index: `expr.field("energy")`. The reader resolves the name against the declared list and refuses one that is not there, which is D-022's rule about reading an undeclared field arriving one layer earlier and with a better message.
+- Fields are read in two passes, names then writes, so a field's expression may read a field declared after it. The fields of a site are simultaneous and the order the script happened to list them in should not decide what each can see. The validator already does the same thing for the same reason.
+- A `transition` that is a function or an array is a table rule, enumerated exactly as before. One that is an `expr` node is an expression rule. They are told apart by shape rather than by a declared `kind`, because a script that built one and declared the other would be describing two different rules and there is no good way to choose between them.
+- The reader bounds depth and node count and reserves interpreter stack as it descends. A Lua table can refer to itself, and a walk that did not check would not come back.
+
+**Consequences.**
+- Every expression rule becomes authorable in Lua, not only a multi-field one. That is a larger gain than F-031 needed and costs nothing extra: a transition expression and a field write are the same thing.
+- SPEC §8 gains the `expr` surface. D-003 and AV-008 are untouched: this runs at compile time and produces a plain IR, and nothing about it is reachable from the step loop.
+- The DSL still cannot declare a field. That is deliberate for now — the DSL's business is notation that exists in the literature, and there is no published notation for a field. If one arrives, this decision does not stand in its way.
+- A mistake in a tree is reported at the call that made it, because arity and argument types are checked in the constructor rather than in the reader. The reader's errors are the ones only it can know: an undeclared field, a cycle, a tree too large.
+
+**Reversal conditions.** Revisit B if Lua gains overloadable `and`/`or`/`not`, which would remove the reason it was rejected rather than merely soften it. Revisit C if the DSL grows arithmetic for its own reasons, at which point sharing one parser stops being a new dependency and becomes the obvious economy.

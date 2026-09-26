@@ -15,6 +15,19 @@ core::GridSpec specFor(core::GridSpec spec, const rule::RuleIR& ir) {
     return spec;
 }
 
+
+// The pad is one grid and nothing else. A rule that declares auxiliary fields
+// wants a buffer pair apiece, which `cpuStep` asserts it has and a Release build
+// does not check, so the refusal is here where it can be reported (BUG-022).
+// Widening the pad was the alternative: rejected, because a pattern is states
+// (SPEC §14) and a field the editor could paint but no format could carry would
+// be a dead end.
+std::optional<PatternError> refuseFields(const rule::RuleIR& ir) {
+    if (ir.fields.empty()) return std::nullopt;
+    return PatternError{std::format("the pad holds states only, and that rule declares {} auxiliary field(s)",
+                                    ir.fields.size())};
+}
+
 }  // namespace
 
 Scratch::Scratch(core::GridSpec spec, rule::RuleIR ir, rule::CompiledRule compiled)
@@ -26,6 +39,7 @@ Scratch::Scratch(core::GridSpec spec, rule::RuleIR ir, rule::CompiledRule compil
 std::variant<Scratch, PatternError> Scratch::make(core::GridSpec spec, const rule::RuleIR& ir) {
     spec = specFor(spec, ir);
     if (const auto bad = spec.problems(); !bad.empty()) return PatternError{bad.front()};
+    if (auto e = refuseFields(ir)) return *e;
     auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return PatternError{e->message};
     return Scratch(spec, ir, std::move(std::get<rule::CompiledRule>(compiled)));
@@ -70,6 +84,7 @@ std::optional<PatternError> Scratch::setRule(const rule::RuleIR& ir) {
         return PatternError{std::format("the pad holds {} cells and that rule wants {}",
                                         core::toString(ir_.cell_type), core::toString(ir.cell_type))};
     }
+    if (auto e = refuseFields(ir)) return *e;
     auto compiled = rule::compileRule(ir);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return PatternError{e->message};
 

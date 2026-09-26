@@ -12,6 +12,7 @@
 #include "sim/cpu_step.hpp"
 #include "sim/inspect.hpp"
 #include "sim/gpu_step.hpp"
+#include "support/fields.hpp"
 #include "support/gl_context.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -125,6 +126,70 @@ rule::RuleIR arithmeticExpression(uint16_t states) {
     return ir;
 }
 
+// A multi-field rule (F-031, D-022): two auxiliary fields, one u8 and one f32,
+// read at this site and at a neighbour, written by an expression apiece over the
+// same neighbourhood the transition reads. It is in this sweep and not only in
+// its own file because this is where a divergence between the paths is caught by
+// habit rather than by somebody remembering to look.
+rule::RuleIR twoFieldExpression() {
+    rule::RuleIR ir;
+    ir.states = 4;
+    ir.kind = rule::Kind::Expression;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};
+
+    // energy' = dead ? energy + n(1) : energy - 2, clamped to the storage.
+    rule::Field energy;
+    energy.name = "energy";
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::Self},                           // 0
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},         // 1
+        {rule::ExprOp::Eq, 0, 1},                       // 2  dead
+        {rule::ExprOp::FieldSelf, 0},                   // 3  energy here
+        {rule::ExprOp::Count, 1},                       // 4
+        {rule::ExprOp::Add, 3, 4},                      // 5
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 2},         // 6
+        {rule::ExprOp::Sub, 3, 6},                      // 7
+        {rule::ExprOp::Select, 2, 5, 7},                // 8
+    };
+    energy.write = e;
+
+    // heat' = (heat + heat east) * 0.5, which decays towards zero and is what
+    // found BUG-021: it reaches the subnormal range and stays there.
+    rule::Field heat;
+    heat.name = "heat";
+    heat.cell_type = core::CellType::F32;
+    rule::Expression h;
+    h.nodes = {
+        {rule::ExprOp::FieldSelf, 1},                       // 0
+        {rule::ExprOp::FieldNeighbour, 1, 0},               // 1
+        {rule::ExprOp::Add, 0, 1},                          // 2
+        {rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.5f},     // 3
+        {rule::ExprOp::Mul, 2, 3},                          // 4
+    };
+    heat.write = h;
+
+    // A third field nothing writes, so the copy-forward is under the sweep too.
+    rule::Field carried;
+    carried.name = "carried";
+
+    ir.fields = {energy, heat, carried};
+
+    // The state turns on where the energy is high, so the fields feed back into
+    // the grid and a divergence in either shows up in both.
+    rule::Expression t;
+    t.nodes = {
+        {rule::ExprOp::FieldSelf, 0},                   // 0
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 40},        // 1
+        {rule::ExprOp::Gt, 0, 1},                       // 2
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},         // 3
+        {rule::ExprOp::Self},                           // 4
+        {rule::ExprOp::Select, 2, 3, 4},                // 5
+    };
+    ir.transition = t;
+    return ir;
+}
+
 // A rule that reads its neighbours by position rather than by count.
 rule::RuleIR shiftExpression() {
     rule::RuleIR ir;
@@ -162,6 +227,7 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Life as an expression (codegen)", lifeAsExpression()});
     out.push_back({"Arithmetic expression, 5 states (codegen)", arithmeticExpression(5)});
     out.push_back({"Neighbour-indexed expression (codegen)", shiftExpression()});
+    out.push_back({"Two fields, u8 and f32 (codegen)", twoFieldExpression()});
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});
@@ -259,6 +325,26 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     core::GpuGrid& gpu = std::get<core::GpuGrid>(made);
     gpu.upload(host.current());
 
+    // Auxiliary fields, seeded the same on both sides (F-031). Empty for every
+    // fixture but the multi-field one, which is why the loops below cost nothing
+    // for the rest.
+    aether::test::HostFields fields(lut, spec.cellCount());
+    uint32_t fs = 0xf1e1d + static_cast<uint32_t>(boundary);
+    auto nextByte = [&] { fs = fs * 1664525u + 1013904223u; return fs >> 8; };
+    for (size_t f = 0; f < fields.size(); ++f) {
+        for (uint64_t i = 0; i < spec.cellCount(); ++i) {
+            if (fields.type(f) == core::CellType::F32) {
+                fields.setF32(f, i, static_cast<float>(nextByte() % 1000) / 1000.0f);
+            } else {
+                fields.setU8(f, i, static_cast<uint8_t>(nextByte() % 256));
+            }
+        }
+    }
+    auto madeFields = aether::test::GpuFields::create(lut, spec);
+    REQUIRE(std::holds_alternative<aether::test::GpuFields>(madeFields));
+    aether::test::GpuFields& fieldGpu = std::get<aether::test::GpuFields>(madeFields);
+    fieldGpu.upload(fields);
+
     sim::GpuStepper stepper;
     const auto err = stepper.setRule(lut, spec);
     if (err) FAIL(err->message);
@@ -266,8 +352,18 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     stepper.setCellMutation(mutation);
 
     for (int i = 0; i < kGenerations; ++i) {
-        sim::cpuStep(lut, host, static_cast<uint64_t>(i), mutation);
-        stepper.step(gpu);
+        if (fields.size() == 0) {
+            sim::cpuStep(lut, host, static_cast<uint64_t>(i), mutation);
+            stepper.step(gpu);
+        } else {
+            sim::cpuStep(lut, spec, host.current(), host.next(), static_cast<uint64_t>(i), mutation,
+                         fields.reads(), fields.writes());
+            host.swap();
+            fields.swap();
+            stepper.step(gpu.current(), gpu.next(), fieldGpu.textures());
+            gpu.swap();
+            fieldGpu.swap();
+        }
     }
 
     std::vector<uint8_t> fromGpu(spec.bytesPerBuffer());
@@ -289,6 +385,23 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}{}", f.name,
                      rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff, detail));
     CHECK(firstDiff == fromCpu.size());
+
+    // The fields on the same terms. A sweep that compared the state alone would
+    // pass while the rule's own bookkeeping had diverged, and a field feeds the
+    // next generation's state, so that is a difference waiting rather than one
+    // avoided.
+    for (size_t fi = 0; fi < fields.size(); ++fi) {
+        std::vector<uint8_t> got(fields.raw(fi).size());
+        fieldGpu.download(fi, got);
+        size_t diff = got.size();
+        for (size_t i = 0; i < got.size(); ++i) {
+            if (got[i] != fields.raw(fi)[i]) { diff = i; break; }
+        }
+        const size_t cell = diff == got.size() ? diff : diff / core::cellBytes(fields.type(fi));
+        INFO(std::format("{} / {} / field {} ({}): first difference at cell {}", f.name,
+                         rule::toString(boundary), fi, core::toString(fields.type(fi)), cell));
+        CHECK(diff == got.size());
+    }
 }
 
 }  // namespace
@@ -514,6 +627,9 @@ TEST_CASE("a rule whose dimensionality mismatches the grid is refused, leaving t
 namespace {
 
 void checkInspector(const Fixture& f, rule::Boundary boundary, const core::GridSpec& spec) {
+    // State-only, for the reason inspect.hpp gives: the pad it reads holds one
+    // grid, so a rule with fields is not describable here (BUG-022).
+    if (!f.ir.fields.empty()) return;
     rule::RuleIR ir = f.ir;
     ir.boundary = boundary;
     auto compiled = rule::compileRule(ir);
@@ -581,6 +697,10 @@ TEST_CASE("the inspector predicts what the stepper writes with mutation on", "[i
     const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero);
     const core::GridSpec spec{2, 37, 29, 1};
     for (const Fixture& f : fixtures()) {
+        // The inspector is state-only: it reads the transition out of stepCell,
+        // which wants a buffer pair per declared field, and its caller is the
+        // editor's pad, which holds one grid (BUG-022).
+        if (!f.ir.fields.empty()) continue;
         rule::RuleIR ir = f.ir;
         ir.boundary = boundary;
         auto compiled = rule::compileRule(ir);

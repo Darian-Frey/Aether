@@ -2,6 +2,7 @@
 #include "rule/lua.hpp"
 #include "rule/table_layout.hpp"
 #include <format>
+#include "rule/compile.hpp"
 #include "rule/growth.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -337,4 +338,131 @@ TEST_CASE("a continuous rule is refused what it cannot mean", "[lua]") {
                  kernel = { shape = "radial", profile = { 1 } },
                  growth = { form = "rectangular", mu = 0.3, sigma = 0.05 } }
     )").find("do not agree") != std::string::npos);
+}
+
+// --- the expression builder (F-031, D-023) -----------------------------------
+
+TEST_CASE("Lua builds an expression transition", "[lua][fields]") {
+    // Before F-031 a script could describe a table, by enumeration, or a kernel.
+    // Neither can express a field write, so `expr` builds a tree and the reader
+    // flattens it into the arena. Told apart from a table rule by shape.
+    const auto ir = ok(R"(
+        local e = expr
+        return {
+            states = 4,
+            neighbourhood = { type = "moore", radius = 1 },
+            transition = e.select(e.gt(e.count(1), e.int(3)), e.int(1), e.self()),
+        }
+    )");
+    REQUIRE(ir.kind == Kind::Expression);
+    const auto* tree = std::get_if<Expression>(&ir.transition);
+    REQUIRE(tree != nullptr);
+    // Children precede parents and the root is last, whatever order the script
+    // nested them in.
+    CHECK(tree->nodes.back().op == ExprOp::Select);
+    CHECK(isValid(ir));
+}
+
+TEST_CASE("Lua declares fields and writes them", "[lua][fields]") {
+    const auto ir = ok(R"(
+        local e = expr
+        return {
+            states = 2,
+            neighbourhood = { type = "moore", radius = 1 },
+            fields = {
+                { name = "energy", cell_type = "u8",
+                  write = e.add(e.field("energy"), e.int(1)) },
+                { name = "heat", cell_type = "f32",
+                  write = e.mul(e.field("heat"), e.float(0.5)) },
+                { name = "carried" },
+            },
+            transition = e.select(e.gt(e.field("energy"), e.int(10)), e.int(1), e.self()),
+        }
+    )");
+    REQUIRE(ir.fields.size() == 3);
+    CHECK(ir.fields[0].name == "energy");
+    CHECK(ir.fields[0].cell_type == CellType::U8);
+    CHECK(ir.fields[1].cell_type == CellType::F32);
+    CHECK(ir.fields[1].write.has_value());
+    CHECK_FALSE(ir.fields[2].write.has_value());   // declared, never written
+    CHECK(isValid(ir));
+    // D-022: a rule declaring a field compiles to codegen.
+    auto compiled = compileRule(ir);
+    REQUIRE(std::holds_alternative<CompiledRule>(compiled));
+    CHECK(std::get<CompiledRule>(compiled).backend == Backend::Codegen);
+}
+
+TEST_CASE("a field may read a field declared after it", "[lua][fields]") {
+    // The fields of a site are simultaneous, so the order they were written in
+    // must not decide what a write can see.
+    const auto ir = ok(R"(
+        local e = expr
+        return {
+            states = 2,
+            neighbourhood = { type = "moore", radius = 1 },
+            fields = {
+                { name = "first",  write = e.add(e.field("second"), e.int(1)) },
+                { name = "second", write = e.add(e.field("first"),  e.int(1)) },
+            },
+            transition = e.self(),
+        }
+    )");
+    REQUIRE(ir.fields.size() == 2);
+    CHECK(ir.fields[0].write.has_value());
+    CHECK(ir.fields[1].write.has_value());
+    CHECK(isValid(ir));
+}
+
+TEST_CASE("a shared subtree stays one node", "[lua][fields]") {
+    // A Lua local used twice is one table used twice, so the arena keeps it as
+    // one node rather than duplicating what the script shared.
+    const auto ir = ok(R"(
+        local e = expr
+        local n = e.count(1)
+        return {
+            states = 2,
+            neighbourhood = { type = "moore", radius = 1 },
+            transition = e.select(e.and_(e.gt(n, e.int(1)), e.lt(n, e.int(4))), e.int(1), e.int(0)),
+        }
+    )");
+    const auto* tree = std::get_if<Expression>(&ir.transition);
+    REQUIRE(tree != nullptr);
+    size_t counts = 0;
+    for (const ExprNode& n : tree->nodes) {
+        if (n.op == ExprOp::Count) ++counts;
+    }
+    CHECK(counts == 1);
+    CHECK(isValid(ir));
+}
+
+TEST_CASE("the expression builder refuses what it cannot read", "[lua][fields]") {
+    auto fails = [](const char* src) { return errorOf(src); };
+
+    CHECK(fails(R"(return { states = 2, neighbourhood = { type = "moore", radius = 1 },
+                           transition = expr.add(expr.self()) })")
+              .find("2 argument") != std::string::npos);
+
+    CHECK(fails(R"(return { states = 2, neighbourhood = { type = "moore", radius = 1 },
+                           transition = expr.field("nothing") })")
+              .find("does not declare") != std::string::npos);
+
+    CHECK(fails(R"(return { states = 2, neighbourhood = { type = "moore", radius = 1 },
+                           transition = expr.add(expr.self(), 3) })")
+              .find("expression") != std::string::npos);
+
+    // A table that refers to itself would make the reader recurse for ever.
+    CHECK(fails(R"(
+        local loop = { op = "not_" }
+        loop.a = loop
+        return { states = 2, neighbourhood = { type = "moore", radius = 1 }, transition = loop }
+    )").find("deeper than") != std::string::npos);
+
+    // A table cannot express a field write, so the two cannot be combined.
+    CHECK(fails(R"(
+        return {
+            states = 2, neighbourhood = { type = "moore", radius = 1 },
+            fields = { { name = "energy" } },
+            transition = function(own, counts) return own end,
+        }
+    )").find("expression transition") != std::string::npos);
 }

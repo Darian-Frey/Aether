@@ -359,21 +359,40 @@ Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than
 
 A rule script is a Lua chunk returning a table convertible to a `RuleIR`. It executes exactly once per compile (D-003).
 
-**Sandbox.** Available: `math`, `string`, `table`, `ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, `error`, `assert`. Removed: `io`, `os`, `require`, `dofile`, `loadfile`, `load`, `package`, `debug`, and the global environment beyond the above.
+**Sandbox.** Available: `math`, `string`, `table`, `ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, `error`, `assert`, and `expr` (the expression builder below, added 2026-09-26). Removed: `io`, `os`, `require`, `dofile`, `loadfile`, `load`, `package`, `debug`, and the global environment beyond the above.
 
 **Budget.** A debug hook aborts the script after `LUA_INSTRUCTION_BUDGET = 50_000_000` VM instructions, reported as a compile error naming the budget. Wall-clock is not used, so the budget is deterministic (AV-009). A second budget bounds memory: the interpreter runs on an allocator capped at `LUA_MEMORY_BUDGET = 256 MB`, since a script can exhaust memory well inside the instruction budget by building a table rather than by looping (added 2026-09-14). Exceeding either is a compile error naming the budget, and leaves the running rule alone like any other failed compile.
 
 **Isolation.** The interpreter is created and destroyed inside one compile call, and the chunk runs with a fresh environment table as its `_ENV`, so the real global table is unreachable even by name. Nothing Lua-owned outlives the call, which is what keeps D-003 and AV-008 structural rather than a matter of discipline: there is no interpreter for a step loop to call into.
 
-**Returned table.** Field names mirror the IR: `dimensions`, `states`, `neighbourhood = {type, radius}`, `boundary`, `kind`, `transition`, and an optional `metadata`. A returned table failing IR validation (§4) is a compile error quoting the diagnostic.
+**Returned table.** Field names mirror the IR: `dimensions`, `states`, `neighbourhood = {type, radius}`, `boundary`, `kind`, `transition`, an optional `fields`, and an optional `metadata`. A returned table failing IR validation (§4) is a compile error quoting the diagnostic.
 
-`transition` takes one of two forms (2026-09-14):
+`transition` takes one of three forms (two from 2026-09-14, the third added 2026-09-26):
 
 - **An array of state indices**, in the layout order of §5, whose length must equal the computed table size exactly. This mirrors the IR as stored.
 - **A function**, which the host calls once per table entry while building it — at compile time, like everything else here, so D-003 is untouched. Its arguments follow the rule's kind:
   - `outer_totalistic`: `f(own, counts)` where `counts[s]` is the number of neighbours in state `s`, including `counts[0]`.
   - `non_totalistic`: `f(own, neighbours)` where `neighbours[i]` is the `i`-th neighbour in the canonical order of §3, one-based.
   - `totalistic`: `f(sum)`, the sum over the cell and its neighbours.
+
+- **An expression tree**, built with the `expr` table described below (added 2026-09-26, F-031, D-023). This is the only form that can carry auxiliary fields, since a field holds a quantity and its next value is arithmetic rather than a lookup (D-022). A `transition` that is a function or an array is a table rule and one that is an `expr` node is an expression rule; they are told apart by shape rather than by a declared `kind`, because a script that built one and declared the other would be describing two different rules.
+
+**The `expr` surface** *(added 2026-09-26, F-031, D-023)*. `expr` holds one constructor per `ExprOp` of §4. Each returns a plain table and nests inside the others, and the host flattens the tree into the IR's arena depth-first, so children land before parents without the author arranging it:
+
+```lua
+local e = expr
+e.self()                      e.neighbour(i)            e.count(state)
+e.int(v)                      e.float(v)
+e.field("name")               e.field_neighbour("name", i)
+e.add e.sub e.mul e.div e.mod                    -- (a, b)
+e.eq  e.ne  e.lt  e.le  e.gt  e.ge               -- (a, b)
+e.and_ e.or_ e.not_                              -- Lua keywords, hence the underscore
+e.select(condition, then_, else_)
+```
+
+A field is named rather than indexed, and a name the rule does not declare is a compile error. Neighbour indices are zero-based in the canonical order of §3. A subexpression bound to a Lua `local` and used twice is one table used twice, and stays one node in the arena, so what the script shared is shared. Arity and argument types are checked in the constructor, so a mistake is reported at the line that made it; the reader reports what only it can know — an undeclared field, a table that refers to itself, a tree beyond its node limit.
+
+**`fields`** *(added 2026-09-26, F-031)*. A list of `{ name, cell_type, write }`, where `cell_type` defaults to `u8` and `write` is an `expr` tree the field's own value comes from. A field with no `write` is declared and carried, which is what a read-only field costs. The list is read in two passes, names then writes, so a field's expression may read a field declared after it: the fields of a site are simultaneous and the order they were listed in should not decide what each can see. A rule with fields and a table `transition` is refused rather than silently given one.
 
   The function must return a state in `0 … S-1`; anything else is a compile error naming the arguments that produced it.
 

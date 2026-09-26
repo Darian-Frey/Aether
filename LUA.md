@@ -18,6 +18,8 @@ Every example here has been run. Where a claim could be checked, it was: the Lif
   - [outer_totalistic](#outer_totalistic-the-default) · [counted_totalistic](#counted_totalistic) · [non_totalistic](#non_totalistic) · [totalistic](#totalistic) · [an array](#an-array-instead-of-a-function)
 - [Dimensions and lattices](#dimensions-and-lattices)
 - [Continuous rules](#continuous-rules)
+- [Expression rules](#expression-rules)
+- [Auxiliary fields](#auxiliary-fields)
 - [Saving a rule into the library](#saving-a-rule-into-the-library)
 - [The sandbox, and why](#the-sandbox-and-why)
 - [When it goes wrong](#when-it-goes-wrong)
@@ -248,6 +250,116 @@ Note `math.exp` above. You may use it **here**, because the kernel is sampled on
 
 ---
 
+## Expression rules
+
+Everything so far builds a **table**: you are asked what the next state is for every situation the rule can be in, and the answers are stored. That works because a discrete transition has finitely many situations. It stops working the moment a rule has to do arithmetic on a *quantity* rather than look up a signature — which is what the next section is about — so there is a third form of `transition`, an expression you build rather than a function that is called.
+
+`expr` is a table of constructors. Each returns a node, and nodes nest:
+
+```lua
+local e = expr
+
+-- Life, as an expression rather than a table
+local n = e.count(1)
+local born    = e.and_(e.eq(e.self(), e.int(0)), e.eq(n, e.int(3)))
+local lives   = e.and_(e.eq(e.self(), e.int(1)), e.or_(e.eq(n, e.int(2)), e.eq(n, e.int(3))))
+
+return {
+    states = 2,
+    neighbourhood = { type = "moore", radius = 1 },
+    transition = e.select(e.or_(born, lives), e.int(1), e.int(0)),
+}
+```
+
+The whole surface:
+
+| | |
+|---|---|
+| `e.self()` | this cell's state |
+| `e.neighbour(i)` | the `i`-th neighbour's state, zero-based, in the canonical order |
+| `e.count(s)` | how many neighbours are in state `s` |
+| `e.int(v)`, `e.float(v)` | a literal |
+| `e.field("name")` | a field at this site — see below |
+| `e.field_neighbour("name", i)` | a field at the `i`-th neighbour |
+| `e.add e.sub e.mul e.div e.mod` | arithmetic, two arguments |
+| `e.eq e.ne e.lt e.le e.gt e.ge` | comparison, two arguments |
+| `e.and_ e.or_ e.not_` | logic |
+| `e.select(cond, a, b)` | `cond and a or b`, except that it works when `a` is false or zero |
+
+The three underscores are because `and`, `or` and `not` are Lua keywords and cannot be field names. Nothing else is renamed.
+
+Three things are worth knowing:
+
+**A `local` used twice stays one node.** `n` above appears in four comparisons and is one node in the compiled rule, not four. Lua's scoping is doing the work: the constructor returns a table, and the same table used twice is the same node.
+
+**Division by zero is zero, and integer arithmetic wraps at 32 bits.** Not because that is nice but because GLSL and C++ disagree about both, and the two execution paths have to produce the same automaton. The result is also clamped into the state range, so a tree that computes 500 writes `states - 1` rather than something undefined.
+
+**Mistakes are reported where you made them.** `e.add(e.self())` says so at that line, because arity is checked in the constructor. Naming a field the rule does not declare is caught slightly later, when the tree is read, and the message names the field.
+
+You do not have to choose the expression form: a `transition` that is a function or an array is still a table rule, exactly as before. Which one you get is decided by what you wrote, not by a `kind` you declare.
+
+The Life above really is Life — 96×64, seed 4242, sixty generations, 550 cells alive, every one of them in the same place as `--rule B3/S23` puts it. But if you check it the way [the recipe below](#check-your-rule-against-one-you-trust) says, `compare` will still exit non-zero and tell you the lineage differs. That is right and not a failure: an expression rule and a table rule are different rules that compute the same automaton, so their hashes differ by construction. Read the message — it names the cells or the hashes, and only the first of those is a disagreement about the automaton.
+
+---
+
+## Auxiliary fields
+
+A site can carry more than its state. A **field** is a second value per site — its own storage, its own cell type — that the rule reads and writes alongside the state. This is what lets a rule keep a quantity: an energy store, a concentration, an age that is not an ageing tail.
+
+```lua
+local e = expr
+
+return {
+    states = 2,
+    neighbourhood = { type = "moore", radius = 1 },
+    fields = {
+        {
+            name = "energy",
+            cell_type = "u8",
+            -- dead ground gains one; a live cell spends three
+            write = e.select(e.eq(e.self(), e.int(0)),
+                             e.add(e.field("energy"), e.int(1)),
+                             e.sub(e.field("energy"), e.int(3))),
+        },
+    },
+    transition = e.select(e.gt(e.field("energy"), e.int(20)), e.int(1),
+                          e.select(e.gt(e.field("energy"), e.int(0)), e.self(), e.int(0))),
+}
+```
+
+Run it and it breathes: the store fills for twenty generations with nothing alive, everything lights at once, the store drains in about seven, everything dies, and it begins again on a period of about thirty. Measured on a 32×32 grid, not guessed — and it is a demonstration of the mechanism rather than an interesting automaton. It is uniform because nothing in it varies across space: the store is driven only by the cell's own state. Rules where a field drives real structure are what the resource field is for, and that is a feature still to come.
+
+Each entry is `{ name, cell_type, write }`:
+
+- **`name`** is how expressions refer to it. Fields are named, never indexed, and a name the rule does not declare is a compile error rather than a read of zero.
+- **`cell_type`** is `"u8"` or `"f32"`, defaulting to `"u8"`. It decides what a read of the field *is*: reading a `u8` field gives an integer and reading an `f32` field gives a float, and the numeric operators want both sides to be the same type. A `write` must produce the type its field holds.
+- **`write`** is optional. A field without one is declared and carried: it keeps whatever it holds, which is what a read-only field costs.
+
+**Reading a neighbour's field** is `e.field_neighbour("name", i)`, with `i` zero-based in the canonical neighbour order. A field can therefore spread:
+
+```lua
+local e = expr
+local west = e.mul(e.field_neighbour("heat", 3), e.float(0.25))
+local east = e.mul(e.field_neighbour("heat", 4), e.float(0.25))
+
+fields = {
+    { name = "heat", cell_type = "f32",
+      write = e.add(e.add(e.mul(e.field("heat"), e.float(0.5)), e.add(west, east)),
+                    e.select(e.eq(e.self(), e.int(1)), e.float(0.25), e.float(0.0))) },
+}
+```
+
+Sixty generations of that on a 48×48 grid gives 2303 distinct values across 2304 cells, and both execution paths agree on every bit of them. Note what it reaches: about 14, not 1. A continuous *state* is clamped to `[0, 1]` because that is what the spec says a continuous cell holds, but a field is not a state — a quantity has no natural ceiling, so the only limit a field gets is the one its storage forces. A `u8` field saturates at 255 rather than wrapping to 0.
+
+Four things to keep in mind:
+
+- **The order you list fields in does not matter.** A field's `write` may read a field declared after it. The fields of a site are simultaneous, and which one you happened to type first should not decide what the other can see.
+- **A field starts at zero and nothing else seeds it.** Painting, filling and placing a pattern are all about states; a field is written only by its own expression. So a field has to be driven from the state, as both examples above are. Seeding is what the resource field will add.
+- **A rule with fields cannot use a table `transition`,** and says so. A table maps a signature to one state; it cannot write two things from one reading of the neighbourhood, and doing both from the same reading is the point.
+- **Cell mutation does not touch a field.** It moves the state only, so a quantity is not quietly created or destroyed by drift.
+
+---
+
 ## Saving a rule into the library
 
 Put the file in `rules/` with a header in Lua comments, and it appears in the Library panel and answers to `--rule @name`:
@@ -356,7 +468,7 @@ aether compare a.aether b.aether
 ## Things Lua cannot do here
 
 - **Run during the simulation.** Nothing you write is executed after the compile. This is not a restriction to be worked around; it is what the determinism guarantee rests on.
-- **Return the `expression` kind.** The IR has one, and codegen executes it, but there is no way to build an expression tree from Lua — you would be writing an abstract syntax tree by hand. Use the notation's table blocks instead.
+- ~~**Return the `expression` kind.**~~ It could not, until 2026-09-26. It can: see [Expression rules](#expression-rules). The bullet said you would be writing an abstract syntax tree by hand, which was the true objection and is what `expr` removes.
 - **Read files, the clock, or randomness.** No `io`, no `os`, no `math.random` seeded from anywhere meaningful. A rule that varied between compiles would break session replay, which every other feature depends on.
 - **Set a palette or a description from the table.** `metadata` takes `name` and `author`. Both of those belong in the file's header comments instead, where the library reads them.
 - **Exceed the table limit.** 65,536 entries. If your rule needs more, it needs a smaller kind, a smaller neighbourhood, or fewer states — and the error tells you what it wanted.

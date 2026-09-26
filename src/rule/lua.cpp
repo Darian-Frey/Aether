@@ -10,6 +10,8 @@
 #include <optional>
 #include <span>
 #include <cstring>
+#include <algorithm>
+#include <map>
 #include <format>
 #include <vector>
 
@@ -86,6 +88,11 @@ private:
 const char* const kAllowed[] = {"math", "string", "table", "ipairs", "pairs", "select",
                                 "tonumber", "tostring", "type", "error", "assert"};
 
+std::string typeName(lua_State* L, int index) { return luaL_typename(L, index); }
+
+// Defined below, with the expression builder it belongs to.
+void pushExprLibrary(lua_State* L);
+
 void buildEnvironment(lua_State* L) {
     lua_newtable(L);                                   // env
     for (const char* name : kAllowed) {
@@ -93,11 +100,244 @@ void buildEnvironment(lua_State* L) {
         if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
         lua_setfield(L, -2, name);
     }
+    pushExprLibrary(L);
+    lua_setfield(L, -2, "expr");
 }
 
-// --- reading the returned table ---------------------------------------------
+// --- the expression builder (F-031, D-023) -----------------------------------
+//
+// Until now a Lua script could describe a table rule, by enumeration, or a
+// kernel. Neither can express a field write: a field holds a quantity, so its
+// next value is arithmetic and not a lookup, which is the whole of D-022. So
+// `expr` builds an expression tree out of plain Lua tables, and the reader below
+// flattens it into the arena the IR wants. Nothing new reaches the step loop —
+// this runs at compile time and produces an ordinary IR, which is what keeps
+// D-003 and AV-008 structural.
+//
+// A node is `{ op = "add", a = <node>, b = <node> }`. Leaves carry data instead
+// of children: an index, a literal, or a field's name.
+struct ExprCtor {
+    const char* name;
+    ExprOp      op;
+    int         children = 0;
+    bool        index    = false;   // a neighbour index or a state
+    bool        integer  = false;   // an int literal
+    bool        real     = false;   // a float literal
+    bool        field     = false;  // a field's name, then optionally an index
+};
 
-std::string typeName(lua_State* L, int index) { return luaL_typename(L, index); }
+constexpr ExprCtor kCtors[] = {
+    {"self",            ExprOp::Self},
+    {"neighbour",       ExprOp::Neighbour,      0, true},
+    {"count",           ExprOp::Count,          0, true},
+    {"int",             ExprOp::IntLiteral,     0, false, true},
+    {"float",           ExprOp::FloatLiteral,   0, false, false, true},
+    {"field",           ExprOp::FieldSelf,      0, false, false, false, true},
+    {"field_neighbour", ExprOp::FieldNeighbour, 0, true,  false, false, true},
+    {"add", ExprOp::Add, 2}, {"sub", ExprOp::Sub, 2}, {"mul", ExprOp::Mul, 2},
+    {"div", ExprOp::Div, 2}, {"mod", ExprOp::Mod, 2},
+    {"eq", ExprOp::Eq, 2}, {"ne", ExprOp::Ne, 2}, {"lt", ExprOp::Lt, 2},
+    {"le", ExprOp::Le, 2}, {"gt", ExprOp::Gt, 2}, {"ge", ExprOp::Ge, 2},
+    // Lua's `and`, `or` and `not` are keywords, so these carry a trailing
+    // underscore rather than being spelled something else.
+    {"and_", ExprOp::And, 2}, {"or_", ExprOp::Or, 2}, {"not_", ExprOp::Not, 1},
+    {"select", ExprOp::Select, 3},
+};
+
+// One C closure serves every constructor; which one it is comes from an upvalue.
+// It validates arity here, in the script's own stack frame, so a mistake is
+// reported at the line that made it rather than as a shapeless tree later.
+int exprCtor(lua_State* L) {
+    const ExprCtor* c = static_cast<const ExprCtor*>(lua_touserdata(L, lua_upvalueindex(1)));
+    int wanted = c->children;
+    if (c->index)   ++wanted;
+    if (c->integer || c->real) ++wanted;
+    if (c->field)   ++wanted;
+    const int got = lua_gettop(L);
+    if (got != wanted) {
+        return luaL_error(L, "expr.%s takes %d argument(s), not %d", c->name, wanted, got);
+    }
+
+    lua_newtable(L);
+    lua_pushstring(L, c->name);
+    lua_setfield(L, -2, "op");
+
+    int arg = 1;
+    if (c->field) {
+        if (lua_type(L, arg) != LUA_TSTRING) {
+            return luaL_error(L, "expr.%s wants a field name as its first argument", c->name);
+        }
+        lua_pushvalue(L, arg++);
+        lua_setfield(L, -2, "field");
+    }
+    if (c->index) {
+        if (!lua_isinteger(L, arg)) return luaL_error(L, "expr.%s wants an integer index", c->name);
+        lua_pushvalue(L, arg++);
+        lua_setfield(L, -2, "index");
+    }
+    if (c->integer) {
+        if (!lua_isinteger(L, arg)) return luaL_error(L, "expr.%s wants an integer", c->name);
+        lua_pushvalue(L, arg++);
+        lua_setfield(L, -2, "ival");
+    }
+    if (c->real) {
+        if (!lua_isnumber(L, arg)) return luaL_error(L, "expr.%s wants a number", c->name);
+        lua_pushvalue(L, arg++);
+        lua_setfield(L, -2, "fval");
+    }
+    for (const char* slot : {"a", "b", "c"}) {
+        if (arg > c->children + (wanted - c->children)) break;
+        if (arg > wanted) break;
+        if (!lua_istable(L, arg)) {
+            return luaL_error(L, "expr.%s wants an expression for '%s', not a %s", c->name, slot,
+                              luaL_typename(L, arg));
+        }
+        lua_pushvalue(L, arg++);
+        lua_setfield(L, -2, slot);
+    }
+    return 1;
+}
+
+void pushExprLibrary(lua_State* L) {
+    lua_newtable(L);
+    for (const ExprCtor& c : kCtors) {
+        lua_pushlightuserdata(L, const_cast<ExprCtor*>(&c));
+        lua_pushcclosure(L, exprCtor, 1);
+        lua_setfield(L, -2, c.name);
+    }
+}
+
+// A tree read into an arena. Depth is bounded because a Lua table can refer to
+// itself and this walk would not come back; nodes are bounded because a script
+// with a loop in it can build an arbitrarily large one, and both limits are
+// errors rather than budgets so the message says which it was.
+constexpr int    kMaxExprDepth = 128;
+constexpr size_t kMaxExprNodes = 4096;
+
+class ExprReader {
+public:
+    ExprReader(lua_State* L, const std::vector<std::string>& fieldNames)
+        : L_(L), fieldNames_(fieldNames) {}
+
+    // The table at `index` and everything under it. Returns the root's arena
+    // position, or nothing with `err` set.
+    std::optional<uint32_t> read(int index, int depth, std::string& err) {
+        if (depth > kMaxExprDepth) {
+            err = std::format("expression nests deeper than {} levels", kMaxExprDepth);
+            return std::nullopt;
+        }
+        // Each level holds its child on the Lua stack while it recurses, and a
+        // getfield with no room for its result is undefined rather than an
+        // error: without this a self-referential table crashed here instead of
+        // being reported by the depth limit above.
+        if (!lua_checkstack(L_, 4)) {
+            err = "expression is too deeply nested for the interpreter stack";
+            return std::nullopt;
+        }
+        if (!lua_istable(L_, index)) {
+            err = std::format("expected an expression built with expr.*, not a {}", typeName(L_, index));
+            return std::nullopt;
+        }
+        // A table used twice is one node used twice: the arena is a DAG, so
+        // what the script shared stays shared rather than being duplicated.
+        const void* identity = lua_topointer(L_, index);
+        if (const auto seen = seen_.find(identity); seen != seen_.end()) return seen->second;
+
+        lua_getfield(L_, index, "op");
+        if (lua_type(L_, -1) != LUA_TSTRING) {
+            lua_pop(L_, 1);
+            err = "expected an expression built with expr.*, not a plain table";
+            return std::nullopt;
+        }
+        const std::string op = lua_tostring(L_, -1);
+        lua_pop(L_, 1);
+
+        const ExprCtor* ctor = nullptr;
+        for (const ExprCtor& c : kCtors) {
+            if (op == c.name) { ctor = &c; break; }
+        }
+        if (ctor == nullptr) {
+            err = std::format("unknown expression operator '{}'", op);
+            return std::nullopt;
+        }
+
+        ExprNode node;
+        node.op = ctor->op;
+        if (ctor->field) {
+            lua_getfield(L_, index, "field");
+            const std::string name = lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "";
+            lua_pop(L_, 1);
+            const auto at = std::find(fieldNames_.begin(), fieldNames_.end(), name);
+            if (at == fieldNames_.end()) {
+                err = std::format("expr.{} names a field '{}' the rule does not declare", op, name);
+                return std::nullopt;
+            }
+            node.a = static_cast<uint32_t>(at - fieldNames_.begin());
+        }
+        if (ctor->index) {
+            lua_getfield(L_, index, "index");
+            const lua_Integer i = lua_tointeger(L_, -1);
+            lua_pop(L_, 1);
+            if (i < 0) {
+                err = std::format("expr.{} has a negative index", op);
+                return std::nullopt;
+            }
+            // FieldNeighbour carries the field in `a` and the neighbour in `b`;
+            // everything else with an index carries it in `a`.
+            if (ctor->field) node.b = static_cast<uint32_t>(i);
+            else             node.a = static_cast<uint32_t>(i);
+        }
+        if (ctor->integer) {
+            lua_getfield(L_, index, "ival");
+            node.ival = lua_tointeger(L_, -1);
+            lua_pop(L_, 1);
+        }
+        if (ctor->real) {
+            lua_getfield(L_, index, "fval");
+            node.fval = static_cast<float>(lua_tonumber(L_, -1));
+            lua_pop(L_, 1);
+        }
+
+        // Children first, so every child's arena position precedes the parent's.
+        uint32_t child[3] = {0, 0, 0};
+        for (int k = 0; k < ctor->children; ++k) {
+            lua_getfield(L_, index, k == 0 ? "a" : (k == 1 ? "b" : "c"));
+            const int at = lua_gettop(L_);
+            const auto sub = read(at, depth + 1, err);
+            lua_pop(L_, 1);
+            if (!sub) return std::nullopt;
+            child[k] = *sub;
+        }
+        if (ctor->children > 0) node.a = child[0];
+        if (ctor->children > 1) node.b = child[1];
+        if (ctor->children > 2) node.c = child[2];
+
+        if (arena_.nodes.size() >= kMaxExprNodes) {
+            err = std::format("expression has more than {} nodes", kMaxExprNodes);
+            return std::nullopt;
+        }
+        arena_.nodes.push_back(node);
+        const uint32_t position = static_cast<uint32_t>(arena_.nodes.size()) - 1;
+        seen_.emplace(identity, position);
+        return position;
+    }
+
+    // The arena, with the root last, which is what the IR means by an
+    // expression. A shared subtree can leave the root not at the end, so it is
+    // copied there when that happens rather than being assumed.
+    Expression take(uint32_t root) {
+        if (root + 1 != arena_.nodes.size()) arena_.nodes.push_back(arena_.nodes[root]);
+        return std::move(arena_);
+    }
+
+private:
+    lua_State*                            L_;
+    const std::vector<std::string>&       fieldNames_;
+    Expression                            arena_;
+    std::map<const void*, uint32_t>       seen_;
+};
+
+// --- reading the returned table ---------------------------------------------
 
 std::optional<lua_Integer> integerField(lua_State* L, int table, const char* name, std::string& err) {
     lua_getfield(L, table, name);
@@ -545,21 +785,97 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
     }
 
     const uint32_t N = neighbourCount(ir.dimensions, ir.neighbourhood);
-    const auto size = tableSize(ir.kind, ir.states, N);
-    if (!size || *size > kLutMaxEntries) {
-        return LuaError{std::format("kind {} with {} states and {} neighbours needs {} table entries, "
-                                    "against a limit of {}",
-                                    toString(ir.kind), ir.states, N,
-                                    size ? std::to_string(*size) : "more than 2^64", kLutMaxEntries)};
+
+    // Auxiliary fields (F-031). Names first, then the writes, so that a field's
+    // expression may read a field declared after it: the fields of a site are
+    // simultaneous, and making the order matter would be an accident of how the
+    // script was written. The validator reads them in the same two passes.
+    std::vector<std::string> fieldNames;
+    lua_getfield(L, rule, "fields");
+    if (!lua_isnil(L, -1)) {
+        const int list = lua_gettop(L);
+        if (!lua_istable(L, list)) {
+            return LuaError{std::format("'fields' must be a list, not a {}", typeName(L, list))};
+        }
+        const lua_Unsigned count = lua_rawlen(L, list);
+        for (lua_Unsigned i = 0; i < count; ++i) {
+            lua_rawgeti(L, list, static_cast<lua_Integer>(i + 1));
+            const int entry = lua_gettop(L);
+            if (!lua_istable(L, entry)) {
+                return LuaError{std::format("fields[{}] is a {}, not a table", i + 1, typeName(L, entry))};
+            }
+            Field f;
+            const auto name = stringField(L, entry, "name", err);
+            if (!err.empty()) return LuaError{err};
+            if (!name || name->empty()) return LuaError{std::format("fields[{}] needs a 'name'", i + 1)};
+            f.name = *name;
+            if (const auto ct = stringField(L, entry, "cell_type", err)) {
+                const auto parsed = core::parseCellType(*ct);
+                if (!parsed) return LuaError{std::format("field '{}' has an unknown cell_type '{}'", f.name, *ct)};
+                f.cell_type = *parsed;
+            }
+            if (!err.empty()) return LuaError{err};
+            ir.fields.push_back(std::move(f));
+            fieldNames.push_back(ir.fields.back().name);
+            lua_pop(L, 1);
+        }
+        // Second pass for the writes, now that every name is known.
+        for (lua_Unsigned i = 0; i < count; ++i) {
+            lua_rawgeti(L, list, static_cast<lua_Integer>(i + 1));
+            const int entry = lua_gettop(L);
+            lua_getfield(L, entry, "write");
+            if (!lua_isnil(L, -1)) {
+                ExprReader reader(L, fieldNames);
+                const auto root = reader.read(lua_gettop(L), 0, err);
+                if (!root) {
+                    return LuaError{std::format("field '{}': {}", ir.fields[i].name, err)};
+                }
+                ir.fields[i].write = reader.take(*root);
+            }
+            lua_pop(L, 2);
+        }
     }
-    const TableLayout layout(ir.kind, ir.states, N);
+    lua_pop(L, 1);
 
     lua_getfield(L, rule, "transition");
     if (lua_isnil(L, -1)) return LuaError{"the rule needs a 'transition'"};
-    Table table;
-    if (!buildTable(L, lua_gettop(L), ir, layout, N, table, err)) return LuaError{err};
-    lua_pop(L, 1);
-    ir.transition = std::move(table);
+
+    // A function or an array is a table rule, enumerated as it always was; an
+    // expression built with `expr.*` is an expression rule. They are told apart
+    // by shape rather than by a `kind`, because a script that wrote one and
+    // declared the other would be describing two different rules (D-023).
+    bool isExpression = false;
+    if (lua_istable(L, -1) && lua_rawlen(L, -1) == 0) {
+        lua_getfield(L, -1, "op");
+        isExpression = lua_type(L, -1) == LUA_TSTRING;
+        lua_pop(L, 1);
+    }
+
+    if (isExpression) {
+        ir.kind = Kind::Expression;
+        ExprReader reader(L, fieldNames);
+        const auto root = reader.read(lua_gettop(L), 0, err);
+        if (!root) return LuaError{std::format("transition: {}", err)};
+        ir.transition = reader.take(*root);
+        lua_pop(L, 1);
+    } else {
+        if (!ir.fields.empty()) {
+            return LuaError{"a rule with auxiliary fields needs an expression transition, "
+                            "because a table cannot express a field write"};
+        }
+        const auto size = tableSize(ir.kind, ir.states, N);
+        if (!size || *size > kLutMaxEntries) {
+            return LuaError{std::format("kind {} with {} states and {} neighbours needs {} table entries, "
+                                        "against a limit of {}",
+                                        toString(ir.kind), ir.states, N,
+                                        size ? std::to_string(*size) : "more than 2^64", kLutMaxEntries)};
+        }
+        const TableLayout layout(ir.kind, ir.states, N);
+        Table table;
+        if (!buildTable(L, lua_gettop(L), ir, layout, N, table, err)) return LuaError{err};
+        lua_pop(L, 1);
+        ir.transition = std::move(table);
+    }
 
     readMetadata(L, rule, ir);
 

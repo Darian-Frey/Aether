@@ -277,14 +277,40 @@ int runCompare(const std::string& a, const std::string& b) {
         return fail(std::format("{} of {} bytes differ, first at cell {}",
                                 diff, sa.current.size(), first / cellBytes));
     }
+    // Auxiliary fields, on the same terms as the state (F-031). A comparison
+    // that only read the state would call two runs identical while the rule's
+    // own bookkeeping had diverged, and a field feeds the next generation's
+    // state, so that is a difference waiting rather than a difference avoided.
+    if (sa.fields.size() != sb.fields.size()) {
+        return fail(std::format("field counts differ: {} vs {}", sa.fields.size(), sb.fields.size()));
+    }
+    for (size_t f = 0; f < sa.fields.size(); ++f) {
+        const sim::SessionField& fa = sa.fields[f];
+        const sim::SessionField& fb = sb.fields[f];
+        if (fa.name != fb.name || fa.cell_type != fb.cell_type) {
+            return fail(std::format("field {} is '{}' ({}) and '{}' ({})", f, fa.name,
+                                    core::toString(fa.cell_type), fb.name, core::toString(fb.cell_type)));
+        }
+        if (fa.current.size() != fb.current.size()) {
+            return fail(std::format("field '{}' sizes differ", fa.name));
+        }
+        size_t fdiff = 0, ffirst = fa.current.size();
+        for (size_t i = 0; i < fa.current.size(); ++i) {
+            if (fa.current[i] != fb.current[i]) { if (fdiff == 0) ffirst = i; ++fdiff; }
+        }
+        if (fdiff != 0) {
+            return fail(std::format("field '{}': {} of {} bytes differ, first at cell {}", fa.name,
+                                    fdiff, fa.current.size(), ffirst / core::cellBytes(fa.cell_type)));
+        }
+    }
     if (sa.lineage.size() != sb.lineage.size()) return fail("lineage lengths differ");
     for (size_t i = 0; i < sa.lineage.size(); ++i) {
         if (sa.lineage[i].ir_hash != sb.lineage[i].ir_hash) return fail(std::format("lineage entry {} differs", i));
     }
-    std::printf("identical: %llu %s cells at generation %llu, %zu lineage entries\n",
+    std::printf("identical: %llu %s cells at generation %llu, %zu lineage entries, %zu field(s)\n",
                 static_cast<unsigned long long>(sa.spec.cellCount()),
                 std::string(core::toString(sa.spec.cell_type)).c_str(),
-                static_cast<unsigned long long>(sa.generation), sa.lineage.size());
+                static_cast<unsigned long long>(sa.generation), sa.lineage.size(), sa.fields.size());
     return 0;
 }
 

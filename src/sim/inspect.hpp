@@ -29,6 +29,12 @@
 #include <span>
 #include <vector>
 
+// States only. A rule that declares auxiliary fields is not describable here:
+// the transition is read out of `sim::stepCell`, which needs a buffer pair per
+// field, and the inspector's caller is the editor's pad, which holds one grid
+// (BUG-022, D-018 option B). `sim::Scratch` refuses such a rule, which is what
+// keeps this function from being handed one.
+
 namespace aether::sim {
 
 // One neighbour, as the step saw it.

@@ -15,7 +15,9 @@
 #include "sim/cpu_step.hpp"
 #include "rule/dsl.hpp"
 #include "sim/gpu_step.hpp"
+#include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
+#include "support/fields.hpp"
 #include "support/gl_context.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -32,65 +34,10 @@ using aether::rule::ExprOp;
 using aether::rule::Expression;
 using aether::sim::cpuStep;
 using aether::test::GlContext;
+using FieldPair = aether::test::HostFields;
 using aether::test::requireGl;
 
 namespace {
-
-// A field pair with the spans the stepper wants. Declaration order is the
-// rule's, and both halves are allocated up front: the step loop allocates
-// nothing (invariant 8) and this is the harness, not the engine.
-class FieldPair {
-public:
-    FieldPair(const rule::CompiledRule& rule, uint64_t cells) {
-        for (const rule::CompiledField& f : rule.fields) {
-            const size_t bytes = cells * core::cellBytes(f.cell_type);
-            buffers_[0].emplace_back(bytes, uint8_t{0});
-            buffers_[1].emplace_back(bytes, uint8_t{0});
-        }
-        rebuild();
-    }
-
-    sim::FieldReads  reads()  const { return reads_; }
-    sim::FieldWrites writes() const { return writes_; }
-
-    void swap() {
-        cur_ ^= 1;
-        rebuild();
-    }
-
-    // Read and write one field's cell, whichever type it holds.
-    void setU8(size_t f, size_t i, uint8_t v) { buffers_[cur_][f][i] = v; }
-    uint8_t u8(size_t f, size_t i) const { return buffers_[cur_][f][i]; }
-
-    void setF32(size_t f, size_t i, float v) {
-        std::memcpy(buffers_[cur_][f].data() + i * sizeof(float), &v, sizeof(float));
-    }
-    float f32(size_t f, size_t i) const {
-        float v = 0.0f;
-        std::memcpy(&v, buffers_[cur_][f].data() + i * sizeof(float), sizeof(float));
-        return v;
-    }
-
-    // The bytes as the GPU wants them, for seeding both sides from one fill.
-    const std::vector<uint8_t>& raw(size_t f) const { return buffers_[cur_][f]; }
-
-    void fillU8(size_t f, uint8_t v) {
-        for (uint8_t& b : buffers_[cur_][f]) b = v;
-    }
-
-private:
-    void rebuild() {
-        reads_.clear();
-        writes_.clear();
-        for (auto& b : buffers_[cur_])     reads_.emplace_back(b);
-        for (auto& b : buffers_[cur_ ^ 1]) writes_.emplace_back(b);
-    }
-
-    std::vector<std::vector<uint8_t>>      buffers_[2];
-    std::vector<std::span<const uint8_t>>  reads_;
-    std::vector<std::span<uint8_t>>        writes_;
-    int cur_ = 0;
-};
 
 rule::RuleIR base(uint8_t radius = 1) {
     rule::RuleIR ir;
@@ -438,15 +385,10 @@ TEST_CASE("a multi-field rule steps identically on both paths", "[sim][fields][g
     core::GpuGrid& gpu = std::get<core::GpuGrid>(stateGpu);
     gpu.upload(host.current());
 
-    std::vector<core::GpuGrid> fieldGpu;
-    for (size_t f = 0; f < rule.fields.size(); ++f) {
-        core::GridSpec fs = spec;
-        fs.cell_type = rule.fields[f].cell_type;
-        auto g = core::GpuGrid::create(fs, core::queryVram());
-        REQUIRE(std::holds_alternative<core::GpuGrid>(g));
-        fieldGpu.push_back(std::move(std::get<core::GpuGrid>(g)));
-        fieldGpu.back().upload(fields.raw(f));
-    }
+    auto madeFields = aether::test::GpuFields::create(rule, spec);
+    REQUIRE(std::holds_alternative<aether::test::GpuFields>(madeFields));
+    aether::test::GpuFields& fieldGpu = std::get<aether::test::GpuFields>(madeFields);
+    fieldGpu.upload(fields);
 
     sim::GpuStepper stepper;
     if (auto e = stepper.setRule(rule, spec)) FAIL(e->message);
@@ -469,11 +411,9 @@ TEST_CASE("a multi-field rule steps identically on both paths", "[sim][fields][g
         host.swap();
         fields.swap();
 
-        std::vector<sim::FieldTextures> textures;
-        for (core::GpuGrid& f : fieldGpu) textures.push_back({f.current(), f.next()});
-        stepper.step(gpu.current(), gpu.next(), textures);
+        stepper.step(gpu.current(), gpu.next(), fieldGpu.textures());
         gpu.swap();
-        for (core::GpuGrid& f : fieldGpu) f.swap();
+        fieldGpu.swap();
 
         got.assign(spec.bytesPerBuffer(), 0);
         gpu.download(got);
@@ -485,7 +425,7 @@ TEST_CASE("a multi-field rule steps identically on both paths", "[sim][fields][g
         }
         for (size_t f = 0; f < rule.fields.size(); ++f) {
             got.assign(fields.raw(f).size(), 0);
-            fieldGpu[f].download(got);
+            fieldGpu.download(f, got);
             // Bitwise, the f32 field included: `precise` and the no-division
             // rule exist so the two are equal and not merely close (AV-015).
             if (got == fields.raw(f)) continue;
@@ -791,4 +731,30 @@ TEST_CASE("a rule change keeps a field it redeclares and zeroes one it does not"
         CHECK(s.fieldHost(0).spec().cell_type == core::CellType::F32);
         for (uint8_t v : s.fieldHost(0).current()) CHECK(v == 0);
     }
+}
+
+TEST_CASE("the pattern editor's pad refuses a field rule", "[sim][fields][scratch]") {
+    // BUG-022. The pad is one grid and the editor opens it with whatever rule is
+    // running, which since F-031 step 4 can declare fields. `cpuStep` asserts it
+    // has a buffer pair apiece and a Release build does not check, so without
+    // this the pad read past the end of nothing. Refused where it can be said.
+    rule::RuleIR ir = base();
+    rule::Field f;
+    f.name = "energy";
+    ir.fields.push_back(f);
+
+    const core::GridSpec spec = spec2d(16, 16);
+    auto made = sim::Scratch::make(spec, ir);
+    REQUIRE(std::holds_alternative<sim::PatternError>(made));
+    CHECK(std::get<sim::PatternError>(made).message.find("states only") != std::string::npos);
+
+    // And on a pad that already exists, which is the path the editor takes when
+    // the running rule changes under it.
+    auto plain = sim::Scratch::make(spec, *rule::parseDsl("B3/S23").ir);
+    REQUIRE(std::holds_alternative<sim::Scratch>(plain));
+    sim::Scratch& pad = std::get<sim::Scratch>(plain);
+    const auto err = pad.setRule(ir);
+    REQUIRE(err.has_value());
+    CHECK(err->message.find("states only") != std::string::npos);
+    CHECK(pad.rule().fields.empty());   // refused whole
 }
