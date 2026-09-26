@@ -4,7 +4,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 
 ## [Unreleased]
 
+*Nothing yet.*
+
+## [0.1.0] — 2026-09-26
+
+The first release. Phases 1 to 6 of the roadmap: the engine, both execution paths,
+mutation and lineage, sessions that replay bit-identically, three dimensions,
+hexagonal lattices, Lua and codegen, continuous states, and the presentation work
+that made it usable rather than merely correct.
+
+Nineteen bundled rules and nine bundled patterns, every one of them checked by
+running it. Every SPEC §12 performance threshold measured and met on the target
+machine, with the method and the noise floor recorded in `BENCHMARKS.md` and a
+script to reproduce them.
+
 ### Added
+- `--version` (`-V`): the binary reports the version it was built from. A session records its own format version but not the application's, so this was the only thing missing before a build could say what produced a run (2026-09-26).
+- The equivalence suite sweeps the bundled library itself — all eighteen discrete rules, three boundaries, 1000 generations, with and without cell mutation, on both GPUs. That closes F-002's third acceptance point, which had been outstanding since Phase 1 (2026-09-26).
 - `BENCHMARKS.md` and `scripts/benchmark.sh`: baselines for every SPEC §12 threshold, all met on the T1200. Rates come from the difference between two run lengths, which cancels the 100–220 ms of process start-up that would otherwise be charged to the measurement, and the 4% noise floor is stated so a difference smaller than that is not read as a change. The integrated GPU is recorded for contrast and misses the 3D target — 6 gen/s against 30 — which is worth knowing as unusable rather than slow (2026-09-25).
 - `LUA.md`, a cookbook for the Lua front end: the shape of a rule, what each `kind` passes to a transition function and why you would pick it, dimensions and lattices, continuous rules and their kernels, the sandbox and its two budgets, every error message verbatim, and recipes. Every example was run, and the ones that claim to be a known automaton were proved by `compare` against their notation twin rather than asserted (2026-09-24).
 - Screenshots in `docs/images/`, used by both the README and the manual: the window itself, Langton's loops, rule 90's Sierpinski triangle, Bays' 3D Life, a Lenia field, a hexagonal lattice and the pattern editor with its inspector. All captured from real runs — the Langton colony through a session replayed to generation 700, since the pattern has to be placed by hand otherwise (2026-09-23).

@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (author); Claude (documentation scaffold, 2026-08-30)
-> **Last reviewed:** 2026-09-23
-> **Why this status:** Phases 1–5 complete (2D and 3D discrete core, hex lattices, mutation, lineage, sessions, Lua, codegen, rule library, continuous states); Phase 6 (presentation and release) under way — patterns and the editor are done, the release checklist is not.
+> **Last reviewed:** 2026-09-26
+> **Why this status:** Phases 1–6 complete — the 2D and 3D discrete core, hex lattices, mutation, lineage, sessions, Lua, codegen, continuous states, and the presentation work of Phase 6. Released as 0.1.0 on 2026-09-26. Phase 7 (ecosystem) is next and not started.
 
 # Aether
 

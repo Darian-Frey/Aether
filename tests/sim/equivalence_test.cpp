@@ -7,6 +7,7 @@
 #include "core/gpu_grid.hpp"
 #include "core/grid.hpp"
 #include "rule/dsl.hpp"
+#include "rule/library.hpp"
 #include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
 #include "sim/inspect.hpp"
@@ -618,6 +619,71 @@ TEST_CASE("the inspector predicts what the stepper writes with mutation on", "[i
                 }
             }
             CHECK(overridden > 0);
+        }
+    }
+}
+
+// --- The bundled library as the fixture set (F-002) --------------------------
+//
+// F-002's acceptance is bit-identical grids "for every rule in the bundled
+// library", and until now the suite proved it for fifteen fixtures written to
+// exercise the table kinds instead. Those are the better test of the index
+// arithmetic; these are the better test of what somebody actually runs. A
+// bundled rule that stepped differently on the two paths would be shipped,
+// named in the Library panel, and wrong — and nothing here would have said so.
+//
+// Continuous rules are excluded and covered by `continuous_test.cpp`: this
+// harness seeds a grid by writing bytes, which on an f32 grid writes into the
+// middle of values rather than producing them.
+
+namespace {
+
+std::vector<Fixture> libraryFixtures() {
+    std::vector<Fixture> out;
+    for (const rule::LibraryRule& entry : rule::loadLibrary({AETHER_RULES_DIR})) {
+        auto built = rule::compileLibraryRule(entry, rule::Boundary::Wrap);
+        if (const auto* e = std::get_if<std::string>(&built)) {
+            FAIL("bundled rule " + entry.id + ": " + *e);
+        }
+        rule::RuleIR ir = std::get<rule::RuleIR>(std::move(built));
+        if (ir.cell_type == core::CellType::F32) continue;
+        out.push_back({entry.id, std::move(ir)});
+    }
+    return out;
+}
+
+// Small enough to run every bundled rule in a reasonable time, and none of
+// them a multiple of the workgroup size.
+core::GridSpec specFor(const rule::RuleIR& ir) {
+    switch (ir.dimensions) {
+        case 1:  return {1, 131, 1, 1};
+        case 3:  return {3, 19, 14, 11};
+        default: return {2, 61, 43, 1};
+    }
+}
+
+}  // namespace
+
+TEST_CASE("every bundled rule steps identically on both paths", "[gpu][equivalence][library]") {
+    GlContext gl;
+    requireGl(gl);
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    const auto fixtures = libraryFixtures();
+    REQUIRE(fixtures.size() >= 15);
+    for (const Fixture& f : fixtures) {
+        DYNAMIC_SECTION(f.name << " / " << rule::toString(boundary)) {
+            checkEquivalence(f, boundary, specFor(f.ir));
+        }
+    }
+}
+
+TEST_CASE("every bundled rule steps identically with cell mutation on", "[gpu][equivalence][library]") {
+    GlContext gl;
+    requireGl(gl);
+    const auto fixtures = libraryFixtures();
+    for (const Fixture& f : fixtures) {
+        DYNAMIC_SECTION(f.name << " / wrap / p=0.02") {
+            checkEquivalence(f, rule::Boundary::Wrap, specFor(f.ir), 0.02);
         }
     }
 }

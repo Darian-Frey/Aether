@@ -37,8 +37,10 @@ People who want to explore cellular automata rather than run one specific automa
 - Every rule executable on CPU as well as GPU
 - CPU and GPU produce bit-identical grids after 1000 generations for every rule in the bundled library, with cell mutation both off and on
 - Selectable at runtime by flag, not compile time
-**Status:** In progress
-**Progress:** CPU oracle for every table kind; equivalence suite of 15 rules × 3 boundaries × 1000 generations on both GPUs; runtime path switch in the UI and `--cpu` flag (2026-09-11). Cell mutation is on both paths and in the equivalence suite (2026-09-11). Remaining: the bundled library as the fixture set (Phase 4).
+**Status:** Complete (2026-09-26).
+**Progress:** CPU oracle for every table kind; equivalence suite of 15 hand-written fixtures × 3 boundaries × 1000 generations on both GPUs; runtime path switch in the UI and `--cpu` flag (2026-09-11). Cell mutation is on both paths and in the equivalence suite (2026-09-11).
+**Completed 2026-09-26** with the third acceptance point, which had been outstanding since Phase 1 and was noticed while checking the project against its own registers before a release. The suite now also sweeps **the bundled library itself** — all eighteen discrete rules under all three boundaries for 1000 generations, and again with cell mutation at `p = 0.02` — on both GPUs, in about twelve seconds. The hand-written fixtures remain, and the two sets answer different questions: those exercise the four table kinds and the codegen path deliberately, while these are what somebody actually runs. A bundled rule that stepped differently on the two paths would have been shipped, named in the Library panel, and wrong, and nothing would have said so.
+`rules/lenia.lua` is excluded and covered by `continuous_test.cpp` instead: this harness seeds a grid by writing bytes, which on an `f32` grid writes into the middle of values rather than producing them.
 **Notes:** Exists to make AV-007 detectable. Not a performance path.
 
 ### F-003 GPU compute stepping

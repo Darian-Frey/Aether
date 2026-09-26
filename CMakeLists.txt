@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(aether
-    VERSION 0.0.1
+    VERSION 0.1.0
     DESCRIPTION "Cellular automata laboratory"
     LANGUAGES C CXX)
 
@@ -15,6 +15,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(AETHER_BUILD_TESTS "Build the test suite" ON)
+
+# The version the binary reports. A session records its own format version
+# (SPEC 11) but not the application's, so `aether --version` is the only way
+# somebody holding a build can say what produced a run.
+add_compile_definitions(AETHER_VERSION="${PROJECT_VERSION}")
 
 set(AETHER_WARNINGS
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion>)

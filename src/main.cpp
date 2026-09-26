@@ -52,6 +52,7 @@ void usage() {
               "  --rule-mutation N[:M]  mutate the rule every N generations with M edits\n"
               "  --cell-mutation P[:K]  mutation probability, optionally in blocks of 2^K cells\n"
               "  --gl-check   verify the compute path and exit\n"
+              "  --version    print the version and exit\n"
               "  --load FILE  resume a saved session\n"
               "  --pattern F  open a pattern file, ready to place\n"
               "  --frames N   exit after N frames (for scripted runs)\n"
@@ -102,6 +103,10 @@ int main(int argc, char** argv) {
         };
         if (a == "--gl-check") return glCheck();
         if (a == "--help" || a == "-h") { usage(); return 0; }
+        if (a == "--version" || a == "-V") {
+            std::printf("aether %s\n", AETHER_VERSION);
+            return 0;
+        }
         if (a == "--rule") { opts.rule = value("--rule"); opts.ruleIsLua = false; }
         else if (a == "--lua") {
             const char* path = value("--lua");

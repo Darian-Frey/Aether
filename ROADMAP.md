@@ -98,7 +98,7 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 
 ## Phase 6 — Presentation and release
 **Goal:** The things that make it pleasant rather than merely correct.
-**Status:** In progress
+**Status:** Complete 2026-09-26
 **Features delivered:** F-005, F-012, F-021, F-022, F-024, F-027, F-028, F-029, F-030
 **Deliverables:**
 - [x] Screensaver mode: fullscreen playlist of bundled rules with optional mutation, exits on input (F-024, added 2026-09-12; complete 2026-09-23). `ui/screensaver` is a deterministic playlist, so what it showed can be found again; each entry prints the command that reproduces it. The `XSCREENSAVER_WINDOW` half was conditional on proving practical and does not — raylib makes its own window and cannot adopt one
@@ -111,7 +111,8 @@ Phases are append-only. Mark Complete with an ISO date; do not delete.
 - [x] PNG and frame-sequence export (F-021, complete 2026-09-23). An Export section writes the viewport — the automaton, not the panels — as a PNG, or as a numbered sequence over a generation range. A recording steps by generations rather than by frames, so the sequence is the run and not the machine's frame rate; `ui/capture` holds that arithmetic and is tested without a display
 - [x] Headless mode (F-022, complete 2026-09-23). `aether headless --png FILE` dumps the final grid and `--frame-dir DIR` a numbered sequence, through the same renderer and palette pass the window uses rather than a second host-side mapping of states to colours. 3D is refused rather than guessed at, a volume needing a camera. The `frames.*` CTest cases check the sequence's arithmetic against the run's own final state
 - [x] `BENCHMARKS.md` with baseline numbers for each acceptance target (complete 2026-09-25). Every SPEC §12 threshold measured and met on the T1200, with the method, the 4% noise floor and `scripts/benchmark.sh` to reproduce them; the integrated GPU is recorded for contrast and misses the 3D target at 6 gen/s against 30
-**Acceptance:** A first tagged release with a populated rule library, a populated pattern library and reproducible benchmark figures.
+**Acceptance:** A first tagged release with a populated rule library, a populated pattern library and reproducible benchmark figures. **Met** 2026-09-26 as `v0.1.0`: nineteen bundled rules and nine bundled patterns, each checked by running it, and `BENCHMARKS.md` with every SPEC §12 threshold measured on the T1200 and `scripts/benchmark.sh` to take them again.
+F-002 was closed in the same pass. Its third acceptance point — bit-identical grids for every rule *in the bundled library* — had been outstanding since Phase 1 behind the note "Remaining: the bundled library as the fixture set (Phase 4)", and Phase 4 came and went without it. The equivalence suite now sweeps all eighteen discrete bundled rules under three boundaries, with and without cell mutation, on both GPUs. It passes, which means nothing was hiding; it was checked because the register said it had not been.
 
 ## Phase 7 — Ecosystem
 **Goal:** Cells that inherit a rule, compete for a resource and are selected rather than merely mutated.
