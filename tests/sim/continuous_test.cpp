@@ -11,6 +11,7 @@
 #include "core/gpu_grid.hpp"
 #include "rule/compile.hpp"
 #include "rule/growth.hpp"
+#include "rule/library.hpp"
 #include "rule/lua.hpp"
 #include "sim/cpu_step.hpp"
 
@@ -341,4 +342,91 @@ TEST_CASE("a long run without synchronisation still comes back right (BUG-011)",
     INFO("cpu mass " << mass << " of " << cpuCells.size() << ", " << differing << " cells differ");
     CHECK(mass > 0.05f * static_cast<float>(cpuCells.size()));
     CHECK(differing == 0);
+}
+
+// --- The bundled continuous rules, on both paths (F-002) ---------------------
+//
+// The library sweep in `equivalence_test.cpp` covers every discrete bundled
+// rule and skips the continuous ones, because that harness seeds a grid by
+// writing bytes and an f32 cell holds a value rather than a byte. Skipping
+// them there left `rules/lenia.lua` — the one continuous rule anybody can load
+// from the Library panel — in no equivalence test at all, which is not what
+// F-002 asks for. This is the other half.
+//
+// Written as a sweep rather than as a test of Lenia, so that a second bundled
+// continuous rule is covered by existing it rather than by somebody
+// remembering.
+
+TEST_CASE("every bundled continuous rule steps identically on both paths", "[gpu][continuous][library]") {
+    aether::test::GlContext gl;
+    aether::test::requireGl(gl);
+
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero, rule::Boundary::Mirror);
+    const auto withMutation = GENERATE(false, true);
+
+    size_t checked = 0;
+    for (const rule::LibraryRule& entry : rule::loadLibrary({AETHER_RULES_DIR})) {
+        auto built = rule::compileLibraryRule(entry, boundary);
+        if (const auto* e = std::get_if<std::string>(&built)) FAIL(entry.id + ": " + *e);
+        rule::RuleIR ir = std::get<rule::RuleIR>(std::move(built));
+        if (ir.cell_type != core::CellType::F32) continue;
+        ir.boundary = boundary;
+        ++checked;
+
+        DYNAMIC_SECTION(entry.id << " / " << rule::toString(boundary)
+                                 << (withMutation ? " / p=0.02" : " / no mutation")) {
+            auto made = rule::compileRule(ir);
+            if (const auto* e = std::get_if<rule::CompileError>(&made)) FAIL(e->message);
+            const rule::CompiledRule r = std::get<rule::CompiledRule>(std::move(made));
+
+            // Wider than the kernel's diameter so the neighbourhood does not
+            // wrap the grid several times, and no dimension a multiple of the
+            // workgroup size.
+            const core::GridSpec spec{2, 53, 41, 1, core::CellType::F32};
+            core::HostGrid host(spec);
+            {
+                auto cells = host.currentFloats();
+                for (size_t i = 0; i < cells.size(); ++i) {
+                    cells[i] = static_cast<float>((i * 2654435761u) % 997u) / 997.0f;
+                }
+            }
+
+            auto gpuMade = core::GpuGrid::create(spec, core::queryVram());
+            REQUIRE(std::holds_alternative<core::GpuGrid>(gpuMade));
+            core::GpuGrid& gpu = std::get<core::GpuGrid>(gpuMade);
+            gpu.upload(host.current());
+
+            sim::GpuStepper stepper;
+            if (const auto e = stepper.setRule(r, spec)) FAIL(e->message);
+            const sim::CellMutation mutation{
+                withMutation ? sim::mutationThreshold(0.02) : 0u, 0xc047eeull, 0};
+            stepper.setCellMutation(mutation);
+
+            for (int i = 0; i < 1000; ++i) {
+                sim::cpuStep(r, host, static_cast<uint64_t>(i), mutation);
+                stepper.step(gpu);
+            }
+
+            std::vector<uint8_t> fromGpu(spec.bytesPerBuffer());
+            gpu.download(fromGpu);
+            const std::span<const float> gpuCells{reinterpret_cast<const float*>(fromGpu.data()),
+                                                  spec.cellCount()};
+            const auto cpuCells = host.currentFloats();
+            size_t differing = 0, firstDiff = cpuCells.size();
+            float worst = 0.0f;
+            for (size_t i = 0; i < cpuCells.size(); ++i) {
+                if (cpuCells[i] != gpuCells[i]) {
+                    if (differing == 0) firstDiff = i;
+                    ++differing;
+                    worst = std::max(worst, std::abs(cpuCells[i] - gpuCells[i]));
+                }
+            }
+            INFO(std::format("{}: {} of {} cells differ after 1000 generations, worst by {}; first at {}",
+                             entry.id, differing, cpuCells.size(), worst, firstDiff));
+            CHECK(differing == 0);
+        }
+    }
+    // A library with no continuous rule in it would make this pass by doing
+    // nothing, which is the failure mode of every sweep.
+    CHECK(checked >= 1);
 }

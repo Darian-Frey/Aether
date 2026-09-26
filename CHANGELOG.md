@@ -4,7 +4,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com). Entries reference
 
 ## [Unreleased]
 
-*Nothing yet.*
+### Fixed
+- The bundled Lenia rule is under test on both execution paths (F-002). The library sweep added for 0.1.0 excluded continuous rules on the grounds that `continuous_test.cpp` covered them; it did not — that file builds its own fixtures and had never loaded a bundled rule, so the one continuous rule in the library was in no equivalence test at all. It now is: every bundled `f32` rule, three boundaries, 1000 generations, with and without cell mutation, compared bitwise on both GPUs. It passes, and passed first time, so nothing was wrong — but nothing was checking either (2026-09-27).
 
 ## [0.1.0] — 2026-09-26
 
