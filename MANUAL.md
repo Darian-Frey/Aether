@@ -19,6 +19,7 @@ This manual is in three parts. **Getting started** is enough to see something mo
 - [Writing rules](#writing-rules)
 - [Dimensions and lattices](#dimensions-and-lattices)
 - [Continuous automata](#continuous-automata)
+- [The resource](#the-resource)
 - [The pattern editor](#the-pattern-editor)
 - [Reproducibility](#reproducibility)
 - [Running without a window](#running-without-a-window)
@@ -111,6 +112,18 @@ Two independent controls that let a run drift:
 - **Rule mutation** makes small edits to the rule itself every *N* generations — one table entry changed, or one literal in an expression nudged. The rule stays valid; it just stops being the rule you typed.
 
 Both draw from seeded streams, so a run with mutation on is exactly as reproducible as one without.
+
+### Resource
+
+Only appears for a rule that declares one, since every control in it would otherwise be a slider that does nothing. `rules/grazing.lua` is the bundled example.
+
+The panel leads with the **seed**, because a resource nobody has seeded is zero everywhere and the sliders below it then do nothing visible — it says so in orange until you press the button. *patches* is how many regions of fertility lie across the grid, *detail* how much finer texture sits inside them, and *poorest*/*richest* the range they span. **Seed the world** draws a fresh capacity landscape and fills the resource to it. The draw comes from stream A, so it is part of the session and replays.
+
+Then the controls, which are run-time and cost nothing to move — no recompile, no lineage entry:
+
+- **regrowth** is the harshness of the world and the one to reach for first. It is the fraction of the gap to capacity closed each generation: 0 never recovers what is taken, 0.5 recovers almost at once. On `grazing` at 96×96 it takes the population from 22% of the grid to 89%.
+- **trickle** is a constant addition proportional to capacity, whatever the current level. It is the damping: it lets a patch scoured to nothing come back, so a low regrowth makes a poor world rather than a permanently dead one.
+- **spread** is exchange with the neighbours, so a rich patch bleeds into a poor one. It conserves under a wrap boundary; under zero the edge loses material, which is a world with an edge behaving like one. Under a **mirror** boundary it is disabled and says so — an edge cell counts its inward neighbour twice while that neighbour counts it once, so spreading there would create material rather than move it.
 
 ### Lineage
 
@@ -252,6 +265,42 @@ These are written in Lua, because the kernel is computed rather than listed. `ru
 Two growth forms are available, `rectangular` and `polynomial`. A Gaussian is deliberately not among them: it needs `exp`, whose precision the graphics driver decides, and that would put the GPU out of step with the reference implementation.
 
 ---
+
+## The resource
+
+Most rules in this manual decide a cell's fate from its neighbours and nothing else. A **resource** rule decides it from a quantity the world holds: a scalar field per site that the engine refills and the rule draws down.
+
+Two fields make one: the **resource** itself, and its per-site **carrying capacity** — the ceiling it regrows toward, which nothing but the seed ever writes. Both are `f32`. The rule reads either at its own site or at a neighbour's, and its write on the resource is the *draw-down* and nothing more. Regrowth, the trickle, spreading and the clamp are the engine's, applied in that order to whatever the rule left.
+
+That division is deliberate and it is why the rates are sliders rather than numbers in the rule. A constant in a rule is part of the rule, so moving it would recompile and add a lineage entry — 64 ms a drag, and a lineage full of noise. And the ordering matters more than it looks: regrowth *after* consumption rather than before is the difference between a quantity that is conserved and one that leaks, and a leak in a quantity under selection does not sit quietly producing slightly wrong totals. Anything that exploits it outbreeds anything that does not, so the first symptom is a population thriving for no visible reason.
+
+### Trying it
+
+```bash
+aether --rule @grazing --size 256x256
+```
+
+Open the **Resource** panel, press *Seed the world*, and press space. Plants fill the fertile ground and stay off the poor ground; the boundary between them is drawn by the noise rather than by the rule. Then drag **regrowth** and watch the population follow it.
+
+Headlessly, the same thing, and this is how the figures in the rule's own header were measured:
+
+```bash
+aether headless --rule @grazing --size 96x96 --generations 800     --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15 --png out.png
+```
+
+`--seed-resource` is `patches:octaves:poorest:richest` and `--resource` is `regrowth:trickle:spread`. Without `--seed-resource` the world is empty and everything starves, which is the honest default: seeding draws from stream A, so doing it implicitly would consume draws you did not ask for.
+
+### Why it settles, and what that tells you
+
+`grazing` reaches a slowly-shifting boundary rather than running forever. That is not a tuning failure; it is what a plant layer does with nothing eating it. The rule's own header works the equilibrium out: a live cell holds its ground exactly where regrowth covers its appetite, at `soil − eat/regrowth`, so ground below a threshold cannot feed one at all. Crowded cells eat two and a half times as much, which is the only reason the boundary keeps moving at all — without that term the rule reaches a fixed point inside four hundred generations.
+
+The interesting version of this wants something that eats the plants, and that is a later feature rather than a slider you are missing.
+
+### The books
+
+The resource is the first quantity in this engine that is meant to be *conserved*, so the engine counts what enters and leaves: regrowth in, consumption out, spreading moved, and whatever the clamp adjusted. The four add up to the change in the total exactly, which is what makes a leak findable rather than merely suspected — it localises to the step that opened it instead of showing up as a total that is slightly wrong.
+
+That accounting earned its keep the day it was written: it caught the first version of spreading creating material out of nothing, by measuring its gradient against two different generations at once. Nothing about the code looked wrong. There is no readout for the books in the window yet; they are checked by the test suite.
 
 ## The pattern editor
 

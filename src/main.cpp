@@ -51,6 +51,8 @@ void usage() {
               "  --rate G     target generations per second (default 60)\n"
               "  --rule-mutation N[:M]  mutate the rule every N generations with M edits\n"
               "  --cell-mutation P[:K]  mutation probability, optionally in blocks of 2^K cells\n"
+              "  --resource R[:T[:S]]   resource regrowth, trickle and spread per generation\n"
+              "  --seed-resource F[:O[:LO[:HI]]]  seed the resource: patches, octaves, range\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --version    print the version and exit\n"
               "  --load FILE  resume a saved session\n"
@@ -143,6 +145,35 @@ int main(int argc, char** argv) {
             const char* v = value("--cell-mutation");
             opts.cellMutationP = std::strtod(v, nullptr);
             if (const char* colon = std::strchr(v, ':')) opts.cellMutationBlock = static_cast<uint32_t>(std::atoi(colon + 1));
+        }
+        // The resource's controls, in the same shape as --cell-mutation: a
+        // run-time control rather than rule text, so it belongs on the command
+        // line and not in the rule file (D-024).
+        else if (a == "--resource") {
+            // REGEN[:TRICKLE[:SPREAD]]
+            const char* v = value("--resource");
+            opts.resource.regen = std::strtof(v, nullptr);
+            if (const char* c1 = std::strchr(v, ':')) {
+                opts.resource.minSeed = std::strtof(c1 + 1, nullptr);
+                if (const char* c2 = std::strchr(c1 + 1, ':')) {
+                    opts.resource.diffusion = std::strtof(c2 + 1, nullptr);
+                }
+            }
+        }
+        else if (a == "--seed-resource") {
+            // FREQ[:OCTAVES[:LOW[:HIGH]]], or bare for the defaults
+            opts.resourceSeed = true;
+            const char* v = value("--seed-resource");
+            opts.resourceNoise.frequency = static_cast<uint32_t>(std::atoi(v));
+            if (const char* c1 = std::strchr(v, ':')) {
+                opts.resourceNoise.octaves = static_cast<uint32_t>(std::atoi(c1 + 1));
+                if (const char* c2 = std::strchr(c1 + 1, ':')) {
+                    opts.resourceNoise.low = std::strtof(c2 + 1, nullptr);
+                    if (const char* c3 = std::strchr(c2 + 1, ':')) {
+                        opts.resourceNoise.high = std::strtof(c3 + 1, nullptr);
+                    }
+                }
+            }
         }
         else if (a == "--generations") generations = std::strtoull(value("--generations"), nullptr, 10);
         else if (a == "--save") savePath = value("--save");

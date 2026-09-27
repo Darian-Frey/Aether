@@ -125,6 +125,10 @@ void App::drawPanels() {
     if (is3D() && ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) drawViewPanel();
     if (ImGui::CollapsingHeader("Brush")) drawBrushPanel();
     if (ImGui::CollapsingHeader("Mutation")) drawMutationPanel();
+    // Only for a rule that has one, because every control in it would otherwise
+    // be a slider that does nothing.
+    if (sim_ && sim_->rule().resource &&
+        ImGui::CollapsingHeader("Resource", ImGuiTreeNodeFlags_DefaultOpen)) drawResourcePanel();
     if (ImGui::CollapsingHeader("Lineage")) drawLineagePanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
     if (ImGui::CollapsingHeader("Export", recording_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawExportPanel();
@@ -429,6 +433,99 @@ void App::drawMutationPanel() {
     ImGui::EndDisabled();
     if (rchanged) {
         sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
+    }
+    ImGui::PopID();
+}
+
+void App::drawResourcePanel() {
+    if (!sim_ || !sim_->rule().resource) return;
+    ImGui::PushID("resource");
+
+    const rule::Resource& r = *sim_->rule().resource;
+    const auto& fields = sim_->rule().fields;
+    ImGui::TextDisabled("%s regenerating toward %s", fields[r.field].name.c_str(),
+                        fields[r.capacity].name.c_str());
+
+    // The seed comes first, because a world nobody has seeded is a world of
+    // zeroes and every slider below it does nothing visible. Saying so is better
+    // than letting somebody conclude the controls are broken.
+    if (!resourceSeeded_) {
+        ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f), "not seeded: the world is empty");
+    }
+    ImGui::SliderInt("patches", &noiseFrequency_, 1, 32, "%d across");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("How many patches of capacity across the grid.\n"
+                                                 "Low is a few big regions, high is a fine mottle.");
+    ImGui::SliderInt("detail", &noiseOctaves_, 1, 6, "%d octaves");
+    ImGui::SliderFloat("poorest", &noiseLow_, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("richest", &noiseHigh_, 0.0f, 1.0f, "%.2f");
+    if (noiseHigh_ < noiseLow_) noiseHigh_ = noiseLow_;
+    if (ImGui::Button("Seed the world")) {
+        sim::NoiseParams np;
+        np.frequency = static_cast<uint32_t>(noiseFrequency_);
+        np.octaves = static_cast<uint32_t>(noiseOctaves_);
+        np.low = noiseLow_;
+        np.high = noiseHigh_;
+        if (auto e = sim_->seedResource(np)) {
+            log_.error(std::format("seed: {}", e->message));
+        } else {
+            resourceSeeded_ = true;
+            log_.info(std::format("seeded {} with {} patches over {} octaves, {:.2f} to {:.2f}",
+                                  fields[r.field].name, np.frequency, np.octaves, np.low, np.high));
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Draws a fresh capacity landscape and fills the resource to it.\n"
+                                                 "Draws from stream A, so it is part of the session and replays.");
+
+    ImGui::Separator();
+
+    // Regeneration is the harshness control, so it leads and says which way is
+    // which. The units are a fraction of the gap to capacity per generation,
+    // which is not obvious from a number alone.
+    bool changed = ImGui::SliderFloat("regrowth", &resourceRegen_, 0.0f, 0.5f, "%.3f per gen",
+                                      ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The harshness of the world, and the control to reach for first.\n"
+                                                 "A fraction of the gap to capacity closed each generation:\n"
+                                                 "0 never recovers what is taken, 0.5 recovers almost at once.");
+    changed |= ImGui::SliderFloat("trickle", &resourceMinSeed_, 0.0f, 0.05f, "%.4f per gen");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A trickle proportional to capacity, whatever the current level.\n"
+                                                 "Damping on harshness: it is what lets a patch scoured to\n"
+                                                 "nothing come back, so a low regrowth makes a poor world\n"
+                                                 "rather than a permanently dead one.");
+
+    // Diffusion cannot conserve against a mirror boundary, so the engine refuses
+    // it. Disabling the slider and saying why is better than letting somebody drag
+    // it and read an error in the log.
+    const bool mirrored = sim_->rule().boundary == rule::Boundary::Mirror;
+    ImGui::BeginDisabled(mirrored);
+    changed |= ImGui::SliderFloat("spread", &resourceDiffusion_, 0.0f, 0.5f, "%.3f per gen");
+    ImGui::EndDisabled();
+    if (mirrored) {
+        ImGui::TextDisabled("spread is off under a mirror boundary");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("An edge cell counts its inward neighbour twice while that\n"
+                              "neighbour counts it once, so spreading would create material\n"
+                              "rather than move it. Wrap or zero instead.");
+        }
+        resourceDiffusion_ = 0.0f;
+    } else if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Exchange with the neighbours, so a rich patch bleeds into a poor one.\n"
+                          "Conserves under a wrap boundary; under zero the edge loses material,\n"
+                          "which is a world with an edge behaving like one.");
+    }
+
+    if (changed) {
+        sim::ResourceParams p;
+        p.regen = resourceRegen_;
+        p.minSeed = resourceMinSeed_;
+        p.diffusion = resourceDiffusion_;
+        if (auto e = sim_->setResource(p)) {
+            log_.error(std::format("resource: {}", e->message));
+            // Put the sliders back to what the engine actually has, or they would
+            // show a world that is not running.
+            resourceRegen_ = sim_->resource().regen;
+            resourceMinSeed_ = sim_->resource().minSeed;
+            resourceDiffusion_ = sim_->resource().diffusion;
+        }
     }
     ImGui::PopID();
 }

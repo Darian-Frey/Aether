@@ -58,6 +58,12 @@ struct Options {
     uint32_t    ruleMutationMagnitude = 1;
     double      cellMutationP = 0.0;        // 0 = off
     uint32_t    cellMutationBlock = 0;      // block shift
+    // The resource's controls (F-032). `resourceSeed` off leaves the world empty,
+    // which is the honest default: seeding draws from stream A, so doing it
+    // implicitly would consume draws a caller did not ask for.
+    bool        resourceSeed = false;
+    sim::NoiseParams resourceNoise;
+    sim::ResourceParams resource;
     int         windowWidth  = 1280;
     int         windowHeight = 800;
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
@@ -136,6 +142,7 @@ private:
     void drawGridPanel();
     void drawBrushPanel();
     void drawMutationPanel();
+    void drawResourcePanel();
     void drawLineagePanel();
     void drawPalettePanel();
     void drawLogPanel();
@@ -264,6 +271,18 @@ private:
     std::vector<rule::PaletteOverride> paletteOverrides_;   // from the rule that is loaded
     size_t lastLineageSize_ = 0;
     float cellMutationLog_ = -4.0f;   // log10 of p
+
+    // The resource's controls (F-032). Mirrors of what the simulation holds,
+    // written back through setResource/seedResource so that every change is
+    // journalled — the panel never edits engine state directly.
+    float resourceRegen_ = 0.02f;
+    float resourceMinSeed_ = 0.0f;
+    float resourceDiffusion_ = 0.0f;
+    int   noiseFrequency_ = 5;
+    int   noiseOctaves_ = 3;
+    float noiseLow_ = 0.1f;
+    float noiseHigh_ = 1.0f;
+    bool  resourceSeeded_ = false;   // whether this run has been seeded yet
 
     // A frame sequence being written (F-021). While one exists the transport
     // stops deciding how far to step — a recording is specified in

@@ -20,6 +20,7 @@ Every example here has been run. Where a claim could be checked, it was: the Lif
 - [Continuous rules](#continuous-rules)
 - [Expression rules](#expression-rules)
 - [Auxiliary fields](#auxiliary-fields)
+- [The resource](#the-resource)
 - [Saving a rule into the library](#saving-a-rule-into-the-library)
 - [The sandbox, and why](#the-sandbox-and-why)
 - [When it goes wrong](#when-it-goes-wrong)
@@ -357,6 +358,58 @@ Four things to keep in mind:
 - **A field starts at zero and nothing else seeds it.** Painting, filling and placing a pattern are all about states; a field is written only by its own expression. So a field has to be driven from the state, as both examples above are. Seeding is what the resource field will add.
 - **A rule with fields cannot use a table `transition`,** and says so. A table maps a signature to one state; it cannot write two things from one reading of the neighbourhood, and doing both from the same reading is the point.
 - **Cell mutation does not touch a field.** It moves the state only, so a quantity is not quietly created or destroyed by drift.
+
+---
+
+## The resource
+
+A field a rule only ever *takes from* is a special case worth a name. Mark one field as the **resource** and another as its per-site **carrying capacity**, and the engine refills the first toward the second every generation:
+
+```lua
+fields = {
+    { name = "grass", cell_type = "f32",
+      write = e.select(e.eq(e.self(), e.int(1)),
+                       e.sub(e.field("grass"), e.float(0.004)),   -- eat
+                       e.field("grass")) },
+    { name = "soil", cell_type = "f32" },                          -- never written
+},
+resource = { field = "grass", capacity = "soil" },
+```
+
+Both must be `f32` — a resource is a quantity, and eight bits of one would make every rate a rounding decision. The capacity must have **no** `write`: it is the world's shape, and a rule able to raise its own ceiling would raise it.
+
+Your `write` on the resource is the **draw-down and nothing else**. Regrowth, the trickle, spreading and the clamp to `[0, capacity]` are the engine's, applied in that order to whatever your expression produced. So do not write regrowth yourself — you would be adding a second source, and the engine's accounting would show the discrepancy rather than absorb it.
+
+**The rates are not yours to set, and that is the point.** There is no `regen` you can put in this table. Regrowth, trickle and spread are run-time controls — the Resource panel's sliders, or `--resource R:T:S` headlessly — because a constant in a rule is part of the rule, so moving it would recompile and add a lineage entry. The harshness of the world is the thing you most want to drag, so it is the thing least suited to living in a file.
+
+**Nothing seeds it for you.** A resource nobody has seeded is zero everywhere and everything living off it starves at once. Press *Seed the world*, or pass `--seed-resource patches:octaves:poorest:richest`.
+
+### Working the numbers out rather than guessing
+
+A live cell holds its ground exactly where regrowth covers its appetite:
+
+```
+regen × (capacity − resource) = eat     =>     resource settles at capacity − eat/regen
+```
+
+With a regrowth of 0.02 and an appetite of 0.004 a cell settles 0.2 below its capacity, so ground below about 0.35 cannot feed one at all — which is where the pattern comes from. Get this wrong in the obvious direction and the rule simply dies: the first version of `rules/grazing.lua` ate 0.12 a generation against a regrowth of 0.02, needing a capacity of 6 to break even, and went extinct in fifty generations every time.
+
+The second version balanced and then *froze* — a genuine fixed point by generation 400. What unfroze it was making crowded cells eat more:
+
+```lua
+local appetite = e.select(e.ge(e.count(1), e.int(4)),
+                          e.float(0.020), e.float(0.004))
+```
+
+so a patch that fills solid starves itself thin again. Note the shape of that: `count` is an integer and the appetites are floats, and there is no cast — you choose *between* float literals with an integer comparison. That is the usual way to make a float depend on a count.
+
+Measured on 96×96 at generation 800: regrowth 0.005 holds 22% of the grid, 0.01 holds 36%, 0.02 holds 45%, 0.05 holds 75%, 0.1 holds 89%.
+
+### What the engine is counting
+
+Every generation the engine records what regrowth added, what your draw-down took, what spreading moved and what the clamp adjusted, and the four sum exactly to the change in the total. That is not for your benefit directly — there is no readout yet — but it is why the rules above are rules rather than suggestions. It caught the engine's own spreading creating material out of nothing on the day it was written.
+
+Two consequences you can feel: spreading is **refused** under a `mirror` boundary, where an edge cell counts its inward neighbour twice and the exchange would create material; and under a `zero` boundary the edge genuinely loses material, which is a world with an edge behaving like one.
 
 ---
 

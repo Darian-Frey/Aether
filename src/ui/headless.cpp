@@ -177,6 +177,14 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
                                             opts.cpu ? sim::Path::Cpu : sim::Path::Gpu, opts.seed, opts.seedB);
         if (const auto* e = std::get_if<core::Error>(&made)) return fail(e->message);
         auto sim = std::get<sim::Simulation>(std::move(made));
+        // Before the grid fill, so that the resource's draws come first and a run
+        // with --seed-resource is reproducible independently of the fill.
+        if (ir.resource) {
+            if (auto e = sim.setResource(opts.resource)) return fail(e->message);
+            if (opts.resourceSeed) {
+                if (auto e = sim.seedResource(opts.resourceNoise)) return fail(e->message);
+            }
+        }
         sim.fillRandom(sim::defaultDensity(ir));
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
         if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));

@@ -605,6 +605,22 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     cellMutationOn_ = sim_->cellMutation() > 0.0;
     cellMutationBlock_ = sim_->cellMutationBlock();
     if (cellMutationOn_) cellMutationLog_ = static_cast<float>(std::log10(sim_->cellMutation()));
+    // The resource's controls come from the simulation, not from what the panel
+    // last showed: a loaded session carries its own, and sliders left over from
+    // the previous run would describe a world that is not running (F-032).
+    resourceRegen_ = sim_->resource().regen;
+    resourceMinSeed_ = sim_->resource().minSeed;
+    resourceDiffusion_ = sim_->resource().diffusion;
+    // Whether it has been seeded is not stored anywhere, and does not need to be:
+    // a seeded capacity is a capacity that is not all zero, which is the thing the
+    // warning is actually about.
+    resourceSeeded_ = false;
+    if (sim_->rule().resource) {
+        const auto capacity = sim_->fieldHost(sim_->rule().resource->capacity).current();
+        for (uint8_t b : capacity) {
+            if (b != 0) { resourceSeeded_ = true; break; }
+        }
+    }
     lastLineageSize_ = sim_->lineage().size();
     refreshRuleSummary();
     ruleError_.clear();

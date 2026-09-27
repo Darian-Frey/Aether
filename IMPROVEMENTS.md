@@ -23,7 +23,17 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
-*None.*
+### IMP-011: the equivalence sweep never checks that it compared anything
+**Status:** open
+**Found:** 2026-09-27 (F-032 step 5, adding a bundled resource rule to the library sweep)
+**Location:** `tests/sim/equivalence_test.cpp` (`checkEquivalence`)
+**Effort:** small
+**Description.** `checkEquivalence` steps a fixture a thousand generations on both paths and compares the grids bitwise. It does not assert that the grids hold anything. A rule that empties the grid — or one whose parameters leave it empty, which is easy to arrange by accident for a rule that lives off a resource — passes by comparing two fields of zeroes, and passes *fast*, which is worse because nothing looks wrong.
+This is neither hypothetical nor new. AV-015's own history records the same mistake in the same file: a 128² comparison run to 10,000 generations "did compare identical — but the rule used there dies out, so the comparison was of two empty grids and carried no evidence at all". That claim was withdrawn. The guard it implies was never added, so the next fixture to die quietly will pass in the same way.
+**Proposal.** After the comparison, assert that the grid was worth comparing: some cells in a non-zero state, and for a rule with fields, some non-zero content in each. The threshold wants to be generous — a decaying rule legitimately ends sparse — so "not identically zero, and not identical to the seed either" catches the two failure modes that matter, an extinction and a frozen grid, without failing a rule that merely settles.
+**Trade-offs.** A fixture that legitimately ends empty would have to say so, which means `Fixture` grows a flag and somebody has to decide which rules get it. That is the honest cost, and it is also the point: a rule marked as legitimately-empty is a rule somebody looked at.
+**Notes.** Found while checking whether a bundled resource rule would be swept with a zero resource. It would not — the sweep's defaults give it a regrowth of 0.02 and random field contents, so that fixture is live — but the reason it is live is a default rather than an assertion, and the next one may not be. The dedicated resource tests do assert liveness; the sweep does not.
+Logged rather than applied, per the convention: it changes the meaning of every case in the suite's most load-bearing file, and which fixtures may end empty is the author's call rather than a mechanical one.
 
 ## Applied
 
