@@ -10,6 +10,7 @@
 #pragma once
 
 #include "rule/ir.hpp"
+#include "sim/noise.hpp"
 #include "sim/pattern.hpp"
 #include "sim/rule_mutation.hpp"
 
@@ -33,11 +34,15 @@ struct EvClear       {};
 // could change under the session and the paste would replay as something else,
 // which is the same reason EvSetRule carries a whole IR (D-013, F-012).
 struct EvPlace       { Pattern pattern; uint32_t x, y, z; };
+// Seeding the resource with patchy noise (F-032). The parameters travel and the
+// buffer does not: replay re-draws the same noise from stream A in the same
+// order, which is why a field needs no initial buffer in the session.
+struct EvSeedResource{ NoiseParams params; };
 struct EvCellMutation{ double p; uint8_t blockShift = 0; };
 struct EvRuleMutation{ RuleMutationParams params; };
 
 using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvFillRegion, EvClear,
-                               EvPlace, EvCellMutation, EvRuleMutation>;
+                               EvPlace, EvCellMutation, EvRuleMutation, EvSeedResource>;
 
 struct Event {
     uint64_t  generation;

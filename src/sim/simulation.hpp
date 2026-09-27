@@ -135,6 +135,13 @@ public:
     // touches one — painting, filling and placing a pattern are all about
     // states, and a field keeps its value through them. Seeding is F-032's.
     size_t fieldCount() const { return fields_.size(); }
+    // Seeds the resource with patchy noise (F-032): the capacity field gets the
+    // noise, and the resource field starts *at* its capacity — a world begins
+    // full and is drawn down, which is the only starting point that does not
+    // need a second number to justify it. Journalled with its parameters, so
+    // replay re-draws the same noise from stream A rather than storing a buffer.
+    // Refused when the rule declares no resource; there is nothing to seed.
+    std::optional<core::Error> seedResource(const NoiseParams& params);
     // The host copy of field `i`, under the same authority rule as host().
     const core::HostGrid& fieldHost(size_t i) const { return fields_.at(i).host; }
     core::HostGrid&       fieldHost(size_t i)       { return fields_.at(i).host; }
@@ -204,7 +211,9 @@ private:
     bool fieldsMatch(const std::vector<rule::Field>& declared) const;
     std::optional<core::Error> installRule(const rule::RuleIR& ir, LineageOrigin origin, std::optional<size_t> rewoundFrom);
     void maybeMutateRule();
-    void applyEvent(const Event& ev);
+    // Replays one event. Returns an error only where swallowing it would break
+    // replay silently — see the comment on the implementation.
+    std::optional<core::Error> applyEvent(const Event& ev);
     void journal(uint64_t generation, EventBody body) { journal_.push_back({generation, std::move(body)}); }
 
     core::HostGrid host_;

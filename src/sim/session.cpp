@@ -99,6 +99,13 @@ json eventToJson(const Event& ev) {
             j["type"] = "place"; j["x"] = b.x; j["y"] = b.y; j["z"] = b.z;
             j["pattern"] = json::parse(writeNative(b.pattern));
         }
+        else if constexpr (std::is_same_v<T, EvSeedResource>) {
+            j["type"] = "seed_resource";
+            j["frequency"] = b.params.frequency;
+            j["octaves"] = b.params.octaves;
+            j["low"] = b.params.low;
+            j["high"] = b.params.high;
+        }
         else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
             j["type"] = "rule_mutation"; j["enabled"] = b.params.enabled;
@@ -134,6 +141,13 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
         if (const auto* e = std::get_if<PatternError>(&pat)) return SessionError{"journal place: " + e->message};
         ev.body = EvPlace{std::get<Pattern>(std::move(pat)), j.at("x").get<uint32_t>(),
                           j.at("y").get<uint32_t>(), j.at("z").get<uint32_t>()};
+    } else if (type == "seed_resource") {
+        NoiseParams params;
+        params.frequency = j.value("frequency", 4u);
+        params.octaves   = j.value("octaves", 3u);
+        params.low       = j.value("low", 0.0f);
+        params.high      = j.value("high", 1.0f);
+        ev.body = EvSeedResource{params};
     } else if (type == "cell_mutation") {
         ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
     } else if (type == "rule_mutation") {

@@ -557,6 +557,16 @@ Extension `.aether`. A JSON document, accompanied by a raw sidecar `<file>.grid`
 
 **Lineage entries** carry `origin` (`initial` | `user` | `mutation` | `rewind`) and `journal_index`, the journal length when the entry was made. The initial and pinned entries store the full IR; other table-form entries store a `delta` of `[index, value]` pairs against the previous entry plus their `metadata`. Every entry stores its `ir_hash` and the loader verifies it after reconstruction.
 
+**Seeding the resource** *(added 2026-09-27, F-032)*. A `seed_resource` journal event carries the noise parameters and no buffer:
+
+```json
+{ "generation": 0, "type": "seed_resource", "frequency": 5, "octaves": 3, "low": 0.2, "high": 1.0 }
+```
+
+The capacity field is filled with patchy value noise drawn from stream A and the resource field starts *at* its capacity — a world begins full and is drawn down. The parameters travel and the field does not, so replay re-draws the same noise by making the same draws in the same order, which is why the determinism contract gains an event here rather than a sixth input. The number of draws is a function of the parameters and the grid alone and never of the values drawn, the same discipline `fill` keeps: otherwise every later draw in the session would move when a parameter did.
+
+A `seed_resource` event whose rule declares no resource is a **replay error** rather than a no-op. It is the one event that draws from stream A and might not, so swallowing it would leave every later draw one position out and the run would diverge from the file it was replaying with nothing to say so (AV-006).
+
 **Auxiliary fields** *(added 2026-09-26, F-031)*. The `fields` key is present only when the rule declares fields, so a session written before F-031 — and every session of a rule that declares none — is byte-for-byte the file it was. Entries are in the rule's declaration order and as long as `rule.ir.fields`; each carries its `name` and `cell_type` beside the buffer so that a loader checks the list against the rule rather than trusting position, since a disagreement would otherwise read one field's bytes as another's. The buffers use the same three encodings as `state`, over the field's own bytes.
 
 There is no `initial` for a field. A field starts at zero and the rule writes it from the state, so generation 0 is derivable and replay reconstructs it by zeroing — which is also why a field needs no journal event: nothing outside the step loop writes one. Painting, filling and placing a pattern are all about states and leave a field alone. When field seeding arrives (F-032) a field gains an initial buffer here and an event in the journal, and the determinism contract below gains it as a sixth input.

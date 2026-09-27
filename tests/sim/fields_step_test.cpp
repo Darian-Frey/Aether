@@ -15,6 +15,7 @@
 #include "sim/cpu_step.hpp"
 #include "rule/dsl.hpp"
 #include "sim/gpu_step.hpp"
+#include "sim/noise.hpp"
 #include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
 #include "support/fields.hpp"
@@ -24,6 +25,7 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <span>
@@ -757,4 +759,197 @@ TEST_CASE("the pattern editor's pad refuses a field rule", "[sim][fields][scratc
     REQUIRE(err.has_value());
     CHECK(err->message.find("states only") != std::string::npos);
     CHECK(pad.rule().fields.empty());   // refused whole
+}
+
+// --- Seeding the resource (F-032 step 2) -------------------------------------
+
+namespace {
+
+// A resource rule: the capacity is the world's shape and the store is drawn down
+// where a cell is alive. Nothing regenerates it yet — that is step 3 — so what is
+// under test here is the seed, its journal event and its replay.
+rule::RuleIR resourceRule() {
+    rule::RuleIR ir = base();
+    ir.states = 2;
+
+    rule::Field store;
+    store.name = "food";
+    store.cell_type = core::CellType::F32;
+    {
+        Build b;
+        const uint32_t self  = b.node(ExprOp::Self);
+        const uint32_t one   = b.lit(1);
+        const uint32_t alive = b.node(ExprOp::Eq, self, one);
+        const uint32_t here  = b.node(ExprOp::FieldSelf, 0);
+        const uint32_t rate  = b.flit(0.75f);
+        const uint32_t eaten = b.node(ExprOp::Mul, here, rate);
+        b.node(ExprOp::Select, alive, eaten, here);
+        store.write = b.e;
+    }
+
+    rule::Field capacity;
+    capacity.name = "fertility";
+    capacity.cell_type = core::CellType::F32;   // no write: the world's shape
+
+    ir.fields = {store, capacity};
+    ir.resource = rule::Resource{0, 1};
+
+    Build t;
+    const uint32_t here = t.node(ExprOp::FieldSelf, 0);
+    const uint32_t half = t.flit(0.5f);
+    const uint32_t rich = t.node(ExprOp::Gt, here, half);
+    const uint32_t one  = t.lit(1);
+    const uint32_t self = t.node(ExprOp::Self);
+    t.node(ExprOp::Select, rich, one, self);
+    ir.transition = t.e;
+    return ir;
+}
+
+std::vector<float> floatsOf(std::span<const uint8_t> bytes) {
+    std::vector<float> out(bytes.size() / sizeof(float));
+    std::memcpy(out.data(), bytes.data(), bytes.size());
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("seeding a resource fills the capacity and starts the store at it", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    const core::GridSpec spec = spec2d(48, 32);
+    auto made = sim::Simulation::create(spec, resourceRule(), sim::Path::Cpu, 21u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    REQUIRE(s.fieldCount() == 2);
+
+    // Before the seed both are zero: a field starts at zero and nothing else
+    // has touched them.
+    for (uint8_t b : s.fieldHost(1).current()) CHECK(b == 0);
+
+    sim::NoiseParams params;
+    params.frequency = 5;
+    params.octaves = 3;
+    params.low = 0.2f;
+    params.high = 1.0f;
+    REQUIRE_FALSE(s.seedResource(params).has_value());
+
+    const auto capacity = floatsOf(s.fieldHost(1).current());
+    const auto store    = floatsOf(s.fieldHost(0).current());
+    REQUIRE(capacity.size() == spec.cellCount());
+    // The world begins full, which is the only starting point that needs no
+    // second number to justify it.
+    CHECK(store == capacity);
+    CHECK(*std::min_element(capacity.begin(), capacity.end()) >= params.low);
+    CHECK(*std::max_element(capacity.begin(), capacity.end()) <= params.high);
+    // Patchy, not uniform — the reason the feature exists.
+    CHECK(*std::max_element(capacity.begin(), capacity.end())
+          - *std::min_element(capacity.begin(), capacity.end()) > 0.2f);
+
+    // Journalled, so a session replays it.
+    REQUIRE(s.journal().size() == 1);
+    const auto* ev = std::get_if<sim::EvSeedResource>(&s.journal().front().body);
+    REQUIRE(ev != nullptr);
+    CHECK(ev->params == params);
+}
+
+TEST_CASE("a rule with no resource has nothing to seed", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    auto made = sim::Simulation::create(spec2d(16, 16), *rule::parseDsl("B3/S23").ir, sim::Path::Cpu, 1u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+    const auto err = s.seedResource(sim::NoiseParams{});
+    REQUIRE(err.has_value());
+    CHECK(err->message.find("no resource") != std::string::npos);
+    CHECK(s.journal().empty());   // a refusal journals nothing
+}
+
+TEST_CASE("the seed survives a session and a replay", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    const core::GridSpec spec = spec2d(40, 24);
+    auto made = sim::Simulation::create(spec, resourceRule(), sim::Path::Cpu, 17u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+
+    sim::NoiseParams params;
+    params.frequency = 6;
+    params.octaves = 2;
+    params.low = 0.1f;
+    params.high = 0.9f;
+    REQUIRE_FALSE(s.seedResource(params).has_value());
+    // A fill after the seed, so that a replay drawing the wrong number of values
+    // for the noise would put the *grid* wrong too and not only the field.
+    s.fillRandom(std::vector<double>{0.4});
+    for (int i = 0; i < 5; ++i) s.step();
+
+    const sim::Session saved = s.session();
+    // The event is in the journal and the buffer is not the reason it replays:
+    // the parameters travel and stream A re-draws them.
+    const std::string text = sim::sessionToJson(saved);
+    CHECK(text.find("seed_resource") != std::string::npos);
+    auto parsed = sim::sessionFromJson(text);
+    REQUIRE(std::holds_alternative<sim::Session>(parsed));
+    sim::Session back = std::get<sim::Session>(parsed);
+
+    SECTION("resumed from the stored state") {
+        auto resumed = sim::Simulation::resume(back, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<sim::Simulation>(resumed));
+        sim::Simulation& r = std::get<sim::Simulation>(resumed);
+        CHECK(bytesOf(r.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+        CHECK(bytesOf(r.fieldHost(1).current()) == bytesOf(s.fieldHost(1).current()));
+    }
+    SECTION("rebuilt by replay, which re-draws the noise") {
+        back.current.clear();
+        back.fields.clear();
+        back.streamA.reset();
+        auto rebuilt = sim::Simulation::replay(back, sim::Simulation::ReplayTarget{5}, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<sim::Simulation>(rebuilt));
+        sim::Simulation& r = std::get<sim::Simulation>(rebuilt);
+        CHECK(r.generation() == s.generation());
+        // The capacity is not in the file at all; it is here because the same
+        // draws were made from stream A in the same order.
+        CHECK(bytesOf(r.fieldHost(1).current()) == bytesOf(s.fieldHost(1).current()));
+        CHECK(bytesOf(r.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+        CHECK(bytesOf(r.host().current()) == bytesOf(s.host().current()));
+    }
+    SECTION("a seed event whose rule cannot be seeded is an error, not a shrug") {
+        // A seed that silently did nothing would consume no draws and leave every
+        // later draw one place out, so the run would diverge with nothing saying
+        // so (AV-006). Simulated by replacing the rule with one that has no
+        // resource, which a hand-edited session could do.
+        back.lineage.front().ir = *rule::parseDsl("B3/S23").ir;
+        back.rule = back.lineage.front().ir;
+        back.current.clear();
+        back.fields.clear();
+        back.streamA.reset();
+        auto rebuilt = sim::Simulation::replay(back, sim::Simulation::ReplayTarget{5}, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<core::Error>(rebuilt));
+        CHECK(std::get<core::Error>(rebuilt).message.find("no resource") != std::string::npos);
+    }
+}
+
+TEST_CASE("a resource rule is refused on the GPU path until it regenerates", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // The shader applies the rule's own field write and nothing else, so it would
+    // draw the resource down and never put anything back. A world that only ever
+    // empties reads as a harsh world rather than as a defect, which is the shape
+    // of mistake this phase has had to refuse twice already. Lifted in step 3.
+    const core::GridSpec spec = spec2d(16, 16);
+    auto onGpu = sim::Simulation::create(spec, resourceRule(), sim::Path::Gpu, 1u);
+    REQUIRE(std::holds_alternative<core::Error>(onGpu));
+    CHECK(std::get<core::Error>(onGpu).message.find("CPU path only") != std::string::npos);
+
+    auto onCpu = sim::Simulation::create(spec, resourceRule(), sim::Path::Cpu, 1u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(onCpu));
+    sim::Simulation& s = std::get<sim::Simulation>(onCpu);
+    const auto err = s.setPath(sim::Path::Gpu);
+    REQUIRE(err.has_value());
+    CHECK(err->message.find("CPU path only") != std::string::npos);
+    CHECK(s.path() == sim::Path::Cpu);   // refused whole
 }

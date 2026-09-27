@@ -5,6 +5,7 @@ aether_embed_shader(continuous_step.comp kContinuousStepComp CONTINUOUS_STEP_CPP
 add_library(aether_sim STATIC
     cpu_step.cpp
     fill.cpp
+    noise.cpp
     gpu_step.cpp
     inspect.cpp
     lineage.cpp

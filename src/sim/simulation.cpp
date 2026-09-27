@@ -3,6 +3,8 @@
 #include "sim/cpu_step.hpp"
 #include "sim/fill.hpp"
 
+#include <cstring>
+
 #include <algorithm>
 #include <format>
 #include <type_traits>
@@ -134,8 +136,21 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
         newFields = std::move(std::get<std::vector<FieldStore>>(made));
     }
 
-    // The GPU stepper keeps its previous rule if this fails.
-    if (auto e = gpuStepper_.setRule(lut, spec())) return e;
+    // F-032 step 3. The shader applies the rule's own field write and nothing
+    // else, so it would run the draw-down and never put anything back: a world
+    // that only ever empties, which reads as a very harsh world rather than as a
+    // defect. Until it regenerates, a resource rule runs on the CPU path only —
+    // so the stepper is not given one, and `setPath` refuses to move to it.
+    // The renderer is unaffected: on the CPU path `commitHost` uploads the state
+    // texture after every step regardless.
+    if (ir.resource) {
+        if (path_ == Path::Gpu) {
+            return core::Error{"a resource rule runs on the CPU path only for now; switch with --cpu"};
+        }
+    } else if (auto e = gpuStepper_.setRule(lut, spec())) {
+        // The GPU stepper keeps its previous rule if this fails.
+        return e;
+    }
     if (newFields) {
         fields_ = std::move(*newFields);
         fieldTextures_.assign(fields_.size(), FieldTextures{});
@@ -168,6 +183,36 @@ void Simulation::resetOutOfRangeStates(uint16_t states) {
         if (c >= states) { c = 0; changed = true; }
     }
     if (changed || path_ == Path::Gpu) commitHost();
+}
+
+std::optional<core::Error> Simulation::seedResource(const NoiseParams& params) {
+    if (!ir_.resource) return core::Error{"the rule declares no resource to seed"};
+    const rule::Resource& r = *ir_.resource;
+    if (r.field >= fields_.size() || r.capacity >= fields_.size()) {
+        return core::Error{"the resource names a field the simulation has no storage for"};
+    }
+
+    // The host is authoritative for the duration of a seed whichever path is
+    // running: on the GPU path the capacity buffer down here is stale, and
+    // writing the noise over it and committing would push a fresh capacity and a
+    // two-generation-old resource up together.
+    syncToHost();
+
+    const uint64_t cells = spec().cellCount();
+    std::vector<float> noise(cells);
+    fillNoise(spec(), params, streamA_, noise);
+
+    // The capacity is the world's shape, and the resource starts at it. Written
+    // through memcpy rather than a float view because a field's buffer is bytes,
+    // like every other buffer in this engine.
+    auto capacity = fields_[r.capacity].host.current();
+    auto resource = fields_[r.field].host.current();
+    std::memcpy(capacity.data(), noise.data(), cells * sizeof(float));
+    std::memcpy(resource.data(), noise.data(), cells * sizeof(float));
+
+    commitHost();
+    journal(generation_, EvSeedResource{params});
+    return std::nullopt;
 }
 
 void Simulation::setCellMutation(double p, uint8_t blockShift) {
@@ -223,6 +268,9 @@ uint32_t Simulation::frame(double dt, const std::function<void()>& afterStep) {
 
 std::optional<core::Error> Simulation::setPath(Path p) {
     if (p == path_) return std::nullopt;
+    if (p == Path::Gpu && ir_.resource) {
+        return core::Error{"a resource rule runs on the CPU path only for now (F-032)"};
+    }
     if (p == Path::Cpu) {
         syncToHost();          // GPU was authoritative; take a copy
     } else {
@@ -352,7 +400,8 @@ Session Simulation::session() {
     return s;
 }
 
-void Simulation::applyEvent(const Event& ev) {
+std::optional<core::Error> Simulation::applyEvent(const Event& ev) {
+    std::optional<core::Error> failed;
     std::visit([&](const auto& b) {
         using T = std::decay_t<decltype(b)>;
         if constexpr (std::is_same_v<T, EvSetRule>)            (void)setRule(b.ir);
@@ -362,9 +411,17 @@ void Simulation::applyEvent(const Event& ev) {
         else if constexpr (std::is_same_v<T, EvFill>)          fillRandom(b.density);
         else if constexpr (std::is_same_v<T, EvFillRegion>)    fillRegion(b.x, b.y, b.z, b.w, b.h, b.d, b.density);
         else if constexpr (std::is_same_v<T, EvClear>)         clear();
+        // The one event whose failure is reported rather than swallowed. It is
+        // the only one that *draws from stream A and might not*: a seed that
+        // silently did nothing would leave every later draw in the session one
+        // position out, and the run would diverge from the file it was replaying
+        // with nothing to say so (AV-006). The others either cannot fail or fail
+        // without touching the stream.
+        else if constexpr (std::is_same_v<T, EvSeedResource>)  failed = seedResource(b.params);
         else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p, b.blockShift);
         else if constexpr (std::is_same_v<T, EvRuleMutation>)  setRuleMutation(b.params);
     }, ev.body);
+    return failed;
 }
 
 std::variant<Simulation, core::Error> Simulation::replay(const Session& s, ReplayTarget target, Path path) {
@@ -386,7 +443,10 @@ std::variant<Simulation, core::Error> Simulation::replay(const Session& s, Repla
             if (s.journal[idx].generation < sim.generation_) {
                 return core::Error{std::format("journal event at generation {} is out of order", s.journal[idx].generation)};
             }
-            sim.applyEvent(s.journal[idx]);
+            if (auto e = sim.applyEvent(s.journal[idx])) {
+                return core::Error{std::format("journal event at generation {}: {}",
+                                               s.journal[idx].generation, e->message)};
+            }
             ++idx;
         }
         if (sim.generation_ >= target.generation) break;
@@ -432,7 +492,11 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
     rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
-    if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
+    if (!s.rule.resource) {
+        if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
+    } else if (path == Path::Gpu) {
+        return core::Error{"a resource rule runs on the CPU path only for now (F-032)"};
+    }
     sim.ir_ = s.rule;
     sim.lut_ = std::move(lut);
 
