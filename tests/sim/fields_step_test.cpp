@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <numeric>
 #include <span>
 #include <vector>
 
@@ -932,24 +933,248 @@ TEST_CASE("the seed survives a session and a replay", "[sim][resource][gpu]") {
     }
 }
 
-TEST_CASE("a resource rule is refused on the GPU path until it regenerates", "[sim][resource][gpu]") {
+TEST_CASE("the resource regenerates identically on both paths", "[sim][resource][gpu]") {
     GlContext gl;
     requireGl(gl);
 
-    // The shader applies the rule's own field write and nothing else, so it would
-    // draw the resource down and never put anything back. A world that only ever
-    // empties reads as a harsh world rather than as a defect, which is the shape
-    // of mistake this phase has had to refuse twice already. Lifted in step 3.
-    const core::GridSpec spec = spec2d(16, 16);
-    auto onGpu = sim::Simulation::create(spec, resourceRule(), sim::Path::Gpu, 1u);
-    REQUIRE(std::holds_alternative<core::Error>(onGpu));
-    CHECK(std::get<core::Error>(onGpu).message.find("CPU path only") != std::string::npos);
+    // The engine's half of the resource is a second writer of one field, so this
+    // is the case that says the oracle and the generated GLSL are twins. Run
+    // through a Simulation rather than the two steppers directly, because the
+    // ordering under test — draw-down, regeneration, diffusion, clamp — is the
+    // engine's and this is where it is assembled.
+    const auto boundary = GENERATE(rule::Boundary::Wrap, rule::Boundary::Zero);
+    const bool diffusing = GENERATE(false, true);
 
-    auto onCpu = sim::Simulation::create(spec, resourceRule(), sim::Path::Cpu, 1u);
-    REQUIRE(std::holds_alternative<sim::Simulation>(onCpu));
-    sim::Simulation& s = std::get<sim::Simulation>(onCpu);
-    const auto err = s.setPath(sim::Path::Gpu);
+    rule::RuleIR ir = resourceRule();
+    ir.boundary = boundary;
+
+    const core::GridSpec spec = spec2d(37, 23);   // not a multiple of the workgroup
+    sim::ResourceParams params;
+    params.regen = 0.05f;
+    params.minSeed = 0.002f;
+    params.diffusion = diffusing ? 0.25f : 0.0f;
+
+    auto build = [&](sim::Path path) {
+        auto made = sim::Simulation::create(spec, ir, path, 31u);
+        REQUIRE(std::holds_alternative<sim::Simulation>(made));
+        return std::move(std::get<sim::Simulation>(made));
+    };
+    sim::Simulation cpu = build(sim::Path::Cpu);
+    sim::Simulation gpu = build(sim::Path::Gpu);
+
+    for (sim::Simulation* s : {&cpu, &gpu}) {
+        REQUIRE_FALSE(s->setResource(params).has_value());
+        sim::NoiseParams noise;
+        noise.frequency = 5;
+        noise.low = 0.1f;
+        REQUIRE_FALSE(s->seedResource(noise).has_value());
+        s->fillRandom(std::vector<double>{0.45});
+    }
+
+    for (int i = 0; i < 200; ++i) { cpu.step(); gpu.step(); }
+    cpu.syncToHost();
+    gpu.syncToHost();
+
+    CHECK(bytesOf(cpu.host().current()) == bytesOf(gpu.host().current()));
+    // Bitwise on the resource too, which is the point: `precise`, no divide and
+    // the subnormal flush exist so these are equal and not merely close (AV-015).
+    CHECK(bytesOf(cpu.fieldHost(0).current()) == bytesOf(gpu.fieldHost(0).current()));
+    CHECK(bytesOf(cpu.fieldHost(1).current()) == bytesOf(gpu.fieldHost(1).current()));
+
+    // And it is a live world rather than an empty one, or the comparison above is
+    // of two identical nothings — the mistake AV-015's own history records.
+    const auto store = floatsOf(cpu.fieldHost(0).current());
+    const double total = std::accumulate(store.begin(), store.end(), 0.0);
+    CHECK(total > 0.0);
+    CHECK(*std::max_element(store.begin(), store.end()) > 0.0f);
+}
+
+TEST_CASE("diffusion is refused against a mirror boundary", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // Measured, not argued: in 1D with five cells and D = 0.5, a single unit at
+    // cell 1 diffuses to a total of 1.25 under a mirror boundary. An edge cell
+    // counts its inward neighbour twice while that neighbour counts it once, so
+    // the exchange creates material rather than moving it — and a source that is
+    // not regeneration is the one thing AV-018 forbids.
+    rule::RuleIR ir = resourceRule();
+    ir.boundary = rule::Boundary::Mirror;
+    auto made = sim::Simulation::create(spec2d(16, 16), ir, sim::Path::Cpu, 3u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+
+    sim::ResourceParams params;
+    params.diffusion = 0.25f;
+    const auto err = s.setResource(params);
     REQUIRE(err.has_value());
-    CHECK(err->message.find("CPU path only") != std::string::npos);
-    CHECK(s.path() == sim::Path::Cpu);   // refused whole
+    CHECK(err->message.find("mirror") != std::string::npos);
+    CHECK(s.resource().diffusion == 0.0f);   // refused whole
+
+    // Without diffusion a mirror boundary is fine: regeneration is per-site.
+    params.diffusion = 0.0f;
+    params.regen = 0.1f;
+    CHECK_FALSE(s.setResource(params).has_value());
+    CHECK(s.resource().regen == 0.1f);
+}
+
+TEST_CASE("the resource's controls travel in the session", "[sim][resource][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // They are not rule text, so nothing about them is in the IR or its hash
+    // (D-024). That makes the session the only place they can be recorded, and a
+    // replay that ran with the defaults would be a different world.
+    auto made = sim::Simulation::create(spec2d(24, 16), resourceRule(), sim::Path::Cpu, 13u);
+    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    sim::Simulation& s = std::get<sim::Simulation>(made);
+
+    sim::ResourceParams params;
+    params.regen = 0.07f;
+    params.minSeed = 0.003f;
+    params.diffusion = 0.4f;
+    REQUIRE_FALSE(s.setResource(params).has_value());
+    REQUIRE_FALSE(s.seedResource(sim::NoiseParams{}).has_value());
+    for (int i = 0; i < 12; ++i) s.step();
+
+    const sim::Session saved = s.session();
+    CHECK(saved.resource == params);
+    const std::string text = sim::sessionToJson(saved);
+    CHECK(text.find("\"resource\"") != std::string::npos);
+
+    auto parsed = sim::sessionFromJson(text);
+    REQUIRE(std::holds_alternative<sim::Session>(parsed));
+    sim::Session back = std::get<sim::Session>(parsed);
+    CHECK(back.resource == params);
+
+    SECTION("resumed") {
+        auto r = sim::Simulation::resume(back, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<sim::Simulation>(r));
+        sim::Simulation& resumed = std::get<sim::Simulation>(r);
+        CHECK(resumed.resource() == params);
+        CHECK(bytesOf(resumed.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+    }
+    SECTION("replayed, which re-applies the control from the journal") {
+        back.current.clear();
+        back.fields.clear();
+        back.streamA.reset();
+        back.resource = sim::ResourceParams{};   // the defaults, so only the journal can restore it
+        auto r = sim::Simulation::replay(back, sim::Simulation::ReplayTarget{12}, sim::Path::Cpu);
+        REQUIRE(std::holds_alternative<sim::Simulation>(r));
+        sim::Simulation& rebuilt = std::get<sim::Simulation>(r);
+        CHECK(rebuilt.resource() == params);
+        CHECK(bytesOf(rebuilt.fieldHost(0).current()) == bytesOf(s.fieldHost(0).current()));
+    }
+}
+
+TEST_CASE("the resource's books balance", "[sim][resource]") {
+    // AV-018's detection, on the oracle. The identity is exact by construction —
+    // after minus before equals regenerated plus diffused plus clamped minus
+    // consumed — so what this actually tests is that every term is counted and
+    // that nothing else moves the quantity.
+    rule::RuleIR ir = resourceRule();
+    ir.boundary = rule::Boundary::Wrap;
+    const rule::CompiledRule rule = compiled(ir);
+
+    const core::GridSpec spec = spec2d(32, 24);
+    core::HostGrid host(spec);
+    aether::test::HostFields fields(rule, spec.cellCount());
+
+    sim::Pcg32 stream(77);
+    std::vector<float> noise(spec.cellCount());
+    sim::NoiseParams np;
+    np.low = 0.2f;
+    sim::fillNoise(spec, np, stream, noise);
+    for (size_t i = 0; i < spec.cellCount(); ++i) {
+        fields.setF32(0, i, noise[i]);
+        fields.setF32(1, i, noise[i]);
+        host.current()[i] = static_cast<uint8_t>((i * 7u) % 3u == 0u ? 1 : 0);
+    }
+
+    sim::ResourceParams params;
+    params.regen = 0.03f;
+    params.minSeed = 0.001f;
+    params.diffusion = 0.2f;
+
+    auto totalResource = [&] {
+        const auto v = floatsOf(fields.raw(0));
+        return std::accumulate(v.begin(), v.end(), 0.0);
+    };
+
+    sim::GridLedger books;
+    const double opening = totalResource();
+    for (int g = 0; g < 1000; ++g) {
+        cpuStep(rule, spec, host.current(), host.next(), static_cast<uint64_t>(g), {},
+                fields.reads(), fields.writes(), params, &books);
+        host.swap();
+        fields.swap();
+    }
+    const double closing = totalResource();
+
+    const double accounted = books.regenerated + books.diffused + books.clamped - books.consumed;
+    const double measured = closing - opening;
+    // A thousand generations of float addition over 768 cells, summed in double:
+    // the tolerance is for the summation order, not for a leak. A leak shows up as
+    // a proportion of the throughput rather than as a rounding error.
+    const double throughput = books.regenerated + books.consumed;
+    REQUIRE(throughput > 1.0);            // the world actually moved
+    CHECK(std::fabs(accounted - measured) < 1e-3 * throughput);
+
+    // And the sources really are only the ones named. A rule that raised the
+    // resource would show as a negative consumption; this one only ever takes.
+    CHECK(books.consumed > 0.0);
+    CHECK(books.regenerated > 0.0);
+    // Under wrap, diffusion moves material without creating or destroying it.
+    CHECK(std::fabs(books.diffused) < 1e-3 * throughput);
+}
+
+TEST_CASE("diffusion leaks at a zero boundary and the ledger says so", "[sim][resource]") {
+    // A world with an edge loses material at the edge: a cell there diffuses into
+    // nothing. That is the honest behaviour rather than a defect, so it is counted
+    // as a sink and visible, not suppressed.
+    // A rule that neither draws down nor turns anything on, so diffusion is
+    // provably the only thing moving the quantity. The first version of this test
+    // reused the rule above and proved nothing of the sort: its transition lights
+    // a cell wherever the resource is high, so seeding the grid full made
+    // everything alive and the cells ate 535 units while the test claimed none.
+    rule::RuleIR ir = base();
+    ir.boundary = rule::Boundary::Zero;
+    rule::Field inert;
+    inert.name = "food";
+    inert.cell_type = core::CellType::F32;      // no write: no draw-down
+    rule::Field ceiling;
+    ceiling.name = "fertility";
+    ceiling.cell_type = core::CellType::F32;
+    ir.fields = {inert, ceiling};
+    ir.resource = rule::Resource{0, 1};
+    Expression still;
+    still.nodes = {{ExprOp::Self}};
+    ir.transition = still;
+    const rule::CompiledRule rule = compiled(ir);
+
+    const core::GridSpec spec = spec2d(24, 24);
+    core::HostGrid host(spec);
+    aether::test::HostFields fields(rule, spec.cellCount());
+    for (size_t i = 0; i < spec.cellCount(); ++i) {
+        fields.setF32(0, i, 1.0f);
+        fields.setF32(1, i, 1.0f);
+    }
+    sim::ResourceParams params;
+    params.regen = 0.0f;
+    params.minSeed = 0.0f;
+    params.diffusion = 0.3f;
+
+    sim::GridLedger books;
+    for (int g = 0; g < 20; ++g) {
+        cpuStep(rule, spec, host.current(), host.next(), static_cast<uint64_t>(g), {},
+                fields.reads(), fields.writes(), params, &books);
+        host.swap();
+        fields.swap();
+    }
+    // Negative: the grid gave material to its edge and got none back.
+    CHECK(books.diffused < 0.0);
+    CHECK(books.consumed == 0.0);       // nothing alive drew any down
+    CHECK(books.regenerated == 0.0);    // and nothing put any back
+    const auto store = floatsOf(fields.raw(0));
+    CHECK(std::accumulate(store.begin(), store.end(), 0.0) < static_cast<double>(spec.cellCount()));
 }

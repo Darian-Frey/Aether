@@ -11,6 +11,7 @@
 #include "rule/ir.hpp"
 #include "sim/journal.hpp"
 #include "sim/lineage.hpp"
+#include "sim/resource.hpp"
 #include "sim/rng.hpp"
 #include "sim/rule_mutation.hpp"
 
@@ -50,6 +51,9 @@ struct Session {
     RuleMutationParams    ruleMutation;     // current parameters
     double                cellMutationP = 0.0;
     uint8_t               cellMutationBlock = 0;
+    // The resource's run-time controls (F-032). Written only when the rule
+    // declares a resource, so a session without one is unchanged.
+    ResourceParams        resource;
 
     // Conveniences: state at `generation`, derivable by replay.
     uint64_t              generation = 0;

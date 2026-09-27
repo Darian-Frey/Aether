@@ -136,21 +136,14 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
         newFields = std::move(std::get<std::vector<FieldStore>>(made));
     }
 
-    // F-032 step 3. The shader applies the rule's own field write and nothing
-    // else, so it would run the draw-down and never put anything back: a world
-    // that only ever empties, which reads as a very harsh world rather than as a
-    // defect. Until it regenerates, a resource rule runs on the CPU path only —
-    // so the stepper is not given one, and `setPath` refuses to move to it.
-    // The renderer is unaffected: on the CPU path `commitHost` uploads the state
-    // texture after every step regardless.
+    // A resource whose parameters this boundary cannot honour is refused here
+    // rather than at the next step, so the rule that is running keeps running.
     if (ir.resource) {
-        if (path_ == Path::Gpu) {
-            return core::Error{"a resource rule runs on the CPU path only for now; switch with --cpu"};
-        }
-    } else if (auto e = gpuStepper_.setRule(lut, spec())) {
-        // The GPU stepper keeps its previous rule if this fails.
-        return e;
+        if (const char* bad = resourceProblem(resource_, ir.boundary)) return core::Error{bad};
     }
+
+    // The GPU stepper keeps its previous rule if this fails.
+    if (auto e = gpuStepper_.setRule(lut, spec())) return e;
     if (newFields) {
         fields_ = std::move(*newFields);
         fieldTextures_.assign(fields_.size(), FieldTextures{});
@@ -215,6 +208,14 @@ std::optional<core::Error> Simulation::seedResource(const NoiseParams& params) {
     return std::nullopt;
 }
 
+std::optional<core::Error> Simulation::setResource(const ResourceParams& params) {
+    if (const char* bad = resourceProblem(params, ir_.boundary)) return core::Error{bad};
+    resource_ = params;
+    gpuStepper_.setResource(resource_);
+    journal(generation_, EvResource{resource_});
+    return std::nullopt;
+}
+
 void Simulation::setCellMutation(double p, uint8_t blockShift) {
     cellMutationP_ = std::clamp(p, 0.0, 1.0);
     mutation_.threshold = mutationThreshold(cellMutationP_);
@@ -228,6 +229,7 @@ void Simulation::step() {
     if (path_ == Path::Gpu) {
         gpuStepper_.setGeneration(generation_);
         gpuStepper_.setCellMutation(mutation_);
+        gpuStepper_.setResource(resource_);
         if (fields_.empty()) {
             gpuStepper_.step(gpu_);
         } else {
@@ -249,7 +251,7 @@ void Simulation::step() {
                 fieldWrites_[f] = fields_[f].host.next();
             }
             cpuStep(lut_, spec(), host_.current(), host_.next(), generation_, mutation_,
-                    fieldReads_, fieldWrites_);
+                    fieldReads_, fieldWrites_, resource_);
             host_.swap();
             for (FieldStore& f : fields_) f.host.swap();
         }
@@ -268,9 +270,7 @@ uint32_t Simulation::frame(double dt, const std::function<void()>& afterStep) {
 
 std::optional<core::Error> Simulation::setPath(Path p) {
     if (p == path_) return std::nullopt;
-    if (p == Path::Gpu && ir_.resource) {
-        return core::Error{"a resource rule runs on the CPU path only for now (F-032)"};
-    }
+
     if (p == Path::Cpu) {
         syncToHost();          // GPU was authoritative; take a copy
     } else {
@@ -385,6 +385,7 @@ Session Simulation::session() {
     s.ruleMutation = ruleMutation_;
     s.cellMutationP = cellMutationP_;
     s.cellMutationBlock = mutation_.blockShift;
+    s.resource = resource_;
     s.generation = generation_;
     s.current.assign(host_.current().begin(), host_.current().end());
     s.streamA = streamA_.state();
@@ -418,6 +419,7 @@ std::optional<core::Error> Simulation::applyEvent(const Event& ev) {
         // with nothing to say so (AV-006). The others either cannot fail or fail
         // without touching the stream.
         else if constexpr (std::is_same_v<T, EvSeedResource>)  failed = seedResource(b.params);
+        else if constexpr (std::is_same_v<T, EvResource>)      failed = setResource(b.params);
         else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p, b.blockShift);
         else if constexpr (std::is_same_v<T, EvRuleMutation>)  setRuleMutation(b.params);
     }, ev.body);
@@ -484,6 +486,8 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.cellMutationP_ = s.cellMutationP;
     sim.mutation_.threshold = mutationThreshold(s.cellMutationP);
     sim.mutation_.blockShift = s.cellMutationBlock;
+    sim.resource_ = s.resource;
+    sim.gpuStepper_.setResource(sim.resource_);
     sim.gpuStepper_.setCellMutation(sim.mutation_);
     sim.counters_.rule_mutations = s.ruleMutationsApplied;
     sim.counters_.rule_mutations_skipped = s.ruleMutationsSkipped;
@@ -492,11 +496,7 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
     rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
-    if (!s.rule.resource) {
-        if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
-    } else if (path == Path::Gpu) {
-        return core::Error{"a resource rule runs on the CPU path only for now (F-032)"};
-    }
+    if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
     sim.ir_ = s.rule;
     sim.lut_ = std::move(lut);
 

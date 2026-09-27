@@ -11,6 +11,7 @@
 
 #include "rule/ir.hpp"
 #include "sim/noise.hpp"
+#include "sim/resource.hpp"
 #include "sim/pattern.hpp"
 #include "sim/rule_mutation.hpp"
 
@@ -38,11 +39,15 @@ struct EvPlace       { Pattern pattern; uint32_t x, y, z; };
 // buffer does not: replay re-draws the same noise from stream A in the same
 // order, which is why a field needs no initial buffer in the session.
 struct EvSeedResource{ NoiseParams params; };
+// The resource's run-time controls (F-032). Journalled the way EvCellMutation is,
+// and for the same reason: they are not rule text, so a change to one must be in
+// the record or a replay would run a different world (D-024).
+struct EvResource    { ResourceParams params; };
 struct EvCellMutation{ double p; uint8_t blockShift = 0; };
 struct EvRuleMutation{ RuleMutationParams params; };
 
 using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvFillRegion, EvClear,
-                               EvPlace, EvCellMutation, EvRuleMutation, EvSeedResource>;
+                               EvPlace, EvCellMutation, EvRuleMutation, EvSeedResource, EvResource>;
 
 struct Event {
     uint64_t  generation;

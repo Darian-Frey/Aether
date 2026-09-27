@@ -42,6 +42,16 @@ uint32_t fieldWriteUnit(size_t f) { return kStateUnits + 2u * static_cast<uint32
 // file's business and not the IR's (F-031, D-022). Every name shared with the
 // other generator comes from rule/glsl.hpp; nothing here spells one.
 std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions) {
+    // Per-step values arrive as uniforms, never as buffer contents: a
+    // glBufferSubData on a buffer the previous frame still references stalls on
+    // some drivers. These are run-time controls rather than rule text (D-024), so
+    // they are exactly the shape the cell-mutation parameters already have.
+    std::string uniforms;
+    if (rule.resource) {
+        uniforms += "uniform float aetherResourceRegen;\n";
+        uniforms += "uniform float aetherResourceMinSeed;\n";
+        uniforms += "uniform float aetherResourceDiffusion;\n";
+    }
     const bool is3D = dimensions == 3;
     const char* suffix = is3D ? "3D" : "2D";
     // imageLoad/imageStore take the coordinate the image's dimensionality
@@ -49,7 +59,7 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
     const std::string coord = is3D ? "p" : "p.xy";
     const uint32_t N = rule.neighbourCount();
 
-    std::string out;
+    std::string out = uniforms;
     for (size_t f = 0; f < rule.fields.size(); ++f) {
         const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
         const char* format  = isFloat ? "r32f" : "r8ui";
@@ -78,6 +88,48 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
     }
     out += "    return f;\n}\n";
 
+    // The resource's dynamics, the twin of sim::applyResource. Every step is its
+    // own statement in float, nothing divides, and subnormals are flushed, so the
+    // two agree bit for bit (AV-015, BUG-021). The order is D-024's and is not
+    // negotiable: the draw-down has already happened, then regeneration, then
+    // diffusion, then the clamp. Regeneration before consumption is one of the
+    // leaks AV-018 names.
+    if (rule.resource) {
+        const size_t r = rule.resource->field;
+        const size_t k = rule.resource->capacity;
+        out += std::format("float aether_resource(float drawnDown, float before, {} fld) {{\n",
+                           rule::glslFieldsStruct());
+        out += "    precise float value = drawnDown;\n";
+        out += std::format("    precise float headroom = fld.{} - value;\n", rule::glslFieldSelfMember(k));
+        out += "    precise float toward = aetherResourceRegen * headroom;\n";
+        out += std::format("    precise float trickle = aetherResourceMinSeed * fld.{};\n",
+                           rule::glslFieldSelfMember(k));
+        out += "    precise float added = toward + trickle;\n";
+        out += "    if (added < 0.0) added = 0.0;\n";
+        out += "    value = value + added;\n";
+        // Branching on a uniform, so the wavefront is uniform and a run with
+        // diffusion off pays nothing — and cannot drift by a rounding error
+        // either, which multiplying by zero would risk.
+        out += "    if (aetherResourceDiffusion != 0.0) {\n";
+        out += "        precise float sum = 0.0;\n";
+        out += std::format("        for (int i = 0; i < {}; ++i) sum += fld.{}[i];\n",
+                           N, rule::glslFieldNbrMember(r));
+        out += std::format("        precise float inverse = 1.0 / {}.0;\n", N);
+        out += "        precise float mean = sum * inverse;\n";
+        // Against the pre-consumption value, for the reason sim/resource.hpp
+        // gives: both sides of the gradient come from one generation, or
+        // diffusion creates material wherever a cell ate.
+        out += "        precise float gradient = mean - before;\n";
+        out += "        precise float flow = aetherResourceDiffusion * gradient;\n";
+        out += "        value = value + flow;\n";
+        out += "    }\n";
+        out += "    if (value < 0.0) value = 0.0;\n";
+        out += std::format("    if (value > fld.{}) value = fld.{};\n",
+                           rule::glslFieldSelfMember(k), rule::glslFieldSelfMember(k));
+        out += rule::glslFlushStatement("value");
+        out += "    return value;\n}\n";
+    }
+
     // The store. A field the rule writes goes through its generated function;
     // one it does not is copied from the gather, because the destination
     // texture is last generation's and would otherwise be read back as the
@@ -86,9 +138,15 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
                        N, rule::glslFieldsStruct());
     for (size_t f = 0; f < rule.fields.size(); ++f) {
         const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
-        const std::string value = rule.fields[f].write
-                                      ? std::format("{}(own, nbr, fld)", rule::glslFieldFunction(f))
-                                      : std::format("fld.{}", rule::glslFieldSelfMember(f));
+        std::string value = rule.fields[f].write
+                                ? std::format("{}(own, nbr, fld)", rule::glslFieldFunction(f))
+                                : std::format("fld.{}", rule::glslFieldSelfMember(f));
+        // The resource is the one field with two writers: the rule's expression
+        // and then the engine's.
+        if (rule.resource && f == rule.resource->field) {
+            value = std::format("aether_resource({}, fld.{}, fld)", value,
+                                rule::glslFieldSelfMember(rule.resource->field));
+        }
         if (isFloat) {
             out += std::format("    imageStore(aether_fdst{}, {}, vec4({}, 0.0, 0.0, 0.0));\n", f, coord, value);
         } else {
@@ -192,14 +250,6 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
                 "{} fields need {} image units and this driver offers {}",
                 rule.fields.size(), needed, maxUnits)};
         }
-        if (rule.resource) {
-            // F-032 step 3. The IR can declare a resource and the oracle will
-            // regenerate it, but this shader applies only the rule's own field
-            // write, so it would run the draw-down and never put anything back
-            // — a world that only ever empties. Refused where it cannot run
-            // rather than left to look like a very harsh world (AV-007).
-            return core::Error{"the GPU path does not regenerate a resource yet"};
-        }
         if (rule.kind == rule::Kind::Continuous) {
             // compileRule refuses this already; repeated here because the
             // continuous shader has no field hooks at all and a change that
@@ -245,6 +295,13 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     cfg_.locSeedHi    = rlGetLocationUniform(cfg_.program, "seedBHi");
     cfg_.locBlockShift = rlGetLocationUniform(cfg_.program, "mutationBlockShift");
     cfg_.locSelfWeight = continuous ? rlGetLocationUniform(cfg_.program, "selfWeight") : -1;
+    if (rule.resource) {
+        cfg_.locRegen     = rlGetLocationUniform(cfg_.program, "aetherResourceRegen");
+        cfg_.locMinSeed   = rlGetLocationUniform(cfg_.program, "aetherResourceMinSeed");
+        cfg_.locDiffusion = rlGetLocationUniform(cfg_.program, "aetherResourceDiffusion");
+    } else {
+        cfg_.locRegen = cfg_.locMinSeed = cfg_.locDiffusion = -1;
+    }
     cfg_.selfWeight = rule.selfWeight;
     cfg_.continuous = continuous;
     cfg_.fieldFormats.clear();
@@ -278,6 +335,11 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture,
     const uint32_t blockShift = cfg_.mutation.blockShift;
     rlSetUniform(cfg_.locBlockShift, &blockShift, RL_SHADER_UNIFORM_UINT, 1);
     if (cfg_.continuous) rlSetUniform(cfg_.locSelfWeight, &cfg_.selfWeight, RL_SHADER_UNIFORM_FLOAT, 1);
+    if (cfg_.locRegen >= 0) {
+        rlSetUniform(cfg_.locRegen, &cfg_.resource.regen, RL_SHADER_UNIFORM_FLOAT, 1);
+        rlSetUniform(cfg_.locMinSeed, &cfg_.resource.minSeed, RL_SHADER_UNIFORM_FLOAT, 1);
+        rlSetUniform(cfg_.locDiffusion, &cfg_.resource.diffusion, RL_SHADER_UNIFORM_FLOAT, 1);
+    }
     const unsigned int format = cfg_.continuous ? GL_R32F : GL_R8UI;
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  format);
     glBindImageTexture(1, dstTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, format);

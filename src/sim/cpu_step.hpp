@@ -10,6 +10,7 @@
 #include "core/grid.hpp"
 #include "rule/compile.hpp"
 #include "sim/hash.hpp"
+#include "sim/resource.hpp"
 
 #include <span>
 #include <vector>
@@ -40,6 +41,26 @@ float evalGrowth(const rule::Expression& growth, std::span<const rule::ExprType>
 using FieldReads  = std::span<const std::span<const uint8_t>>;
 using FieldWrites = std::span<const std::span<uint8_t>>;
 
+// One generation's books over the whole grid, summed in double because the ledger
+// is a diagnostic that feeds nothing back: being more accurate than the shader is
+// the AV-015 defect only where the value re-enters the simulation, and this one
+// does not. The identity the balance test asserts is
+//
+//     total(after) - total(before) == regenerated + diffused + clamped - consumed
+struct GridLedger {
+    double consumed    = 0.0;
+    double regenerated = 0.0;
+    double diffused    = 0.0;
+    double clamped     = 0.0;
+
+    void add(const SiteLedger& s) {
+        consumed    += s.consumed;
+        regenerated += s.regenerated;
+        diffused    += s.diffused;
+        clamped     += s.clamped;
+    }
+};
+
 // Working room for a cell's transition, sized from the rule. Make one and
 // reuse it for every cell: the step loop allocates nothing (ARCHITECTURE
 // §Key invariants 8). After a stepCell call, `neighbours` and `counts` hold
@@ -58,6 +79,8 @@ struct StepScratch {
     std::vector<ExprValue> fieldSelf;     // F entries: field f at this site
     std::vector<ExprValue> fieldNbr;      // F*N entries: field f at neighbour i
                                           // at f*N + i, canonical order
+    std::vector<float>     resourceNbr;   // N entries: the resource at each neighbour,
+                                          // for the engine's own dynamics (F-032)
     std::vector<ExprValue> fieldNext;     // F entries: what each field becomes.
                                           // A field the rule does not write
                                           // holds its own value, because on a
@@ -97,7 +120,8 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
                         std::span<const uint8_t> current,
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
-                        StepScratch& scratch, FieldReads fields = {});
+                        StepScratch& scratch, FieldReads fields = {},
+                        ResourceParams resource = {}, SiteLedger* ledger = nullptr);
 
 // One generation: reads `current`, writes `next`. The two must be distinct
 // buffers of spec.bytesPerBuffer() bytes; passing the same span twice is the
@@ -108,10 +132,15 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
 // field is read from the first and written to the second whether or not the
 // rule writes it, so the pair swaps with the state's pair and stays in step
 // with it.
+// `resource` is honoured only when the rule declares one (F-032). `ledger`, when
+// given, accumulates the whole grid's four terms for this generation, so the books
+// can be balanced without a second walk; it is a diagnostic and nothing reads it
+// back into the simulation.
 void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
              uint64_t generation = 0, CellMutation mutation = {},
-             FieldReads fields = {}, FieldWrites fieldsNext = {});
+             FieldReads fields = {}, FieldWrites fieldsNext = {},
+             ResourceParams resource = {}, GridLedger* ledger = nullptr);
 
 // One generation on a HostGrid, then swap, so the result is grid.current().
 void cpuStep(const rule::CompiledRule& rule, core::HostGrid& grid,

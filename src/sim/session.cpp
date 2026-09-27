@@ -106,6 +106,12 @@ json eventToJson(const Event& ev) {
             j["low"] = b.params.low;
             j["high"] = b.params.high;
         }
+        else if constexpr (std::is_same_v<T, EvResource>) {
+            j["type"] = "resource";
+            j["regen"] = b.params.regen;
+            j["min_seed"] = b.params.minSeed;
+            j["diffusion"] = b.params.diffusion;
+        }
         else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
             j["type"] = "rule_mutation"; j["enabled"] = b.params.enabled;
@@ -148,6 +154,12 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
         params.low       = j.value("low", 0.0f);
         params.high      = j.value("high", 1.0f);
         ev.body = EvSeedResource{params};
+    } else if (type == "resource") {
+        ResourceParams params;
+        params.regen     = j.value("regen", 0.02f);
+        params.minSeed   = j.value("min_seed", 0.0f);
+        params.diffusion = j.value("diffusion", 0.0f);
+        ev.body = EvResource{params};
     } else if (type == "cell_mutation") {
         ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
     } else if (type == "rule_mutation") {
@@ -284,6 +296,13 @@ std::string sessionToJson(const Session& s) {
     if (s.streamA) j["rng"]["stream_a_state"] = {hex(s.streamA->state), hex(s.streamA->inc)};
     j["mutation"] = {{"rule", {{"interval", s.ruleMutation.interval}, {"magnitude", s.ruleMutation.magnitude}, {"enabled", s.ruleMutation.enabled}}},
                      {"cell", {{"p", s.cellMutationP}, {"block", s.cellMutationBlock}, {"enabled", s.cellMutationP > 0.0}}}};
+    // Written only when the rule declares a resource, so a session without one is
+    // byte for byte the file it was (F-032).
+    if (s.rule.resource) {
+        j["resource"] = {{"regen", s.resource.regen},
+                         {"min_seed", s.resource.minSeed},
+                         {"diffusion", s.resource.diffusion}};
+    }
     json journal = json::array();
     for (const Event& ev : s.journal) journal.push_back(eventToJson(ev));
     j["journal"] = journal;
@@ -358,6 +377,12 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.streamA = Pcg32::State{std::get<uint64_t>(a), std::get<uint64_t>(b)};
         }
 
+        if (j.contains("resource")) {
+            const json& r = j.at("resource");
+            s.resource.regen     = r.value("regen", 0.02f);
+            s.resource.minSeed   = r.value("min_seed", 0.0f);
+            s.resource.diffusion = r.value("diffusion", 0.0f);
+        }
         const json& m = j.at("mutation");
         s.ruleMutation = {m.at("rule").at("enabled").get<bool>(), m.at("rule").at("interval").get<uint32_t>(),
                           m.at("rule").at("magnitude").get<uint32_t>()};

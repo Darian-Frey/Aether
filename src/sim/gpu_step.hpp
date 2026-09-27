@@ -10,6 +10,7 @@
 #include "core/gpu_grid.hpp"
 #include "rule/compile.hpp"
 #include "sim/hash.hpp"
+#include "sim/resource.hpp"
 
 #include <cstdint>
 #include <map>
@@ -62,6 +63,12 @@ public:
     void setCellMutation(CellMutation m) { cfg_.mutation = m; }
     CellMutation cellMutation() const { return cfg_.mutation; }
 
+    // The resource's run-time controls, applied from the next step on (F-032).
+    // Uniforms rather than a rule change, which is what makes a harshness slider
+    // free: no recompile, no new ir_hash, no lineage entry (D-024).
+    void setResource(ResourceParams p) { cfg_.resource = p; }
+    ResourceParams resource() const { return cfg_.resource; }
+
     size_t cachedPrograms() const { return owned_.programs.size(); }
 
 private:
@@ -92,6 +99,8 @@ private:
         uint32_t     width = 0, height = 0, depth = 0;
         uint64_t     generation = 0;
         CellMutation mutation;
+        ResourceParams resource;
+        int locRegen = -1, locMinSeed = -1, locDiffusion = -1;
         // The internal format of each declared field, in declaration order,
         // so that step() binds R8UI or R32F without consulting the rule again.
         std::vector<unsigned int> fieldFormats;

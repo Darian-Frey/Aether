@@ -142,6 +142,13 @@ public:
     // replay re-draws the same noise from stream A rather than storing a buffer.
     // Refused when the rule declares no resource; there is nothing to seed.
     std::optional<core::Error> seedResource(const NoiseParams& params);
+    // The resource's run-time controls. Refused when the combination cannot be
+    // honoured — diffusion against a mirror boundary *creates* material, which is
+    // the one thing AV-018 forbids — and journalled like any other control, so a
+    // replay runs the same world. Cheap by design: a uniform on both paths, no
+    // recompile and no lineage entry (D-024).
+    std::optional<core::Error> setResource(const ResourceParams& params);
+    const ResourceParams& resource() const { return resource_; }
     // The host copy of field `i`, under the same authority rule as host().
     const core::HostGrid& fieldHost(size_t i) const { return fields_.at(i).host; }
     core::HostGrid&       fieldHost(size_t i)       { return fields_.at(i).host; }
@@ -234,6 +241,7 @@ private:
     CellMutation   mutation_;
     double         cellMutationP_ = 0.0;
     RuleMutationParams ruleMutation_;
+    ResourceParams resource_;
     Lineage        lineage_;
     Counters       counters_;
     Journal        journal_;

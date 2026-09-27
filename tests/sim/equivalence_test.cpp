@@ -11,6 +11,7 @@
 #include "rule/compile.hpp"
 #include "sim/cpu_step.hpp"
 #include "sim/inspect.hpp"
+#include "sim/resource.hpp"
 #include "sim/gpu_step.hpp"
 #include "support/fields.hpp"
 #include "support/gl_context.hpp"
@@ -33,6 +34,10 @@ constexpr int kGenerations = 1000;
 struct Fixture {
     std::string  name;
     rule::RuleIR ir;
+    // Only meaningful for a fixture whose rule declares a resource (F-032).
+    // These are run-time controls rather than rule text, so they travel beside
+    // the IR rather than inside it (D-024).
+    sim::ResourceParams resource;
 };
 
 // Deterministic fill so a failure reproduces exactly. Not the session RNG;
@@ -190,6 +195,60 @@ rule::RuleIR twoFieldExpression() {
     return ir;
 }
 
+// A resource rule (F-032, D-024): the engine regenerates one field toward another
+// and the rule's write on it is only the draw-down. In this sweep because the
+// engine's arithmetic and the GLSL it generates are twins, and a twin that is only
+// compared in its own test file is compared when somebody remembers to.
+rule::RuleIR resourceExpression() {
+    rule::RuleIR ir;
+    ir.states = 2;
+    ir.kind = rule::Kind::Expression;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};
+
+    rule::Field store;
+    store.name = "food";
+    store.cell_type = core::CellType::F32;
+    rule::Expression draw;
+    draw.nodes = {
+        {rule::ExprOp::Self},                                // 0
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},              // 1
+        {rule::ExprOp::Eq, 0, 1},                            // 2  alive
+        {rule::ExprOp::FieldSelf, 0},                        // 3
+        {rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.8f},      // 4
+        {rule::ExprOp::Mul, 3, 4},                           // 5  eats a fifth
+        {rule::ExprOp::Select, 2, 5, 3},                     // 6
+    };
+    store.write = draw;
+
+    rule::Field capacity;
+    capacity.name = "fertility";
+    capacity.cell_type = core::CellType::F32;
+
+    ir.fields = {store, capacity};
+    ir.resource = rule::Resource{0, 1};
+
+    // Alive where there is food and a neighbour, so the population tracks the
+    // resource and a divergence in either shows up in both.
+    rule::Expression t;
+    t.nodes = {
+        {rule::ExprOp::FieldSelf, 0},                        // 0
+        {rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.35f},     // 1
+        {rule::ExprOp::Gt, 0, 1},                            // 2  fed
+        {rule::ExprOp::Count, 1},                            // 3
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},              // 4
+        {rule::ExprOp::Gt, 3, 4},                            // 5  has company
+        {rule::ExprOp::Self},                                // 6
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},              // 7
+        {rule::ExprOp::Eq, 6, 7},                            // 8  already alive
+        {rule::ExprOp::Or, 5, 8},                            // 9
+        {rule::ExprOp::And, 2, 9},                           // 10
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 0},              // 11
+        {rule::ExprOp::Select, 10, 7, 11},                   // 12
+    };
+    ir.transition = t;
+    return ir;
+}
+
 // A rule that reads its neighbours by position rather than by count.
 rule::RuleIR shiftExpression() {
     rule::RuleIR ir;
@@ -228,6 +287,13 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Arithmetic expression, 5 states (codegen)", arithmeticExpression(5)});
     out.push_back({"Neighbour-indexed expression (codegen)", shiftExpression()});
     out.push_back({"Two fields, u8 and f32 (codegen)", twoFieldExpression()});
+    {
+        sim::ResourceParams rp;
+        rp.regen = 0.04f;
+        rp.minSeed = 0.001f;
+        rp.diffusion = 0.2f;
+        out.push_back({"Resource with regeneration and diffusion", resourceExpression(), rp});
+    }
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});
@@ -350,6 +416,13 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     if (err) FAIL(err->message);
     const sim::CellMutation mutation{sim::mutationThreshold(p), 0xb0b0b0b0ull + static_cast<uint32_t>(boundary), blockShift};
     stepper.setCellMutation(mutation);
+    // The engine's own half of the resource, on both paths. A combination this
+    // boundary cannot honour is skipped rather than compared: diffusion against a
+    // mirror boundary creates material and is refused by the engine, so there is
+    // nothing to agree about.
+    sim::ResourceParams resource = f.resource;
+    if (sim::resourceProblem(resource, boundary) != nullptr) resource.diffusion = 0.0f;
+    stepper.setResource(resource);
 
     for (int i = 0; i < kGenerations; ++i) {
         if (fields.size() == 0) {
@@ -357,7 +430,7 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
             stepper.step(gpu);
         } else {
             sim::cpuStep(lut, spec, host.current(), host.next(), static_cast<uint64_t>(i), mutation,
-                         fields.reads(), fields.writes());
+                         fields.reads(), fields.writes(), resource);
             host.swap();
             fields.swap();
             stepper.step(gpu.current(), gpu.next(), fieldGpu.textures());

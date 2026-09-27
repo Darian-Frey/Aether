@@ -139,13 +139,15 @@ StepScratch::StepScratch(const rule::CompiledRule& rule)
       stateCounts(rule.backend == rule::Backend::Codegen ? rule.states : 0u),
       fieldSelf(rule.fields.size()),
       fieldNbr(rule.fields.size() * rule.neighbourCount()),
+      resourceNbr(rule.resource ? rule.neighbourCount() : 0u),
       fieldNext(rule.fields.size()) {}
 
 CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& spec,
                         std::span<const uint8_t> current,
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
-                        StepScratch& scratch, FieldReads fields) {
+                        StepScratch& scratch, FieldReads fields,
+                        ResourceParams resource, SiteLedger* ledger) {
     const uint32_t W = spec.width, H = spec.height, D = spec.depth;
     const uint32_t N = rule.neighbourCount();
     const uint16_t S = rule.states;
@@ -302,6 +304,25 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
                                    : scratch.fieldSelf[f];
     }
 
+    // The resource's second writer (F-032, D-024). The loop above was the rule's
+    // draw-down; regeneration, diffusion and the clamp are the engine's, applied
+    // to what it produced — after consumption, never before, which is AV-018's
+    // requirement rather than a preference. The twin of the GLSL sim/gpu_step
+    // generates, and `sim/resource.cpp` is the one place the arithmetic is written.
+    if (rule.resource) {
+        const uint32_t r = rule.resource->field;
+        const uint32_t k = rule.resource->capacity;
+        // The neighbours' resource as the rule read them: a zero boundary's absent
+        // cells are already zero in the gather, which is how the leak at an edge
+        // comes about rather than being applied as a special case.
+        for (uint32_t i = 0; i < N; ++i) {
+            scratch.resourceNbr[i] = scratch.fieldNbr[size_t{r} * N + i].f;
+        }
+        scratch.fieldNext[r].f = applyResource(scratch.fieldNext[r].f, scratch.fieldSelf[r].f,
+                                               scratch.fieldSelf[k].f, scratch.resourceNbr,
+                                               resource, ledger);
+    }
+
     t.next = t.fromRule;
     if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
         t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
@@ -313,7 +334,8 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
 void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
              uint64_t generation, CellMutation mutation,
-             FieldReads fields, FieldWrites fieldsNext) {
+             FieldReads fields, FieldWrites fieldsNext,
+             ResourceParams resource, GridLedger* ledger) {
     assert(current.data() != next.data() && "step must not read the buffer it writes (AV-004)");
     assert(current.size() == spec.bytesPerBuffer() && next.size() == spec.bytesPerBuffer());
     assert(rule.dimensions == spec.dimensions);
@@ -343,8 +365,11 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
     for (uint32_t z = 0; z < D; ++z) {
         for (uint32_t y = 0; y < H; ++y) {
             for (uint32_t x = 0; x < W; ++x) {
+                SiteLedger site;
                 const CellTransition t =
-                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch, fields);
+                    stepCell(rule, spec, current, x, y, z, generation, mutation, scratch, fields,
+                             resource, rule.resource ? &site : nullptr);
+                if (ledger != nullptr && rule.resource) ledger->add(site);
                 const size_t i = (size_t{z} * H + y) * W + x;
                 if (continuous) out[i] = t.nextValue;
                 else            next[i] = t.next;

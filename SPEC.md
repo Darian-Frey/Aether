@@ -103,7 +103,11 @@ Field {
 "resource": { "field": "food", "capacity": "fertility" }
 ```
 
-Both are ordinary auxiliary fields, so their storage, their reads and their place in a session are the machinery below unchanged. What is different is that the resource has a **second writer**. The rule's `write` on that field is the *draw-down* and nothing else; the engine then applies, in this order: regeneration toward the capacity, optional diffusion, and the clamp. Regeneration after consumption is a requirement rather than an implementation detail — running it the other way round is one of the leaks AV-018 names, and a leak in a quantity under selection is exploited rather than merely wrong.
+Both are ordinary auxiliary fields, so their storage, their reads and their place in a session are the machinery below unchanged. What is different is that the resource has a **second writer**. The rule's `write` on that field is the *draw-down* and nothing else; the engine then applies, in this order: regeneration toward the capacity plus a minimum-seed trickle, optional diffusion, and the clamp to `[0, capacity]`. Regeneration after consumption is a requirement rather than an implementation detail — running it the other way round is one of the leaks AV-018 names, and a leak in a quantity under selection is exploited rather than merely wrong.
+
+Diffusion's gradient is measured between **one generation's values on both sides**: the neighbours as they are, and this site as it *was*, before the draw-down. Regeneration applies to the consumed value; diffusion reads the unconsumed one. Mixing the two snapshots biases the gradient upward wherever a cell ate, since consumption only lowers its value, and diffusion then creates material instead of moving it — which is how the first version of this leaked (D-024's correction of 2026-09-27).
+
+Diffusion conserves under `wrap`. Under `zero` it leaks, because a cell at the edge diffuses into nothing: that is counted as a sink rather than hidden, since a world with an edge loses material at its edge. Under `mirror` it is **refused** — the neighbour relation is not symmetric there, so an edge cell counts its inward neighbour twice while that neighbour counts it once, and the exchange creates material. A source that is not regeneration is what AV-018 forbids.
 
 The capacity must have no `write`: it is the world's shape, and a rule able to raise its own ceiling is that same vector with the leak in the open.
 
