@@ -576,10 +576,10 @@ The front ends choose the form, since nothing downstream can infer it:
 ---
 
 ### D-022 A multi-field rule is an expression per written field, and runs on codegen
-**Decided:** 2026-09-27
-**Recorded:** 2026-09-27
+**Decided:** 2026-09-26
+**Recorded:** 2026-09-26
 **Status:** Accepted
-**Authors:** Shane Hartley (with Claude, session 2026-09-27)
+**Authors:** Shane Hartley (with Claude, session 2026-09-26)
 **Related:** F-031, F-032, F-033, F-036, D-004, D-019, AV-010, AV-018, SPEC.md §4, §5, §6
 
 **Context.** D-019 admitted multi-field grids as Phase 7's substrate and settled the shape of the storage: a site may carry more than one field, each its own texture, because that is additive where a fattened cell record would have been a rewrite. It did not settle how a rule over such a grid is *written*, or which backend executes it, and F-031 cannot be built without both.

@@ -113,7 +113,7 @@ The capacity must have no `write`: it is the world's shape, and a rule able to r
 
 The **rates are not in the IR.** Regeneration rate, diffusion coefficient and minimum seed rate are run-time controls recorded with the session's other controls (§11), not rule text — a constant here would make the primary control of the feature the one thing that cannot be adjusted without recompiling the rule and appending to its lineage (D-024). A rule that declares no resource hashes and serialises exactly as it did.
 
-**Fields** *(added 2026-09-27, F-031, D-022)*. A site carries the state and any number of declared auxiliary fields, each stored as its own texture. A cell still holds one value — SPEC §1 is unchanged — and what gained a dimension is the site, which is what makes this additive: an absent or empty `fields` list is the grid this engine has always had, contributes nothing to `ir_hash`, and writes nothing into the JSON, so every rule and every session written before it is untouched and `ir_version` stays at 1.
+**Fields** *(added 2026-09-26, F-031, D-022)*. A site carries the state and any number of declared auxiliary fields, each stored as its own texture. A cell still holds one value — SPEC §1 is unchanged — and what gained a dimension is the site, which is what makes this additive: an absent or empty `fields` list is the grid this engine has always had, contributes nothing to `ir_hash`, and writes nothing into the JSON, so every rule and every session written before it is untouched and `ir_version` stays at 1.
 
 A rule reads a field with the `field` and `field_neighbour` operators of §6, at its own site and at its neighbours, and writes only fields at its own site — the gather boundary of D-019. Each field it writes carries its own expression, whose type must match the field's cell type; a field with no `write` keeps its value, which is how a read-only field costs nothing to say. A field a rule never declared cannot be read: there would be no cell type to give the node, so the validator refuses it rather than reading zero.
 
@@ -246,7 +246,7 @@ float aether_rule_f(float self, float conv);     // f32 cell type (Phase 5)
 
 `nbr` holds the neighbours in the canonical order of §3. The generator emits one statement per node of the expression arena, in arena order — children precede parents, so a single forward pass suffices and no node is evaluated twice.
 
-**Auxiliary fields** *(added 2026-09-27, F-031, D-022; the generated shape below from 2026-09-26)*. The functions a multi-field rule generates take one further parameter, a struct gathered once per cell and handed to all of them:
+**Auxiliary fields** *(added 2026-09-26, F-031, D-022)*. The functions a multi-field rule generates take one further parameter, a struct gathered once per cell and handed to all of them:
 
 ```glsl
 struct AetherFields { int f0_self; int f0_nbr[N]; float f1_self; float f1_nbr[N]; /* … */ };

@@ -255,14 +255,18 @@ This is the second defect in a fortnight caused by `updateCanvas` keeping two ne
 Verified structurally rather than by hand: brace-counting the function now puts the help toggle, the Esc cancel and the `swallowLeft_` clear above the branch, where before two of them were inside it. The behaviour itself — place a pattern, then paint; press Esc with one pending — needs a mouse and a keyboard, which a scripted run does not have, so it is worth a minute of somebody's hands.
 
 ### BUG-020: the Phase 7 entries are dated a day into the future
-**Status:** open
+**Status:** fixed
 **Found:** 2026-09-26 (writing F-031 step 2, dating the status line)
+**Fixed:** 2026-09-27
 **Location:** `DECISIONS.md` (D-022), `FEATURES.md` (F-002, F-031), `SPEC.md` §1 and §6, `ROADMAP.md` Phase 7, `CHANGELOG.md`, `CLAUDE.md`
 **Severity:** low
 **Description.** Everything written in the session that opened Phase 7 is dated **2026-09-27**: D-022's *Decided* and *Recorded* lines and its author line, F-031's step 1 status, F-002's second correction, the two SPEC "added" notes, Phase 7's start in ROADMAP and the CHANGELOG paragraphs. That session ran on **2026-09-26**, which is also the day F-031 step 2 was written. The register therefore reads step 1 on the 27th and step 2 on the 26th: the two steps are in the wrong order, and D-022 is recorded as having been decided after the work that implements it.
 Nothing is wrong in the code and no ID is affected. What is affected is the one thing the ISO 8601 convention exists for — being able to read the registers as a sequence — and the F-002 entry in particular now says a thing was closed "properly on 2026-09-27" a day before the date it carries.
 **Notes.** Logged rather than corrected, per the convention: eleven dates across six documents, one of them the *Recorded* line of an accepted decision, is the author's call and not a tidy-up. The likely mechanism is that the session took its date from somewhere other than the clock and then propagated it consistently, which is why every entry agrees with every other and none agrees with the day.
 F-031 step 2 is dated 2026-09-26, the day it was written, rather than being made to match its predecessor. Whichever way this is settled, it wants settling in one pass across all six files rather than one entry at a time.
+**Resolution (2026-09-27).** Settled the way the register reads best: the eleven wrong entries moved back to **2026-09-26**, the day the work was done, rather than the correctly-dated ones moving forward. D-022's *Decided*, *Recorded* and author lines; F-031's step 1 status in both `FEATURES.md` and `ROADMAP.md`; F-002's status line and its correction note; SPEC §4's `Fields` note and §6's `Auxiliary fields` note; ROADMAP's Phase 7 start; and three `CHANGELOG` entries — Phase 7's opening, F-031's step 1 and F-002's Lenia fix.
+Two were reworded rather than redated, because a date had become redundant once its neighbour was right: F-002 now reads "properly later the same day" instead of naming a date twice, and SPEC §6's note loses its "; the generated shape below from 2026-09-26" clause, which existed only to explain the discrepancy this entry is about.
+Done entry by entry rather than by substituting across the tree, and that mattered twice over. By the time it was fixed, **2026-09-27 was legitimately on other work** — D-024, F-032's four steps, AV-018's detection line, SPEC's resource notes and ten `CHANGELOG` paragraphs — so a global replace would have moved all of those a day into the past and turned a cosmetic inconsistency into a false record. And listing every occurrence first turned up an entry this report had missed: `ROADMAP.md`'s own copy of F-031's step 1, which makes eleven rather than the ten the description implies. D-023 was already correct and was left alone.
 
 ### BUG-021: a subnormal float diverges between the oracle and the shader
 **Status:** fixed
