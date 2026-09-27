@@ -94,6 +94,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .expressionTypes = expressionTypes(kernel->growth, 0, 0, /*selfIsFloat=*/true),
             .glsl          = std::get<std::string>(std::move(glsl)),
             .fields        = {},
+            .resource      = {},
             .weights       = std::move(rk.weights),
             .selfWeight    = rk.self,
         };
@@ -126,6 +127,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .expressionTypes = expressionTypes(*expression, nbrs, ir.states, false, fieldTypesOf(ir)),
             .glsl          = std::move(generated),
             .fields        = compileFields(ir, nbrs),
+            .resource      = ir.resource,
         };
     }
 
@@ -158,6 +160,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
         .expressionTypes = {},
         .glsl          = {},
         .fields        = {},
+        .resource      = {},
     };
 
     if (ir.kind == Kind::OuterTotalistic) {

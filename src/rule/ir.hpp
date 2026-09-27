@@ -146,6 +146,32 @@ struct Field {
     bool operator==(const Field&) const = default;
 };
 
+// --- The resource (F-032, D-024) ---------------------------------------------
+//
+// One declared field may be marked as *the resource*: a quantity the engine
+// regenerates toward a per-site capacity each generation, rather than one the
+// rule alone decides. Both are ordinary `f32` fields, so reading them, storing
+// them and serialising them are all F-031's machinery unchanged. What is new is
+// that the resource has a second writer.
+//
+// The rule's `write` on the resource field is the **draw-down** and nothing
+// else. The engine applies regeneration, then diffusion, then the clamp to
+// whatever that expression produced — in that order, because regeneration
+// before consumption is one of the leaks AV-018 names, and the order is engine
+// semantics rather than something each rule can get wrong.
+//
+// The *rate* is deliberately absent. Regeneration rate, diffusion coefficient
+// and minimum seed rate are run-time controls held in `sim::Simulation`, not
+// rule text: a constant here would make the primary control of the feature the
+// one thing that cannot be adjusted without recompiling and appending to the
+// lineage (D-024).
+struct Resource {
+    uint32_t field    = 0;   // index into RuleIR::fields — the quantity
+    uint32_t capacity = 0;   // index into RuleIR::fields — what it regenerates toward
+
+    bool operator==(const Resource&) const = default;
+};
+
 // --- The IR ------------------------------------------------------------------
 
 struct Metadata {
@@ -174,6 +200,10 @@ struct RuleIR {
     // Auxiliary fields, beyond the state. Empty for every rule written before
     // F-031 and for every rule that wants one field, which is most of them.
     std::vector<Field>    fields;
+    // Which of those fields is the resource, if any. Absent for every rule
+    // written before F-032, which is what keeps their hashes and their sessions
+    // exactly as they were.
+    std::optional<Resource> resource;
     Transition    transition    = Table{};
     Metadata      metadata      = {};
 

@@ -137,6 +137,13 @@ json irToJson(const RuleIR& ir) {
         }
         j["fields"] = fields;
     }
+    // Names rather than indices, so the JSON says which fields these are without
+    // the reader having to count. Written only when there is a resource, so a
+    // rule without one serialises exactly as it did (F-032, D-024).
+    if (ir.resource && ir.resource->field < ir.fields.size() && ir.resource->capacity < ir.fields.size()) {
+        j["resource"] = {{"field", ir.fields[ir.resource->field].name},
+                         {"capacity", ir.fields[ir.resource->capacity].name}};
+    }
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         j["transition"] = {{"form", "table"}, {"entries", base64Encode(t->entries)}, {"size", t->entries.size()}};
     } else if (const auto* e = std::get_if<Expression>(&ir.transition)) {
@@ -196,6 +203,25 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
                 }
                 ir.fields.push_back(std::move(field));
             }
+        }
+        if (j.contains("resource")) {
+            const json& r = j.at("resource");
+            if (!r.is_object() || !r.contains("field") || !r.contains("capacity")) {
+                return "resource needs a field and a capacity";
+            }
+            auto indexOf = [&](const std::string& name) -> std::optional<uint32_t> {
+                for (size_t i = 0; i < ir.fields.size(); ++i) {
+                    if (ir.fields[i].name == name) return static_cast<uint32_t>(i);
+                }
+                return std::nullopt;
+            };
+            const auto field = indexOf(r.at("field").get<std::string>());
+            const auto capacity = indexOf(r.at("capacity").get<std::string>());
+            if (!field)    return std::format("resource names a field '{}' the rule does not declare",
+                                              r.at("field").get<std::string>());
+            if (!capacity) return std::format("resource names a capacity '{}' the rule does not declare",
+                                              r.at("capacity").get<std::string>());
+            ir.resource = Resource{*field, *capacity};
         }
         if (j.contains("counted")) {
             for (const json& set : j.at("counted")) {

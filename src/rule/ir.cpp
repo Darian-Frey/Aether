@@ -403,6 +403,37 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
         }
     }
 
+    // --- The resource (F-032, D-024) ----------------------------------------
+    //
+    // The engine regenerates this field toward that one, so both have to be
+    // quantities and the capacity has to be the world's shape rather than
+    // something a rule edits. A capacity a rule could write would let a lineage
+    // raise its own ceiling, which is AV-018 with the leak in the open.
+    if (ir.resource) {
+        const Resource& r = *ir.resource;
+        const size_t count = ir.fields.size();
+        if (r.field >= count || r.capacity >= count) {
+            err(std::format("resource names field {} and capacity {}, and the rule declares {}",
+                            r.field, r.capacity, count));
+        } else if (r.field == r.capacity) {
+            err("the resource and its capacity are the same field");
+        } else {
+            if (ir.fields[r.field].cell_type != CellType::F32) {
+                err(std::format("resource field '{}' holds {} cells; a resource is a quantity and must be f32",
+                                ir.fields[r.field].name, toString(ir.fields[r.field].cell_type)));
+            }
+            if (ir.fields[r.capacity].cell_type != CellType::F32) {
+                err(std::format("capacity field '{}' holds {} cells; it must be f32",
+                                ir.fields[r.capacity].name, toString(ir.fields[r.capacity].cell_type)));
+            }
+            if (ir.fields[r.capacity].write) {
+                err(std::format("capacity field '{}' has a write expression; a capacity is the world's shape "
+                                "and the rule does not change it",
+                                ir.fields[r.capacity].name));
+            }
+        }
+    }
+
     // Rule 4: signature must fit a u64.
     if (ir.kind == Kind::NonTotalistic && N > 64) {
         err(std::format("non-totalistic neighbourhood has {} neighbours; the limit is 64", N));
@@ -534,6 +565,12 @@ uint64_t irHash(const RuleIR& ir) {
             h.integer(static_cast<uint8_t>(f.write.has_value()));
             if (f.write) hashExpression(h, *f.write);
         }
+    }
+    // Same again: a rule that declares no resource contributes no bytes here, so
+    // every hash written before F-032 is unmoved (D-024).
+    if (ir.resource) {
+        h.integer(ir.resource->field);
+        h.integer(ir.resource->capacity);
     }
     h.integer(static_cast<uint8_t>(ir.transition.index()));
     if (const auto* t = std::get_if<Table>(&ir.transition)) {

@@ -640,3 +640,38 @@ The IR's expression form is an arena in which every node's child precedes it. So
 - A mistake in a tree is reported at the call that made it, because arity and argument types are checked in the constructor rather than in the reader. The reader's errors are the ones only it can know: an undeclared field, a cycle, a tree too large.
 
 **Reversal conditions.** Revisit B if Lua gains overloadable `and`/`or`/`not`, which would remove the reason it was rejected rather than merely soften it. Revisit C if the DSL grows arithmetic for its own reasons, at which point sharing one parser stops being a new dependency and becomes the obvious economy.
+
+---
+
+### D-024 The resource field's dynamics belong to the engine, not to the rule
+**Decided:** 2026-09-27
+**Recorded:** 2026-09-27
+**Authors:** Shane Hartley (with Claude, session 2026-09-27)
+**Status:** Accepted
+**Status note:** Supersedes nothing. Extends D-022 rather than contradicting it: a field's value is still produced by an expression, and the resource is the one field that has a second, engine-owned term applied to what that expression produced.
+**Related:** F-032, F-036, F-031, D-019, D-022, AV-018, AV-015, SPEC.md §6, §11
+
+**Context.** F-032 asks for a resource field that regenerates toward a per-site carrying capacity "at a settable rate", with that rate "exposed as the primary harshness control". Since D-022 a field's next value is its own write expression and nothing else, so on the face of it regeneration is something a rule author writes. The word *control* is what makes that awkward: a constant inside a rule is part of the rule, so moving a slider would recompile the rule, append a lineage entry, and — on the codegen backend with a cold cache — cost 64 ms per drag (BENCHMARKS.md). A harshness knob that pollutes the lineage and stutters is not a control.
+
+AV-018 sharpens it further. The resource is the first quantity in this engine that is meant to be *conserved*, and the vector's whole point is that a leak does not sit quietly producing slightly wrong totals — the grid is under selection, so a lineage that exploits the leak outbreeds every lineage that does not. Two of the leaks it names are ordering faults: "a regeneration step that runs before consumption instead of after", "a clamp applied in the wrong order". Both are decided by whoever owns the arithmetic.
+
+**Options.**
+- **A. The engine owns the resource's dynamics.** Chosen. One declared `f32` field is marked as the resource and another as its capacity. The rule reads the resource like any field and its `write` on that field is the *draw-down* — consumption, and nothing else. The engine then applies regeneration and optional diffusion to whatever that expression produced, with the rate, the diffusion coefficient and the minimum seed rate held in `Simulation` and reaching the shader as uniforms. Sliders cost nothing: no recompile, no lineage entry, no new `ir_hash`. Ordering stops being a thing each rule author can get wrong, because "regeneration is applied to the consumed value" is a property of the engine and is stated once.
+- **B. The rule expresses everything.** Rejected. It needs no new machinery at all and is exactly what F-031 already provides, which is its appeal. But it makes `r_regen` a rule constant, so the primary control of the feature is the one thing that cannot be adjusted cheaply; it gives conservation counting nowhere to live, since the engine would not know which term of an author's arithmetic was a source and which a sink; and it puts AV-018's ordering rule in the hands of every rule, where the vector says a mistake is selected *for*.
+- **C. Run-time rule parameters: a new expression leaf compiling to a uniform.** Rejected for now, and the most interesting of the three. It would let a rule name a parameter the interface sets, keeping regeneration rule-expressed while making the slider free, and it would serve F-033 to F-035 as well. It is also a cross-cutting feature with its own problems — a parameter that changes mid-run has to be journaled or replay breaks, and the determinism contract gains an input — so it wants its own decision rather than arriving as a detail of this one. Nothing here forecloses it: if it is built later, the resource's parameters could become ordinary rule parameters and this decision would be superseded rather than worked around.
+
+**Decision.** Option A.
+
+- The IR gains `RuleIR::resource`, an optional `{ field, capacity }` pair of indices into `fields`. Both must name `f32` fields; the capacity must have no `write`, because it is the world's shape rather than something a rule changes. A rule that declares no resource hashes and serialises exactly as it did, on the same reasoning as `counted` and `fields` before it.
+- The **parameters are not in the IR**. Regeneration rate, diffusion coefficient and minimum seed rate live in `Simulation` beside the cell-mutation probability, are journaled the way `setCellMutation` is, and travel in the session. That is what makes them controls rather than rule text.
+- **Ordering is fixed and is engine semantics**: the rule's draw-down first, then regeneration toward capacity, then diffusion, then the clamp. Regeneration after consumption is AV-018's requirement and is stated here rather than left to a shader comment.
+- It is **one pass**, not two. The step already gathers the neighbourhood, so diffusion reads the neighbours' *current* resource while regeneration applies to this site's *consumed* value. That is a semi-implicit scheme rather than a textbook explicit one; it is chosen because it needs no second dispatch and no third buffer, and because being deterministic and specified matters more here than being the more usual discretisation.
+- **Conservation is testable in F-032 and reported by F-036**, which is what AV-018's detection note already said. A float reduction by atomics is order-nondeterministic and would break SPEC §11 for every session, so no reduction is built here: the oracle accumulates a ledger of what regeneration added and consumption removed, and a fixture asserts the books balance over a thousand generations. The live readout waits for F-036's reduction, which has to be deterministic by construction.
+
+**Consequences.**
+- The resource is the one field with two writers in a generation, and that asymmetry is deliberate. Every other field is its expression and nothing more.
+- Diffusion conserves under a `wrap` boundary and leaks at a `zero` one, because a cell at the edge diffuses into nothing. That is counted as a sink rather than hidden, and it is the honest behaviour: a world with an edge loses material at the edge.
+- The ledger accumulates in `double` while the simulation accumulates in `float`. That is not the AV-015 mistake, which is about the *oracle's semantics* being more accurate than the shader's: the ledger is a diagnostic that feeds nothing back, so a wider accumulator there makes the books readable rather than making the two paths disagree.
+- SPEC §11's determinism contract gains the resource parameters as recorded state and the seed as a journal event. The field itself still needs no initial buffer: seeding is an event, so replay re-draws it from stream A in the same order.
+
+**Reversal conditions.** Take C if run-time rule parameters are built for another feature — at that point the resource's parameters are a special case of a general mechanism and keeping them special would be the odd choice. Take B only if the harshness control is abandoned, since B's single real cost is that the control becomes expensive.

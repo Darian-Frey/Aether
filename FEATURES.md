@@ -321,7 +321,11 @@ The step found BUG-022, which step 4 had introduced: the editor's pad opens with
 - A rule may read the resource at its own site and its neighbours', and draw down the resource at its own site
 - The regeneration rate is exposed as the primary harshness control, with a minimum seed rate available as damping
 - Conservation is observable: what enters by regeneration and leaves by consumption is counted and reconcilable (AV-018)
-**Status:** Not started
+**Status:** In progress. **Step 1 of 5 done 2026-09-27**: the IR. `RuleIR::resource` is an optional `{ field, capacity }` pair of indices into `fields`; the validator requires both to name declared `f32` fields, to be different, and the capacity to have no write, because a capacity a rule could raise is AV-018 with the leak in the open. The hash and the JSON carry it — by name in the JSON, so a file says which fields these are — and Lua declares it with a `resource = { field, capacity }` block. A rule that declares no resource hashes and serialises exactly as before, which is the additive claim again.
+
+D-024 settles the shape and is worth reading before the rest: the *rates* are deliberately not in the IR. Regeneration rate, diffusion and minimum seed are run-time controls in `Simulation`, because a constant in the rule would make the primary control of the feature the one thing that cannot be moved without recompiling and appending to the lineage. The ordering — draw-down, then regeneration, then diffusion, then clamp — is engine semantics stated once rather than something each rule can get wrong.
+
+Nothing executes the dynamics yet, and `GpuStepper::setRule` refuses a rule that declares a resource: the shader would apply the draw-down and never put anything back, which is a world that only ever empties and would look like a very harsh world rather than like a defect. The remaining steps: the patchy noise seed with its journal event, the dynamics on both paths, the conservation ledger and its balance test, then the harshness control in the interface.
 **Notes:** Added 2026-09-16 by D-019. Depends on F-031 and on Phase 5's `f32` grid path, which is where the float field machinery comes from. Sessile resource-feeding rules — the design note's plants — need nothing beyond this and F-031, because a plant drawing on the resource at its own site is an ordinary gather; what plants cannot do is be grazed, which would be a write to another cell.
 
 ### F-033 Per-cell genome with inheritance

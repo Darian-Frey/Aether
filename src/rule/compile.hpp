@@ -67,6 +67,10 @@ struct CompiledRule {
     // Auxiliary fields in declaration order; empty for every rule that
     // declares none, which is every rule written before F-031.
     std::vector<CompiledField> fields;
+    // Which of them is the resource, if any (F-032, D-024). The engine
+    // regenerates that field toward the capacity one; the rule's write on it is
+    // the draw-down and nothing more.
+    std::optional<Resource> resource;
 
     // Continuous only: the kernel resolved onto the offsets above, one weight
     // each, and the weight of the cell itself, which is never an offset

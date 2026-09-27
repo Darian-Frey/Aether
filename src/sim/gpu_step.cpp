@@ -192,6 +192,14 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
                 "{} fields need {} image units and this driver offers {}",
                 rule.fields.size(), needed, maxUnits)};
         }
+        if (rule.resource) {
+            // F-032 step 3. The IR can declare a resource and the oracle will
+            // regenerate it, but this shader applies only the rule's own field
+            // write, so it would run the draw-down and never put anything back
+            // — a world that only ever empties. Refused where it cannot run
+            // rather than left to look like a very harsh world (AV-007).
+            return core::Error{"the GPU path does not regenerate a resource yet"};
+        }
         if (rule.kind == rule::Kind::Continuous) {
             // compileRule refuses this already; repeated here because the
             // continuous shader has no field hooks at all and a change that

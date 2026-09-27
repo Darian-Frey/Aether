@@ -837,6 +837,32 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
     }
     lua_pop(L, 1);
 
+    // The resource (F-032, D-024), named rather than indexed for the same reason
+    // an expression names a field. The *rate* is not here and never will be: it
+    // is a run-time control, not rule text.
+    lua_getfield(L, rule, "resource");
+    if (!lua_isnil(L, -1)) {
+        const int block = lua_gettop(L);
+        if (!lua_istable(L, block)) {
+            return LuaError{std::format("'resource' must be a table, not a {}", typeName(L, block))};
+        }
+        auto indexOf = [&](const char* key) -> std::variant<uint32_t, std::string> {
+            const auto name = stringField(L, block, key, err);
+            if (!err.empty()) return err;
+            if (!name) return std::format("resource needs a '{}'", key);
+            for (size_t i = 0; i < fieldNames.size(); ++i) {
+                if (fieldNames[i] == *name) return static_cast<uint32_t>(i);
+            }
+            return std::format("resource names a {} '{}' the rule does not declare", key, *name);
+        };
+        const auto field = indexOf("field");
+        if (const auto* bad = std::get_if<std::string>(&field)) return LuaError{*bad};
+        const auto capacity = indexOf("capacity");
+        if (const auto* bad = std::get_if<std::string>(&capacity)) return LuaError{*bad};
+        ir.resource = Resource{std::get<uint32_t>(field), std::get<uint32_t>(capacity)};
+    }
+    lua_pop(L, 1);
+
     lua_getfield(L, rule, "transition");
     if (lua_isnil(L, -1)) return LuaError{"the rule needs a 'transition'"};
 

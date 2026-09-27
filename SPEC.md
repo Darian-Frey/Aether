@@ -97,6 +97,18 @@ Field {
 }
 ```
 
+**The resource** *(added 2026-09-27, F-032, D-024)*. One declared field may be marked as the resource and another as its per-site carrying capacity, both `f32`:
+
+```json
+"resource": { "field": "food", "capacity": "fertility" }
+```
+
+Both are ordinary auxiliary fields, so their storage, their reads and their place in a session are the machinery below unchanged. What is different is that the resource has a **second writer**. The rule's `write` on that field is the *draw-down* and nothing else; the engine then applies, in this order: regeneration toward the capacity, optional diffusion, and the clamp. Regeneration after consumption is a requirement rather than an implementation detail — running it the other way round is one of the leaks AV-018 names, and a leak in a quantity under selection is exploited rather than merely wrong.
+
+The capacity must have no `write`: it is the world's shape, and a rule able to raise its own ceiling is that same vector with the leak in the open.
+
+The **rates are not in the IR.** Regeneration rate, diffusion coefficient and minimum seed rate are run-time controls recorded with the session's other controls (§11), not rule text — a constant here would make the primary control of the feature the one thing that cannot be adjusted without recompiling the rule and appending to its lineage (D-024). A rule that declares no resource hashes and serialises exactly as it did.
+
 **Fields** *(added 2026-09-27, F-031, D-022)*. A site carries the state and any number of declared auxiliary fields, each stored as its own texture. A cell still holds one value — SPEC §1 is unchanged — and what gained a dimension is the site, which is what makes this additive: an absent or empty `fields` list is the grid this engine has always had, contributes nothing to `ir_hash`, and writes nothing into the JSON, so every rule and every session written before it is untouched and `ir_version` stays at 1.
 
 A rule reads a field with the `field` and `field_neighbour` operators of §6, at its own site and at its neighbours, and writes only fields at its own site — the gather boundary of D-019. Each field it writes carries its own expression, whose type must match the field's cell type; a field with no `write` keeps its value, which is how a read-only field costs nothing to say. A field a rule never declared cannot be read: there would be no cell type to give the node, so the validator refuses it rather than reading zero.
