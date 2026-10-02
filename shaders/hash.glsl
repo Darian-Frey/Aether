@@ -23,6 +23,13 @@ uint aetherHash32(uint x, uint y, uint z, uint genLo, uint genHi, uint seedLo, u
 }
 
 // State in 0..states-1 from a hash by multiply-shift (no modulo bias).
+// Twin of sim::hashSalted. A further draw from the same cell and generation,
+// distinguished by `salt`, with the salt mixed before it is folded in so that
+// adjacent salts do not give adjacent results (F-033).
+uint aetherHashSalted(uint x, uint y, uint z, uint genLo, uint genHi, uint seedLo, uint seedHi, uint salt) {
+    return aetherMix32(aetherHash32(x, y, z, genLo, genHi, seedLo, seedHi) ^ aetherMix32(salt + 0x9e3779b9u));
+}
+
 uint aetherUniformState(uint h, uint states) {
     uint hi, lo;
     umulExtended(h, states, hi, lo);

@@ -11,6 +11,7 @@
 
 #include "rule/ir.hpp"
 #include "sim/noise.hpp"
+#include "sim/genome.hpp"
 #include "sim/resource.hpp"
 #include "sim/pattern.hpp"
 #include "sim/rule_mutation.hpp"
@@ -43,11 +44,15 @@ struct EvSeedResource{ NoiseParams params; };
 // and for the same reason: they are not rule text, so a change to one must be in
 // the record or a replay would run a different world (D-024).
 struct EvResource    { ResourceParams params; };
+// The genome's run-time controls (F-033). Journalled for the same reason the
+// resource's are: they are not rule text, so a change to one must be in the
+// record or a replay would select for something else (D-024's reasoning).
+struct EvGenome      { GenomeParams params; };
 struct EvCellMutation{ double p; uint8_t blockShift = 0; };
 struct EvRuleMutation{ RuleMutationParams params; };
 
 using EventBody = std::variant<EvSetRule, EvRewind, EvPaint, EvFill, EvFillRegion, EvClear,
-                               EvPlace, EvCellMutation, EvRuleMutation, EvSeedResource, EvResource>;
+                               EvPlace, EvCellMutation, EvRuleMutation, EvSeedResource, EvResource, EvGenome>;
 
 struct Event {
     uint64_t  generation;

@@ -103,7 +103,13 @@ Field {
 "genome": { "field": "rule_bits" }
 ```
 
-The engine derives a child's bits from its live neighbours at birth and mutates them per bit; it never learns what a bit means. The rule reads the field and decides — so a Life-like B/S mask is a *rule's* convention and not an engine concept, which is what lets later features put more genes in the same field without the engine learning anything.
+The engine derives a child's bits from its live neighbours and mutates them per bit; it never learns what a bit means. The rule reads the field and decides — so a Life-like B/S mask is a *rule's* convention and not an engine concept, which is what lets later features put more genes in the same field without the engine learning anything.
+
+`bits` says how many low bits the rule uses, 1 to 32, defaulting to 32. The engine still does not know what a bit *means* — only how many there are, which it needs so that mutation does not scatter noise through bits nothing reads and so that a genome hash is a hash of the genome rather than of noise.
+
+**Inheritance runs before the transition.** A dead cell's prospective genome is derived from its live neighbours, made visible to the transition, and committed only if the cell is really born. That ordering is forced rather than chosen: a Life-like genome *is* the birth rule, so what decides whether a dead cell is born is the genome it does not yet have, and deriving afterwards leaves nothing ever born (D-025's refinement of 2026-10-02). A cell with no live neighbours inherits nothing and keeps the genome it had, so a `B0` rule cannot be born under a genome — there is no parent to take one from.
+
+Every draw comes from stream B, hashed on the cell's coordinate and the generation, and the draws are salted apart: one per parent pick and one per bit. A single hash reused would correlate the parent with the mutations and the mutations with each other. Mutation is grouped by `blockShift` as cell mutation is (§9.2), so a clan can be mutated the same way at once; the parent draws are never grouped, because a block sharing one parent pick would make a clan's births identical rather than merely correlated.
 
 The field must be `u32`, and must have **no `write`**. The engine owns those bytes at birth and §4's carry-forward keeps them otherwise; a rule writing its own genome every generation would be fighting the engine for the same field, and Lamarckian in a feature whose point is that variation is inherited rather than acquired.
 

@@ -112,6 +112,12 @@ json eventToJson(const Event& ev) {
             j["min_seed"] = b.params.minSeed;
             j["diffusion"] = b.params.diffusion;
         }
+        else if constexpr (std::is_same_v<T, EvGenome>) {
+            j["type"] = "genome";
+            j["scheme"] = static_cast<int>(b.params.scheme);
+            j["threshold"] = b.params.threshold;
+            j["block"] = b.params.blockShift;
+        }
         else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
             j["type"] = "rule_mutation"; j["enabled"] = b.params.enabled;
@@ -160,6 +166,14 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
         params.minSeed   = j.value("min_seed", 0.0f);
         params.diffusion = j.value("diffusion", 0.0f);
         ev.body = EvResource{params};
+    } else if (type == "genome") {
+        GenomeParams params;
+        const int scheme = j.value("scheme", 0);
+        if (scheme < 0 || scheme > 2) return SessionError{"unknown inheritance scheme"};
+        params.scheme = static_cast<Inheritance>(scheme);
+        params.threshold = j.value("threshold", 0u);
+        params.blockShift = j.value("block", uint8_t{0});
+        ev.body = EvGenome{params};
     } else if (type == "cell_mutation") {
         ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
     } else if (type == "rule_mutation") {
@@ -303,6 +317,11 @@ std::string sessionToJson(const Session& s) {
                          {"min_seed", s.resource.minSeed},
                          {"diffusion", s.resource.diffusion}};
     }
+    if (s.rule.genome) {
+        j["genome"] = {{"scheme", static_cast<int>(s.genome.scheme)},
+                       {"threshold", s.genome.threshold},
+                       {"block", s.genome.blockShift}};
+    }
     json journal = json::array();
     for (const Event& ev : s.journal) journal.push_back(eventToJson(ev));
     j["journal"] = journal;
@@ -377,6 +396,14 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.streamA = Pcg32::State{std::get<uint64_t>(a), std::get<uint64_t>(b)};
         }
 
+        if (j.contains("genome")) {
+            const json& g = j.at("genome");
+            const int scheme = g.value("scheme", 0);
+            if (scheme < 0 || scheme > 2) return SessionError{"unknown inheritance scheme"};
+            s.genome.scheme = static_cast<Inheritance>(scheme);
+            s.genome.threshold = g.value("threshold", 0u);
+            s.genome.blockShift = g.value("block", uint8_t{0});
+        }
         if (j.contains("resource")) {
             const json& r = j.at("resource");
             s.resource.regen     = r.value("regen", 0.02f);

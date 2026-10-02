@@ -719,3 +719,12 @@ Two things stood in the way, and both are schema. Eighteen bits fits in none of 
 - Nothing yet says what a *state* of type `u32` would mean. The validator refuses it, so the question stays unasked rather than half-answered.
 
 **Reversal conditions.** Take B if a feature wants a state with more than 256 values — a per-cell integer quantity that is not a genome, say — at which point the palette and pattern questions have to be answered anyway and the refusal is the only thing in the way. Take F only if the bitwise operators turn out to be a source of rules that pass validation and compute nonsense, which would be an argument about authoring ergonomics rather than about the IR.
+
+
+**Refinement, 2026-10-02 — inheritance happens *before* the transition, not after.**
+
+This decision said the engine "derives a child's bits from its live neighbours at birth", which reads as: the rule decides a birth, and then the child is given a genome. Written that way it does not work, and the first test of it said so immediately. A Life-like genome *is* the birth rule, so what decides whether a dead cell is born is the genome that cell does not yet have. Its field holds zero, `(0 >> count) & 1` is zero, and nothing is ever born — the feature is inert rather than wrong, which is the harder kind to notice.
+
+So the order is: a dead cell's prospective genome is derived first, made visible to the transition, and committed only if the cell really is born. The child inherits its parents' rule and that rule then decides whether the child exists. The alternative was to leave the ordering alone and require every genome rule's *birth* half to read its neighbours' genomes rather than its own — expressible, but it puts the inheritance scheme into each rule's own arithmetic, which is the opposite of what this decision is for.
+
+Two consequences worth recording. The derivation now runs for every dead cell with a live neighbour each generation rather than only at births, which costs more: the per-bit loops are bounded by the genome's width and the neighbour count, so it is a constant factor on the boundary cells rather than a new order of work, but it is not free. And a `B0` rule cannot be born under a genome at all: a cell with no live neighbours has no parent to take a genome from, so it keeps a genome of zero and no birth bit is ever set. Documented rather than worked around — inventing a genome for a cell with no parents would be inventing the cell.

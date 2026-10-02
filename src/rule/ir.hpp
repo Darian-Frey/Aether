@@ -189,6 +189,13 @@ struct Field {
 // feature whose whole point is that variation is inherited.
 struct Genome {
     uint32_t field = 0;   // index into RuleIR::fields
+    // How many low bits of the field the rule actually uses, 1..32. The engine
+    // still does not know what a bit *means* — only how many there are, which it
+    // needs for two reasons: mutation would otherwise scatter noise through bits
+    // nothing reads, and a genome hash taken over dead bits is a hash of noise
+    // rather than of the genome, which would make F-033's "lineages visible
+    // spreading and dying out" show lineages that are not there.
+    uint32_t bits = 32;
 
     bool operator==(const Genome&) const = default;
 };

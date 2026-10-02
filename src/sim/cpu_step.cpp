@@ -153,14 +153,19 @@ StepScratch::StepScratch(const rule::CompiledRule& rule)
       fieldSelf(rule.fields.size()),
       fieldNbr(rule.fields.size() * rule.neighbourCount()),
       resourceNbr(rule.resource ? rule.neighbourCount() : 0u),
-      fieldNext(rule.fields.size()) {}
+      fieldNext(rule.fields.size()) {
+    // Reserved rather than sized: the list is cleared and refilled each birth, so
+    // it never grows past N and the step loop allocates nothing (invariant 8).
+    if (rule.genome) parents.reserve(rule.neighbourCount());
+}
 
 CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& spec,
                         std::span<const uint8_t> current,
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
                         StepScratch& scratch, FieldReads fields,
-                        ResourceParams resource, SiteLedger* ledger) {
+                        ResourceParams resource, SiteLedger* ledger,
+                        GenomeParams genome) {
     const uint32_t W = spec.width, H = spec.height, D = spec.depth;
     const uint32_t N = rule.neighbourCount();
     const uint16_t S = rule.states;
@@ -272,6 +277,38 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
         }
     }
 
+    // Inheritance, before the transition rather than after it (F-033, D-025's
+    // refinement of 2026-10-02). A dead cell's genome is what decides whether it
+    // is born, and a dead cell has none — so the prospective child is given its
+    // parents' genome first and that genome then decides whether it exists. The
+    // alternative is a rule whose birth half reads its neighbours' genomes
+    // instead of its own, which is expressible but makes every genome rule carry
+    // the inheritance scheme in its own arithmetic.
+    //
+    // `prospective` is committed only if the cell really is born; otherwise the
+    // field keeps what it held, which is what `original` is for. A dead cell with
+    // no live neighbours inherits nothing, so a `B0` rule cannot be born under a
+    // genome — documented rather than worked around, since a B0 rule has no
+    // parent to take a genome from and inventing one would be inventing a cell.
+    ExprValue original{};
+    ExprValue prospective{};
+    const bool deriving = rule.genome && t.own == 0;
+    if (deriving) {
+        const uint32_t g = rule.genome->field;
+        original = scratch.fieldSelf[g];
+        scratch.parents.clear();
+        for (uint32_t i = 0; i < N; ++i) {
+            if (nbr[i] != 0) {
+                scratch.parents.push_back(static_cast<uint32_t>(scratch.fieldNbr[size_t{g} * N + i].i));
+            }
+        }
+        prospective.i = static_cast<int32_t>(
+            inherit(static_cast<uint32_t>(original.i), scratch.parents, rule.genome->bits,
+                    x, y, z, generation, genome));
+        // Visible to the transition below, which is the whole point.
+        scratch.fieldSelf[g] = prospective;
+    }
+
     ExprInputs in;
     in.self.i = t.own;
     in.nbr = nbr;
@@ -322,6 +359,17 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
         t.fromRule = rule.table[t.tableIndex];
     }
 
+    // Cell mutation (SPEC §9.2), applied here rather than after the fields so
+    // that inheritance below can ask what the grid will actually hold. Nothing
+    // reads `t.next` in between — a field's expression reads the *current* state
+    // through `in` — and mutation draws from stream B rather than stream A, so
+    // moving it changes no sequence and no session.
+    t.next = t.fromRule;
+    if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
+        t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
+        t.mutated = true;
+    }
+
     // Each field's own expression, over the same gathered neighbourhood. A
     // field the rule leaves alone keeps its value; cell mutation is the
     // state's (SPEC §9.2) and does not touch a field, which is what keeps a
@@ -351,11 +399,15 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
                                                resource, ledger);
     }
 
-    t.next = t.fromRule;
-    if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
-        t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
-        t.mutated = true;
+    // Commit the genome, or put back what was there. The carry-forward above has
+    // already copied `fieldSelf`, which for a dead cell now holds the prospective
+    // genome — so this runs whether or not the cell was born, and restoring is as
+    // important as committing.
+    if (deriving) {
+        scratch.fieldNext[rule.genome->field] = t.next != 0 ? prospective : original;
+        scratch.fieldSelf[rule.genome->field] = original;   // the gather, left as it was read
     }
+
     return t;
 }
 
@@ -363,7 +415,7 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
              uint64_t generation, CellMutation mutation,
              FieldReads fields, FieldWrites fieldsNext,
-             ResourceParams resource, GridLedger* ledger) {
+             ResourceParams resource, GridLedger* ledger, GenomeParams genome) {
     assert(current.data() != next.data() && "step must not read the buffer it writes (AV-004)");
     assert(current.size() == spec.bytesPerBuffer() && next.size() == spec.bytesPerBuffer());
     assert(rule.dimensions == spec.dimensions);
@@ -396,7 +448,7 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
                 SiteLedger site;
                 const CellTransition t =
                     stepCell(rule, spec, current, x, y, z, generation, mutation, scratch, fields,
-                             resource, rule.resource ? &site : nullptr);
+                             resource, rule.resource ? &site : nullptr, genome);
                 if (ledger != nullptr && rule.resource) ledger->add(site);
                 const size_t i = (size_t{z} * H + y) * W + x;
                 if (continuous) out[i] = t.nextValue;

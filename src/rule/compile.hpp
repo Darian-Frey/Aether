@@ -72,7 +72,7 @@ struct CompiledRule {
     // the draw-down and nothing more.
     std::optional<Resource> resource;
     // Which field the engine inherits at birth, if any (F-033, D-025).
-    std::optional<Genome>   genome;
+    std::optional<Genome>   genome;   // field index and bit width (F-033)
 
     // Continuous only: the kernel resolved onto the offsets above, one weight
     // each, and the weight of the cell itself, which is never an offset

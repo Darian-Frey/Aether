@@ -145,7 +145,7 @@ json irToJson(const RuleIR& ir) {
                          {"capacity", ir.fields[ir.resource->capacity].name}};
     }
     if (ir.genome && ir.genome->field < ir.fields.size()) {
-        j["genome"] = {{"field", ir.fields[ir.genome->field].name}};
+        j["genome"] = {{"field", ir.fields[ir.genome->field].name}, {"bits", ir.genome->bits}};
     }
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         j["transition"] = {{"form", "table"}, {"entries", base64Encode(t->entries)}, {"size", t->entries.size()}};
@@ -235,7 +235,7 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
                 if (ir.fields[i].name == name) at = static_cast<uint32_t>(i);
             }
             if (!at) return std::format("genome names a field '{}' the rule does not declare", name);
-            ir.genome = Genome{*at};
+            ir.genome = Genome{*at, g.value("bits", 32u)};
         }
         if (j.contains("counted")) {
             for (const json& set : j.at("counted")) {

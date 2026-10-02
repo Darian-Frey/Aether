@@ -34,6 +34,20 @@ constexpr uint32_t hash32(uint32_t x, uint32_t y, uint32_t z, uint64_t generatio
     return h;
 }
 
+// A further draw from the same cell and generation, distinguished by `salt`.
+// Cell mutation needs one decision per cell; inheritance needs a parent pick and
+// a decision per bit, and reusing one hash for all of them would correlate the
+// parent with the mutations and the mutations with each other. The salt is mixed
+// before it is folded in, so adjacent salts — which is what a loop counter gives
+// — do not produce adjacent results (F-033).
+//
+// `hashSalted(..., 0)` is deliberately *not* `hash32(...)`: nothing existing
+// calls this, and making salt 0 an alias would be a trap for whoever assumed it.
+constexpr uint32_t hashSalted(uint32_t x, uint32_t y, uint32_t z, uint64_t generation,
+                              uint64_t seedB, uint32_t salt) {
+    return mix32(hash32(x, y, z, generation, seedB) ^ mix32(salt + 0x9e3779b9u));
+}
+
 // State in 0..states-1 by multiply-shift.
 constexpr uint32_t uniformState(uint32_t h, uint32_t states) {
     return static_cast<uint32_t>((static_cast<uint64_t>(h) * states) >> 32);

@@ -885,7 +885,9 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
             if (fieldNames[i] == *name) at = static_cast<uint32_t>(i);
         }
         if (!at) return LuaError{std::format("genome names a field '{}' the rule does not declare", *name)};
-        ir.genome = Genome{*at};
+        const auto bits = integerField(L, block, "bits", err);
+        if (!err.empty()) return LuaError{err};
+        ir.genome = Genome{*at, static_cast<uint32_t>(bits.value_or(32))};
     }
     lua_pop(L, 1);
 

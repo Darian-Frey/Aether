@@ -38,6 +38,7 @@ add_executable(aether_tests
     sim/scratch_test.cpp
     sim/rng_test.cpp
     sim/noise_test.cpp
+    sim/genome_step_test.cpp
     sim/simulation_test.cpp
     ui/capture_test.cpp
     ui/screensaver_test.cpp

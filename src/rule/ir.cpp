@@ -436,6 +436,9 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
     // inherited rather than acquired.
     if (ir.genome) {
         const uint32_t g = ir.genome->field;
+        if (ir.genome->bits < 1 || ir.genome->bits > 32) {
+            err(std::format("genome uses {} bits; a u32 field has 1 to 32", ir.genome->bits));
+        }
         if (g >= ir.fields.size()) {
             err(std::format("genome names field {} and the rule declares {}", g, ir.fields.size()));
         } else {
@@ -622,7 +625,10 @@ uint64_t irHash(const RuleIR& ir) {
     }
     // Same again: a rule with no genome contributes no bytes, so every hash
     // written before F-033 is unmoved (D-025).
-    if (ir.genome) h.integer(ir.genome->field);
+    if (ir.genome) {
+        h.integer(ir.genome->field);
+        h.integer(ir.genome->bits);
+    }
     h.integer(static_cast<uint8_t>(ir.transition.index()));
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         h.integer(static_cast<uint64_t>(t->entries.size()));

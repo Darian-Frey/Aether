@@ -260,6 +260,16 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
                 "{} fields need {} image units and this driver offers {}",
                 rule.fields.size(), needed, maxUnits)};
         }
+        if (rule.genome) {
+            // F-033 step 3. The shader carries a genome forward and never derives
+            // one, so every cell born would run whatever happened to be in its
+            // field — a world where nothing is selected, which reads as a dull
+            // run rather than as a defect. `Simulation` gates on the path too,
+            // but the equivalence sweep drives the steppers directly and found
+            // this by diverging: the refusal belongs here, where it cannot be
+            // bypassed (AV-007).
+            return core::Error{"the GPU path does not inherit a genome yet"};
+        }
         if (rule.kind == rule::Kind::Continuous) {
             // compileRule refuses this already; repeated here because the
             // continuous shader has no field hooks at all and a change that

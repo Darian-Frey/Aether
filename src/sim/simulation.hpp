@@ -149,6 +149,14 @@ public:
     // recompile and no lineage entry (D-024).
     std::optional<core::Error> setResource(const ResourceParams& params);
     const ResourceParams& resource() const { return resource_; }
+
+    // --- Inheritance (F-033) --------------------------------------------------
+    // The genome's run-time controls: which scheme, how often a bit flips, and
+    // how births are grouped. Journalled like the others, and `seedB` is taken
+    // from the run rather than from the caller so that one seed governs all of
+    // stream B (SPEC §10).
+    void setGenome(const GenomeParams& params);
+    const GenomeParams& genome() const { return genome_; }
     // The host copy of field `i`, under the same authority rule as host().
     const core::HostGrid& fieldHost(size_t i) const { return fields_.at(i).host; }
     core::HostGrid&       fieldHost(size_t i)       { return fields_.at(i).host; }
@@ -242,6 +250,7 @@ private:
     double         cellMutationP_ = 0.0;
     RuleMutationParams ruleMutation_;
     ResourceParams resource_;
+    GenomeParams   genome_;
     Lineage        lineage_;
     Counters       counters_;
     Journal        journal_;

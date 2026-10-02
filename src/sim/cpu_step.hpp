@@ -10,6 +10,7 @@
 #include "core/grid.hpp"
 #include "rule/compile.hpp"
 #include "sim/hash.hpp"
+#include "sim/genome.hpp"
 #include "sim/resource.hpp"
 
 #include <span>
@@ -79,6 +80,8 @@ struct StepScratch {
     std::vector<ExprValue> fieldSelf;     // F entries: field f at this site
     std::vector<ExprValue> fieldNbr;      // F*N entries: field f at neighbour i
                                           // at f*N + i, canonical order
+    std::vector<uint32_t>  parents;       // the live neighbours' genomes, compacted
+                                          // in canonical order (F-033)
     std::vector<float>     resourceNbr;   // N entries: the resource at each neighbour,
                                           // for the engine's own dynamics (F-032)
     std::vector<ExprValue> fieldNext;     // F entries: what each field becomes.
@@ -121,7 +124,8 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
                         uint32_t x, uint32_t y, uint32_t z,
                         uint64_t generation, CellMutation mutation,
                         StepScratch& scratch, FieldReads fields = {},
-                        ResourceParams resource = {}, SiteLedger* ledger = nullptr);
+                        ResourceParams resource = {}, SiteLedger* ledger = nullptr,
+                        GenomeParams genome = {});
 
 // One generation: reads `current`, writes `next`. The two must be distinct
 // buffers of spec.bytesPerBuffer() bytes; passing the same span twice is the
@@ -140,7 +144,8 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
              std::span<const uint8_t> current, std::span<uint8_t> next,
              uint64_t generation = 0, CellMutation mutation = {},
              FieldReads fields = {}, FieldWrites fieldsNext = {},
-             ResourceParams resource = {}, GridLedger* ledger = nullptr);
+             ResourceParams resource = {}, GridLedger* ledger = nullptr,
+             GenomeParams genome = {});
 
 // One generation on a HostGrid, then swap, so the result is grid.current().
 void cpuStep(const rule::CompiledRule& rule, core::HostGrid& grid,

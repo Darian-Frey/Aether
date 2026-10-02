@@ -210,7 +210,11 @@ rule::RuleIR bitwiseExpression() {
     bits.name = "bits";
     bits.cell_type = core::CellType::U32;
     ir.fields = {bits};
-    ir.genome = rule::Genome{0};
+    // Deliberately *not* declared as a genome. This fixture is here for the five
+    // bitwise operators and for a u32 field's width, and a genome would bring
+    // inheritance with it — which the shader does not do until F-033's step 3, so
+    // the comparison would be of a path that inherits against one that does not.
+    // The genome fixture joins this sweep when the twin exists.
 
     rule::Expression e;
     e.nodes = {

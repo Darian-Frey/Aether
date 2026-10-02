@@ -11,6 +11,7 @@
 #include "rule/ir.hpp"
 #include "sim/journal.hpp"
 #include "sim/lineage.hpp"
+#include "sim/genome.hpp"
 #include "sim/resource.hpp"
 #include "sim/rng.hpp"
 #include "sim/rule_mutation.hpp"
@@ -54,6 +55,10 @@ struct Session {
     // The resource's run-time controls (F-032). Written only when the rule
     // declares a resource, so a session without one is unchanged.
     ResourceParams        resource;
+    // The genome's run-time controls (F-033). Written only when the rule
+    // declares a genome, so a session without one is unchanged. `seedB` is not
+    // stored here: one seed governs the whole of stream B and lives above.
+    GenomeParams          genome;
 
     // Conveniences: state at `generation`, derivable by replay.
     uint64_t              generation = 0;

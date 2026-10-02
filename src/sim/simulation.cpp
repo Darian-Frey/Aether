@@ -142,8 +142,19 @@ std::optional<core::Error> Simulation::installRule(const rule::RuleIR& ir, Linea
         if (const char* bad = resourceProblem(resource_, ir.boundary)) return core::Error{bad};
     }
 
-    // The GPU stepper keeps its previous rule if this fails.
-    if (auto e = gpuStepper_.setRule(lut, spec())) return e;
+    // F-033 step 3. The shader does not inherit yet: it would carry each cell's
+    // genome forward and never derive one at birth, so every cell born would run
+    // whatever happened to be in its field — which looks like a world where
+    // nothing is selected rather than like a defect. Until the twin exists, a
+    // genome rule runs on the CPU path only.
+    if (ir.genome) {
+        if (path_ == Path::Gpu) {
+            return core::Error{"a genome rule runs on the CPU path only for now; switch with --cpu"};
+        }
+    } else if (auto e = gpuStepper_.setRule(lut, spec())) {
+        // The GPU stepper keeps its previous rule if this fails.
+        return e;
+    }
     if (newFields) {
         fields_ = std::move(*newFields);
         fieldTextures_.assign(fields_.size(), FieldTextures{});
@@ -216,6 +227,14 @@ std::optional<core::Error> Simulation::setResource(const ResourceParams& params)
     return std::nullopt;
 }
 
+void Simulation::setGenome(const GenomeParams& params) {
+    genome_ = params;
+    // One seed governs the whole of stream B, so the caller does not get to
+    // choose a different one for inheritance than for cell mutation (SPEC §10).
+    genome_.seedB = mutation_.seedB;
+    journal(generation_, EvGenome{genome_});
+}
+
 void Simulation::setCellMutation(double p, uint8_t blockShift) {
     cellMutationP_ = std::clamp(p, 0.0, 1.0);
     mutation_.threshold = mutationThreshold(cellMutationP_);
@@ -251,7 +270,7 @@ void Simulation::step() {
                 fieldWrites_[f] = fields_[f].host.next();
             }
             cpuStep(lut_, spec(), host_.current(), host_.next(), generation_, mutation_,
-                    fieldReads_, fieldWrites_, resource_);
+                    fieldReads_, fieldWrites_, resource_, nullptr, genome_);
             host_.swap();
             for (FieldStore& f : fields_) f.host.swap();
         }
@@ -270,6 +289,9 @@ uint32_t Simulation::frame(double dt, const std::function<void()>& afterStep) {
 
 std::optional<core::Error> Simulation::setPath(Path p) {
     if (p == path_) return std::nullopt;
+    if (p == Path::Gpu && ir_.genome) {
+        return core::Error{"a genome rule runs on the CPU path only for now (F-033)"};
+    }
 
     if (p == Path::Cpu) {
         syncToHost();          // GPU was authoritative; take a copy
@@ -386,6 +408,7 @@ Session Simulation::session() {
     s.cellMutationP = cellMutationP_;
     s.cellMutationBlock = mutation_.blockShift;
     s.resource = resource_;
+    s.genome = genome_;
     s.generation = generation_;
     s.current.assign(host_.current().begin(), host_.current().end());
     s.streamA = streamA_.state();
@@ -420,6 +443,7 @@ std::optional<core::Error> Simulation::applyEvent(const Event& ev) {
         // without touching the stream.
         else if constexpr (std::is_same_v<T, EvSeedResource>)  failed = seedResource(b.params);
         else if constexpr (std::is_same_v<T, EvResource>)      failed = setResource(b.params);
+        else if constexpr (std::is_same_v<T, EvGenome>)        setGenome(b.params);
         else if constexpr (std::is_same_v<T, EvCellMutation>)  setCellMutation(b.p, b.blockShift);
         else if constexpr (std::is_same_v<T, EvRuleMutation>)  setRuleMutation(b.params);
     }, ev.body);
@@ -487,6 +511,8 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.mutation_.threshold = mutationThreshold(s.cellMutationP);
     sim.mutation_.blockShift = s.cellMutationBlock;
     sim.resource_ = s.resource;
+    sim.genome_ = s.genome;
+    sim.genome_.seedB = s.seedB;
     sim.gpuStepper_.setResource(sim.resource_);
     sim.gpuStepper_.setCellMutation(sim.mutation_);
     sim.counters_.rule_mutations = s.ruleMutationsApplied;
@@ -496,7 +522,11 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     auto compiled = rule::compileRule(s.rule);
     if (const auto* e = std::get_if<rule::CompileError>(&compiled)) return core::Error{e->message};
     rule::CompiledRule lut = std::get<rule::CompiledRule>(std::move(compiled));
-    if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
+    if (!s.rule.genome) {
+        if (auto e = sim.gpuStepper_.setRule(lut, s.spec)) return *e;
+    } else if (path == Path::Gpu) {
+        return core::Error{"a genome rule runs on the CPU path only for now (F-033)"};
+    }
     sim.ir_ = s.rule;
     sim.lut_ = std::move(lut);
 
