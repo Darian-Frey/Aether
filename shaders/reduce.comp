@@ -1,0 +1,141 @@
+// Population and field reduction (F-036, AV-002, AV-018).
+//
+// One invocation per cell, one workgroup per tile, laid out so that the sum
+// happens in the order sim/stats.hpp defines and nowhere else:
+//
+//   a tile is AETHER_TILE consecutive cells in row-major order, summed in cell
+//   order by a single invocation of the workgroup; the tile totals are summed
+//   in tile order by the host.
+//
+// That is why this file has no shared-memory tree and no atomicAdd on a float.
+// A tree is deterministic only if its shape is, and an atomic is not
+// deterministic at all: float addition is not associative, so a total whose
+// order depends on how the driver scheduled its workgroups is a different
+// number on two runs of the same session. AV-018 is explicit that a
+// conservation figure which wobbles on its own is useless as detection.
+//
+// Integer counts could safely use atomics — integer addition does not care
+// about order — and they still do not, because one code path is easier to hold
+// to the contract than two.
+//
+// Compiled with these definitions prepended by sim/gpu_reduce:
+//   AETHER_3D        present for 3D grids
+//   AETHER_S         state count
+//   AETHER_FIELDS    number of declared fields, 0 when there are none
+//   AETHER_GENOME    1 when one of them is a genome
+//   AETHER_GENOME_F  that field's index
+//   AETHER_GENOME_M  the live-bit mask
+//   AETHER_TILE      cells per tile
+//   AETHER_BUCKETS   genome buckets
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+#ifdef AETHER_3D
+layout(r8ui, binding = 0) uniform readonly uimage3D srcImg;
+#else
+layout(r8ui, binding = 0) uniform readonly uimage2D srcImg;
+#endif
+
+layout(std430, binding = 0) readonly buffer Params {
+    uint width;
+    uint height;
+    uint depth;
+    uint tiles;
+};
+
+// One tile's partials, written once by the invocation that owns the tile and
+// never touched by another. No atomics, so no order to depend on.
+// Not `writeonly`: the counts are accumulated in place, which reads them. A
+// local array would avoid that, but AETHER_S reaches 256 and a per-invocation
+// array of that size is a great deal of register pressure for no gain.
+layout(std430, binding = 4) buffer Partials {
+    // [tile][state] counts, then [tile][field] sums reinterpreted, then
+    // [tile][bucket]. Flat because a struct of arrays in std430 invites
+    // padding surprises between drivers.
+    uint partials[];
+};
+
+// The palette's hash, over the live bits. The twin of sim::genomeBucket, which
+// is itself the twin of palette2d.frag's — presentational in all three, so a
+// wrong bucket is an odd graph rather than a different automaton.
+uint aetherStatsMix(uint v) {
+    v ^= v >> 16;
+    v *= 0x7feb352du;
+    v ^= v >> 15;
+    v *= 0x846ca68bu;
+    v ^= v >> 16;
+    return v;
+}
+
+ivec3 cellOf(uint i) {
+    uint z = i / (width * height);
+    uint rem = i - z * width * height;
+    return ivec3(int(rem % width), int(rem / width), int(z));
+}
+
+uint loadState(ivec3 c) {
+#ifdef AETHER_3D
+    return imageLoad(srcImg, c).r;
+#else
+    return imageLoad(srcImg, c.xy).r;
+#endif
+}
+
+#if AETHER_FIELDS > 0
+// The field images, generated beside this file because binding points are the
+// stepper's business and not this shader's.
+AETHER_FIELD_IMAGES
+#endif
+
+void main() {
+    uint tile = gl_GlobalInvocationID.x;
+    if (tile >= tiles) return;
+
+    uint cells = width * height * depth;
+    uint begin = tile * uint(AETHER_TILE);
+    uint end = min(begin + uint(AETHER_TILE), cells);
+
+    uint stride = uint(AETHER_S) + uint(AETHER_FIELDS) + uint(AETHER_BUCKETS);
+    uint base = tile * stride;
+
+    for (uint s = 0u; s < uint(AETHER_S); ++s) partials[base + s] = 0u;
+#if AETHER_BUCKETS > 0
+    for (uint b = 0u; b < uint(AETHER_BUCKETS); ++b) {
+        partials[base + uint(AETHER_S) + uint(AETHER_FIELDS) + b] = 0u;
+    }
+#endif
+
+#if AETHER_FIELDS > 0
+    // One f32 accumulator per field, summed in cell order. Kept in f32 rather
+    // than widened, because the host oracle sums a tile in f32 too: being more
+    // accurate here would put the two readouts apart just as surely as being
+    // less (AV-015).
+    float sums[AETHER_FIELDS];
+    for (int f = 0; f < AETHER_FIELDS; ++f) sums[f] = 0.0;
+#endif
+
+    for (uint i = begin; i < end; ++i) {
+        ivec3 c = cellOf(i);
+        uint s = loadState(c);
+        if (s < uint(AETHER_S)) partials[base + s] += 1u;
+#if AETHER_FIELDS > 0
+        aether_reduce_fields(c, sums);
+#endif
+#if AETHER_GENOME
+        if (s != 0u) {
+            uint g = aether_reduce_genome(c) & uint(AETHER_GENOME_M);
+            uint bucket = aetherStatsMix(g ^ 0x5bd1e995u) % uint(AETHER_BUCKETS);
+            partials[base + uint(AETHER_S) + uint(AETHER_FIELDS) + bucket] += 1u;
+        }
+#endif
+    }
+
+#if AETHER_FIELDS > 0
+    // The float partials travel as their bit patterns: the buffer is uint and a
+    // second buffer of a different type would be a second binding to keep in
+    // step for no gain. The host reads them back with the same reinterpretation.
+    for (int f = 0; f < AETHER_FIELDS; ++f) {
+        partials[base + uint(AETHER_S) + uint(f)] = floatBitsToUint(sums[f]);
+    }
+#endif
+}

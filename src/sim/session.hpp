@@ -59,6 +59,15 @@ struct Session {
     // declares a genome, so a session without one is unchanged. `seedB` is not
     // stored here: one seed governs the whole of stream B and lives above.
     GenomeParams          genome;
+    // How often the readouts are sampled, in generations; 0 is off (F-036).
+    // A *parameter* and not an observation, which is the distinction F-036's
+    // acceptance draws: the measurements themselves are not here and never will
+    // be, because they are derivable from the state and storing them would make
+    // a session file disagree with itself. It has no journal event either, and
+    // that is the test of whether something belongs in the journal — sampling
+    // cannot change a run, so a replay that ignored it would still be the same
+    // run (SPEC §11).
+    uint32_t              statsInterval = 0;
 
     // Conveniences: state at `generation`, derivable by replay.
     uint64_t              generation = 0;

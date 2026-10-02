@@ -113,6 +113,7 @@ int App::run() {
         newHeight_ = static_cast<int>(opts_.height);
         newDepth_ = static_cast<int>(opts_.depth);
         targetGps_ = opts_.targetGps;
+        statsInterval_ = static_cast<int>(opts_.statsInterval);
         if (opts_.ruleMutationInterval > 0) {
             ruleMutationOn_ = true;
             ruleInterval_ = static_cast<int>(opts_.ruleMutationInterval);
@@ -291,6 +292,10 @@ int App::run() {
                 else log_.error(std::format("cannot write {}", path));
             }
             if (recording_ && sim_) recordingCapture();
+            // After the step and before the panels draw, so the figure on
+            // screen is this frame's rather than last frame's. Returns at once
+            // when sampling is off, which is the default (F-036).
+            sampleStats();
 
             // The preview's cells are a GL pass like the grid's, so they go
             // after it and before ImGui; its outline is an ImGui rectangle and
@@ -581,6 +586,7 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
     // rather than from a field the controls have to remember to update.
     if (sim_) targetGps_ = sim_->scheduler().targetRate();
     sim_.emplace(std::get<sim::Simulation>(std::move(made)));
+    sim_->setStatsInterval(static_cast<uint32_t>(statsInterval_));
     sim_->scheduler().setTargetRate(targetGps_);
     sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0,
                           static_cast<uint8_t>(cellMutationBlock_));

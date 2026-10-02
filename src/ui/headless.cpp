@@ -218,12 +218,31 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
             frames = r;
         }
 
+        // The readouts, as columns on stdout (F-036). A scripted run is where a
+        // population figure is actually wanted — every measurement taken while
+        // building this engine came from a throwaway program because there was
+        // no way to ask for one — so the window's plot and this share the
+        // reduction and differ only in what they do with it.
+        const uint32_t statsEvery = opts.statsInterval;
+        if (statsEvery != 0) {
+            std::printf("# generation\talive");
+            for (const rule::Field& f : sim.rule().fields) std::printf("\t%s", f.name.c_str());
+            std::printf("\n");
+        }
+
         for (uint64_t g = 0; g <= generations; ++g) {
             if (frames && frames->wants(g)) {
                 const std::string path = frames->pathFor(g);
                 if (!writer->write(sim, path)) return fail(std::format("cannot write {}", path));
                 frames->lastCaptured = g;
                 ++frames->written;
+            }
+            if (statsEvery != 0 && g % statsEvery == 0) {
+                const sim::GridStats st = sim.sample();
+                std::printf("%llu\t%llu", static_cast<unsigned long long>(g),
+                            static_cast<unsigned long long>(st.live()));
+                for (double t : st.fieldTotals) std::printf("\t%.6g", t);
+                std::printf("\n");
             }
             if (g < generations) sim.step();
         }

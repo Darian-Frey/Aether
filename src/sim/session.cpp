@@ -327,6 +327,7 @@ std::string sessionToJson(const Session& s) {
                        {"block", s.genome.blockShift},
                        {"birth_bias", s.genome.birthBias}};
     }
+    if (s.statsInterval != 0) j["stats_interval"] = s.statsInterval;
     json journal = json::array();
     for (const Event& ev : s.journal) journal.push_back(eventToJson(ev));
     j["journal"] = journal;
@@ -408,8 +409,9 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.genome.scheme = static_cast<Inheritance>(scheme);
             s.genome.threshold = g.value("threshold", 0u);
             s.genome.blockShift = g.value("block", uint8_t{0});
-        s.genome.birthBias = g.value("birth_bias", uint16_t{0});
+            s.genome.birthBias = g.value("birth_bias", uint16_t{0});
         }
+        s.statsInterval = j.value("stats_interval", 0u);
         if (j.contains("resource")) {
             const json& r = j.at("resource");
             s.resource.regen     = r.value("regen", 0.02f);

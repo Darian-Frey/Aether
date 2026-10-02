@@ -50,6 +50,7 @@ add_executable(aether_tests
     ui/brush_test.cpp
     ui/rate_test.cpp
     sim/pattern_3d_test.cpp
+    sim/stats_test.cpp
     sim/paint_test.cpp)
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})

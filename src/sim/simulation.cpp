@@ -291,6 +291,31 @@ std::optional<core::Error> Simulation::setPath(Path p) {
     return std::nullopt;
 }
 
+GridStats Simulation::sample() {
+    GridStats out;
+    if (path_ == Path::Gpu) {
+        // Compile the reduction lazily: a session that never opens the readouts
+        // should not pay for a shader it will not dispatch.
+        if (auto e = gpuReducer_.setRule(lut_, spec())) {
+            // A reduction that will not compile is a readout that does not
+            // appear, not a run that stops. Falling back to the host would mean
+            // a readback of the whole grid every sample, which is the one thing
+            // this feature is not allowed to do (AV-002).
+            out.stateCounts.assign(lut_.states ? lut_.states : 1u, 0);
+            return out;
+        }
+        fieldTextureList_.clear();
+        for (const FieldStore& f : fields_) fieldTextureList_.push_back(f.gpu.current());
+        out = gpuReducer_.sample(gpu_.current(), fieldTextureList_);
+    } else {
+        fieldByteList_.clear();
+        for (const FieldStore& f : fields_) fieldByteList_.push_back(f.host.current());
+        out = reduce(lut_, spec(), host_.current(), fieldByteList_);
+    }
+    out.generation = generation_;
+    return out;
+}
+
 void Simulation::syncToHost() {
     if (path_ != Path::Gpu) return;
     gpu_.download(host_.current());
@@ -398,6 +423,7 @@ Session Simulation::session() {
     s.cellMutationBlock = mutation_.blockShift;
     s.resource = resource_;
     s.genome = genome_;
+    s.statsInterval = statsInterval_;
     s.generation = generation_;
     s.current.assign(host_.current().begin(), host_.current().end());
     s.streamA = streamA_.state();
@@ -501,6 +527,7 @@ std::variant<Simulation, core::Error> Simulation::resume(const Session& s, Path 
     sim.mutation_.blockShift = s.cellMutationBlock;
     sim.resource_ = s.resource;
     sim.genome_ = s.genome;
+    sim.statsInterval_ = s.statsInterval;
     sim.genome_.seedB = s.seedB;
     sim.gpuStepper_.setGenome(sim.genome_);
     sim.gpuStepper_.setResource(sim.resource_);

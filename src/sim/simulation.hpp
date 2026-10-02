@@ -22,6 +22,7 @@
 #include "core/grid.hpp"
 #include "rule/ir.hpp"
 #include "rule/compile.hpp"
+#include "sim/gpu_reduce.hpp"
 #include "sim/gpu_step.hpp"
 #include "sim/hash.hpp"
 #include "sim/journal.hpp"
@@ -204,6 +205,23 @@ public:
 
     // The texture holding the current generation, for the renderer.
     unsigned int texture() const { return gpu_.current(); }
+
+    // --- Readouts (F-036) -------------------------------------------------
+    //
+    // The population per state, the total per field and the genome buckets, as
+    // of now. Taken from whichever path is live and giving the same answer
+    // either way, which is what `sim/stats.hpp`'s summation contract is for.
+    //
+    // **Costs a synchronisation**, so nothing calls it every generation. On the
+    // GPU path it dispatches a reduction and reads back a few words per tile —
+    // never the grid, which is AV-002 — and on the CPU path it adds up the host
+    // buffers in the same order. `statsInterval()` is what the interface uses to
+    // decide when; it is a parameter, travels in the session, and has no journal
+    // event because sampling cannot change a run.
+    GridStats sample();
+
+    uint32_t statsInterval() const { return statsInterval_; }
+    void setStatsInterval(uint32_t generations) { statsInterval_ = generations; }
     unsigned int textureTarget() const { return gpu_.target(); }
 
 private:
@@ -242,6 +260,9 @@ private:
     rule::RuleIR   ir_;
     rule::CompiledRule  lut_;
     GpuStepper     gpuStepper_;
+    // Declared after the stepper so the GL teardown order is the same one the
+    // rest of this class relies on (IMP-010).
+    GpuReducer     gpuReducer_;
     Scheduler      scheduler_;
     Pcg32          streamA_;
     Path           path_;
@@ -251,6 +272,11 @@ private:
     RuleMutationParams ruleMutation_;
     ResourceParams resource_;
     GenomeParams   genome_;
+    uint32_t       statsInterval_ = 0;
+    // Refilled by sample() rather than built, so repeated sampling allocates
+    // nothing after the first call.
+    std::vector<unsigned int>            fieldTextureList_;
+    std::vector<std::span<const uint8_t>> fieldByteList_;
     Lineage        lineage_;
     Counters       counters_;
     Journal        journal_;

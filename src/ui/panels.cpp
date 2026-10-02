@@ -138,6 +138,9 @@ void App::drawPanels() {
     // be a slider that does nothing.
     if (sim_ && sim_->rule().resource &&
         ImGui::CollapsingHeader("Resource", ImGuiTreeNodeFlags_DefaultOpen)) drawResourcePanel();
+    if (ImGui::CollapsingHeader("Readouts", statsInterval_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        drawStatsPanel();
+    }
     if (ImGui::CollapsingHeader("Lineage")) drawLineagePanel();
     if (ImGui::CollapsingHeader("Palette")) drawPalettePanel();
     if (ImGui::CollapsingHeader("Export", recording_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) drawExportPanel();
@@ -597,6 +600,120 @@ void App::drawResourcePanel() {
         }
     }
     ImGui::PopID();
+}
+
+// What a run is doing, rather than what it looks like (F-036).
+//
+// Off by default and off meaning *no sampling at all*, because a sample costs a
+// synchronisation: the reduction is a dispatch and a readback of a few words
+// per tile, which is cheap against a step but not free, and a panel nobody has
+// opened should cost nothing. The grid itself is never read back — that is
+// AV-002, and it is the whole reason this is a compute shader rather than a
+// loop over `host()`.
+void App::drawStatsPanel() {
+    if (!sim_) {
+        ImGui::TextDisabled("no simulation");
+        return;
+    }
+    ImGui::SetNextItemWidth(kLabelColumn);
+    if (ImGui::SliderInt("every", &statsInterval_, 0, 120,
+                         statsInterval_ == 0 ? "off" : "%d generations")) {
+        sim_->setStatsInterval(static_cast<uint32_t>(statsInterval_));
+        if (statsInterval_ == 0) {
+            statsRing_.clear();
+            statsAt_ = 0;
+        }
+    }
+    hint("How often to measure. Each sample is a GPU reduction and a readback of\n"
+         "a few words per tile — never the grid, which would cost a pipeline stall\n"
+         "every time it happened.");
+
+    if (statsInterval_ == 0) {
+        ImGui::TextDisabled("Sampling is off. Nothing is measured and nothing is drawn.");
+        return;
+    }
+    if (statsAt_ == 0) {
+        ImGui::TextDisabled("waiting for the first sample");
+        return;
+    }
+
+    const sim::GridStats& now = statsLatest_;
+    const uint64_t cells = sim_->spec().cellCount();
+    ImGui::Text("%llu alive", static_cast<unsigned long long>(now.live()));
+    ImGui::SameLine();
+    ImGui::TextDisabled("%.1f%% of %llu", 100.0 * static_cast<double>(now.live()) / static_cast<double>(cells),
+                        static_cast<unsigned long long>(cells));
+
+    static const char* kSeries[] = {"live population", "per state", "per genome"};
+    const bool hasGenome = sim_->rule().genome.has_value();
+    ImGui::SetNextItemWidth(kLabelColumn);
+    ImGui::Combo("show", &statsSeries_, kSeries, hasGenome ? 3 : 2);
+    if (!hasGenome && statsSeries_ == 2) statsSeries_ = 0;
+
+    // The ring, oldest first, as a plain float series. ImGui's plot takes a
+    // contiguous span, so the ring is unrolled into a scratch vector — at most
+    // kStatsHistory entries, which is a few kilobytes and not worth a smarter
+    // arrangement.
+    const size_t have = std::min(statsAt_, kStatsHistory);
+    std::vector<float> series(have, 0.0f);
+    auto unroll = [&](auto pick) {
+        for (size_t i = 0; i < have; ++i) {
+            const size_t at = (statsAt_ - have + i) % kStatsHistory;
+            series[i] = static_cast<float>(pick(statsRing_[at]));
+        }
+    };
+
+    if (statsSeries_ == 0) {
+        unroll([](const sim::GridStats& g) { return static_cast<double>(g.live()); });
+        ImGui::PlotLines("##live", series.data(), static_cast<int>(series.size()), 0, nullptr,
+                         0.0f, FLT_MAX, ImVec2(-1, 80));
+    } else if (statsSeries_ == 1) {
+        // One line per state would be a stack of tiny plots; the useful thing
+        // at a glance is the current distribution, so this is a bar per state
+        // and the plot above is the one with history.
+        std::vector<float> bars(now.stateCounts.size(), 0.0f);
+        for (size_t i = 0; i < bars.size(); ++i) bars[i] = static_cast<float>(now.stateCounts[i]);
+        ImGui::PlotHistogram("##states", bars.data(), static_cast<int>(bars.size()), 0, nullptr,
+                             0.0f, FLT_MAX, ImVec2(-1, 80));
+        for (size_t i = 1; i < now.stateCounts.size() && i < 8; ++i) {
+            ImGui::TextDisabled("%zu: %llu", i, static_cast<unsigned long long>(now.stateCounts[i]));
+        }
+    } else {
+        std::vector<float> bars(now.genomeBuckets.size(), 0.0f);
+        for (size_t i = 0; i < bars.size(); ++i) bars[i] = static_cast<float>(now.genomeBuckets[i]);
+        ImGui::PlotHistogram("##genomes", bars.data(), static_cast<int>(bars.size()), 0, nullptr,
+                             0.0f, FLT_MAX, ImVec2(-1, 80));
+        ImGui::TextDisabled("Bucketed by the same hash the palette colours by, so a bar");
+        ImGui::TextDisabled("is the colour of the cells it counts.");
+    }
+
+    // The field totals, and the resource's among them — AV-018's figure, which
+    // is what this feature owed the conservation books. Reported rather than
+    // checked: the detection lives in the test suite, where a run can be
+    // compared against itself.
+    if (!now.fieldTotals.empty()) {
+        ImGui::Separator();
+        for (size_t f = 0; f < now.fieldTotals.size() && f < sim_->rule().fields.size(); ++f) {
+            ImGui::Text("%s", sim_->rule().fields[f].name.c_str());
+            ImGui::SameLine(kLabelColumn);
+            ImGui::TextDisabled("%.4g", now.fieldTotals[f]);
+        }
+        if (sim_->rule().resource) {
+            hint("A resource total that drifts with nothing consuming it is AV-018.\n"
+                 "The books are balanced by the test suite; this is the figure.");
+        }
+    }
+}
+
+void App::sampleStats() {
+    if (!sim_ || statsInterval_ <= 0) return;
+    const uint64_t g = sim_->generation();
+    if (statsAt_ != 0 && g < statsLastGen_ + static_cast<uint64_t>(statsInterval_)) return;
+    statsLastGen_ = g;
+    if (statsRing_.size() != kStatsHistory) statsRing_.assign(kStatsHistory, {});
+    statsLatest_ = sim_->sample();
+    statsRing_[statsAt_ % kStatsHistory] = statsLatest_;
+    ++statsAt_;
 }
 
 void App::drawLineagePanel() {

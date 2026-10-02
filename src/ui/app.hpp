@@ -20,6 +20,7 @@
 #include "sim/inspect.hpp"
 #include "sim/scratch.hpp"
 #include "sim/simulation.hpp"
+#include "sim/stats.hpp"
 #include "ui/capture.hpp"
 #include "ui/log.hpp"
 #include "ui/screensaver.hpp"
@@ -41,6 +42,9 @@ std::vector<std::string> ruleSearchPath();
 std::vector<std::string> patternSearchPath();
 
 struct Options {
+    // Generations between readout samples; 0 is off, which is the default
+    // because a sample costs a synchronisation (F-036, AV-002).
+    uint32_t    statsInterval = 0;
     std::string rule   = "B3/S23";
     bool        ruleIsLua = false;
     uint32_t    width  = 512;
@@ -158,6 +162,8 @@ private:
     // leave the sampler unbound rather than pointing at a texture that is gone.
     void refreshGenomeSource();
     void drawLineagePanel();
+    void drawStatsPanel();      // the readouts of F-036
+    void sampleStats();         // called from the frame loop at the interval
     void drawPalettePanel();
     void drawLogPanel();
 
@@ -307,6 +313,18 @@ private:
     float genomeMutationLog_ = -3.0f;   // log10 of the per-bit chance
     int   genomeBlock_ = 0;
     int   genomeBirthBias_ = 0;      // 0..kBirthBiasFull, 0 = off (F-035)
+
+    // --- Readouts (F-036) ---------------------------------------------------
+    // A ring of samples rather than a growing vector: a run left overnight at
+    // one sample a generation would otherwise be the largest thing in the
+    // process. The newest sample is at `statsAt_ - 1` modulo the ring.
+    static constexpr size_t kStatsHistory = 512;
+    std::vector<sim::GridStats> statsRing_;
+    size_t statsAt_ = 0;        // how many have been taken, ever
+    int    statsInterval_ = 0;  // generations between samples; 0 is off
+    uint64_t statsLastGen_ = 0;
+    int    statsSeries_ = 0;    // 0 live population, 1 per state, 2 per genome
+    sim::GridStats statsLatest_;
 
     // A frame sequence being written (F-021). While one exists the transport
     // stops deciding how far to step — a recording is specified in

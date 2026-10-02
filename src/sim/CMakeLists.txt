@@ -1,6 +1,7 @@
 aether_embed_shader(hash.glsl kHashGlsl HASH_GLSL_CPP)
 aether_embed_shader(lut_step.comp kLutStepComp LUT_STEP_CPP)
 aether_embed_shader(continuous_step.comp kContinuousStepComp CONTINUOUS_STEP_CPP)
+aether_embed_shader(reduce.comp kReduceComp REDUCE_CPP)
 
 add_library(aether_sim STATIC
     cpu_step.cpp
@@ -9,17 +10,20 @@ add_library(aether_sim STATIC
     genome.cpp
     resource.cpp
     gpu_step.cpp
+    gpu_reduce.cpp
     inspect.cpp
     lineage.cpp
     pattern.cpp
     pattern_library.cpp
     rule_mutation.cpp
     scratch.cpp
+    stats.cpp
     session.cpp
     simulation.cpp
     ${HASH_GLSL_CPP}
     ${LUT_STEP_CPP}
-    ${CONTINUOUS_STEP_CPP})
+    ${CONTINUOUS_STEP_CPP}
+    ${REDUCE_CPP})
 
 target_include_directories(aether_sim PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_compile_features(aether_sim PUBLIC cxx_std_20)

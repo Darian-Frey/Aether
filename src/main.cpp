@@ -55,6 +55,7 @@ void usage() {
               "  --seed-resource F[:O[:LO[:HI]]]  seed the resource: patches, octaves, range\n"
               "  --inherit S[:P[:K]]    genome inheritance: majority|parent|crossover, per-bit p, clan\n"
               "  --cluster F            refuse a birth where the parents disagree, 0..1 (0 = off)\n"
+              "  --stats N              sample the readouts every N generations (0 = off)\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --version    print the version and exit\n"
               "  --load FILE  resume a saved session\n"
@@ -177,6 +178,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        else if (a == "--stats") opts.statsInterval = static_cast<uint32_t>(std::atoi(value("--stats")));
         else if (a == "--cluster") {
             // F-035, as a fraction: 0 is off, 1 is the full strength.
             const double f = std::strtod(value("--cluster"), nullptr);

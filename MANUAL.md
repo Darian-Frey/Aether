@@ -21,6 +21,7 @@ This manual is in three parts. **Getting started** is enough to see something mo
 - [Continuous automata](#continuous-automata)
 - [The resource](#the-resource)
 - [Genomes](#genomes)
+- [Readouts](#readouts)
 - [The pattern editor](#the-pattern-editor)
 - [Reproducibility](#reproducibility)
 - [Running without a window](#running-without-a-window)
@@ -406,6 +407,37 @@ Nothing in `lineages` costs anything to be alive: there is no resource to eat an
 Coupling a genome to the resource field, so that filling the grid starves it, is what would make the competition worth watching, and nothing prevents a rule declaring both. A deadline is the other half: see `lifespan` above.
 
 Two structural things worth knowing. A **`B0` rule cannot work under a genome** — a cell with no live neighbours has no parent to inherit from, so it keeps a genome of zero and no birth bit is ever set. And inheritance runs *before* the transition, which has to be the case for a Life-like genome: what decides whether a dead cell is born is the genome it does not yet have. A prospective genome is derived, shown to the rule, and kept only if the cell is actually born.
+
+## Readouts
+
+What a run is *doing*, as opposed to what it looks like. The **Readouts** section measures the grid and plots it: the live population over time, the distribution across states, the spread across genomes where there is one, and a total for each auxiliary field.
+
+It is **off by default**, and off means nothing is measured at all. A sample costs a synchronisation between the processor and the graphics card, and a panel nobody has opened should cost nothing. Set *every* to a number of generations to turn it on.
+
+What it never does is read the grid back. The sum is computed on the card and what returns is a few words per tile, whatever the grid's size — a population graph fed by reading the whole grid each generation would quietly halve your throughput and the cause would be the last thing anybody suspected.
+
+Three series:
+
+- **live population** — over time, as far back as the ring of samples goes.
+- **per state** — the current distribution, which is the useful one for a rule with an ageing tail or a lifespan, where the shape across states tells you the age profile.
+- **per genome** — live cells by genome, bucketed by the same hash the palette colours with, so a bar is the colour of the cells it counts. Only for a rule with a genome.
+
+Below them, a total per field. For a resource rule this is the figure AV-018 is about: a quantity that is meant to be conserved, with the capacity beside it. The capacity should not move at all — nothing writes it — and a resource total drifting upward with nothing feeding it is the defect that register entry describes.
+
+Scripted runs get the same numbers as columns:
+
+```bash
+aether headless --rule @grazing --size 96x96 --generations 400 --stats 100     --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15 --save out.aether
+```
+
+```
+# generation	alive	grass	soil
+0	2727	5172.57	5172.57
+100	609	4378.53	5172.57
+200	4693	3657.77	5172.57
+```
+
+The figures are identical on both execution paths, down to the last place of the float totals. That is not luck: adding floats in a different order gives a different number, so the order is fixed — the grid is divided into tiles, each tile summed in cell order, the tile totals summed in tile order — and both the shader and the host follow it.
 
 ## The pattern editor
 
