@@ -152,6 +152,64 @@ TEST_CASE("a two-state rule is seeded into the band it is alive in (BUG-023)", "
     CHECK(0.3 * N3 > 7.0);   // what it used to be
 }
 
+TEST_CASE("a lifespan rule is seeded at age 1, not spread across its ages (BUG-026)", "[rng]") {
+    using aether::rule::parseDsl;
+    // The states of a lifespan rule are one cell growing older. Spreading cells
+    // evenly across them seeds (live-1)/live of the grid alive — 88.9% at
+    // lifespan 8 — and nothing Life-like survives that.
+    const auto spanned = parseDsl("states 2; neighbourhood moore 1; lifespan 8;"
+                                  "0: n(1) == 2 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    REQUIRE(spanned.ir);
+    REQUIRE(spanned.ir->states == 9);
+    REQUIRE(spanned.ir->metadata.lifespan == 8);
+
+    const auto density = aether::sim::defaultDensity(*spanned.ir);
+    REQUIRE(density.size() == 8);
+    // Age 1 takes the whole share and every later age takes none.
+    CHECK_THAT(density[0], Catch::Matchers::WithinAbs(2.5 / 8.0, 1e-9));
+    for (size_t i = 1; i < density.size(); ++i) {
+        INFO("age " << i + 1);
+        CHECK(density[i] == 0.0);
+    }
+    // The band is the base rule's: B2/S23 is alive on 2 or 3 neighbours, so a
+    // seeded cell expects 2.5 of them — the same answer the two-state branch
+    // gives for the rule this was made from.
+    double total = 0.0;
+    for (double d : density) total += d;
+    CHECK(total < 0.4);
+
+    // A lifespan with a tail on top keeps the same answer: the tail states are
+    // a dying cell and were never seeded, and the ages are now not either.
+    const auto both = parseDsl("states 2; neighbourhood moore 1; lifespan 8; decay 3;"
+                               "0: n(1) == 2 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;");
+    REQUIRE(both.ir);
+    REQUIRE(both.ir->metadata.lifespan == 8);
+    const auto d2 = aether::sim::defaultDensity(*both.ir);
+    REQUIRE(d2.size() == both.ir->states - 1u);
+    CHECK_THAT(d2[0], Catch::Matchers::WithinAbs(2.5 / 8.0, 1e-9));
+    for (size_t i = 1; i < d2.size(); ++i) {
+        INFO("state " << i + 1);
+        CHECK(d2[i] == 0.0);
+    }
+}
+
+TEST_CASE("a many-state rule that is not ages keeps its even spread", "[rng]") {
+    // The guard on the case above: a Generations rule's states are a tail, and
+    // a cyclic rule's are phases. Neither carries the lifespan hint, so neither
+    // is touched by it — the fix is not "seed state 1 only" in general.
+    const auto gens = aether::rule::parseDsl("B2/S/C3");
+    REQUIRE(gens.ir);
+    CHECK_FALSE(gens.ir->metadata.lifespan.has_value());
+    const auto d = aether::sim::defaultDensity(*gens.ir);
+    REQUIRE(d.size() == gens.ir->states - 1u);
+    CHECK(d[0] > 0.0);
+
+    aether::rule::RuleIR cyclic;
+    cyclic.states = 14;
+    const auto dc = aether::sim::defaultDensity(cyclic);
+    for (double v : dc) CHECK_THAT(v, Catch::Matchers::WithinAbs(1.0 / 14.0, 1e-12));
+}
+
 TEST_CASE("a two-state rule nothing survives under falls back rather than seeding empty", "[rng]") {
     // B/S is a legal rule and its band is empty: every cell is dead next
     // generation whatever the count. Dividing by nothing is the trap, so the

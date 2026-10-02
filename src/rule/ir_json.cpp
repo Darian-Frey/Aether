@@ -163,6 +163,7 @@ json irToJson(const RuleIR& ir) {
     if (ir.metadata.author) meta["author"] = *ir.metadata.author;
     if (ir.metadata.source_notation) meta["source_notation"] = *ir.metadata.source_notation;
     if (ir.metadata.decay_from) meta["decay_from"] = *ir.metadata.decay_from;
+    if (ir.metadata.lifespan) meta["lifespan"] = *ir.metadata.lifespan;
     j["metadata"] = meta;
     return j;
 }
@@ -282,6 +283,7 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
             if (m.contains("author")) ir.metadata.author = m["author"].get<std::string>();
             if (m.contains("source_notation")) ir.metadata.source_notation = m["source_notation"].get<std::string>();
             if (m.contains("decay_from")) ir.metadata.decay_from = m["decay_from"].get<uint16_t>();
+            if (m.contains("lifespan")) ir.metadata.lifespan = m["lifespan"].get<uint16_t>();
         }
 
         if (const auto ds = validate(ir); !ds.empty()) return "invalid rule: " + ds.front().message;

@@ -15,18 +15,30 @@ namespace {
 // generation — born from nothing or surviving — read out of the rule's own
 // table (BUG-023).
 //
-// Only a *two-state table* rule can be read this way, and the restriction is
-// the point rather than laziness. A rule with an ageing tail or a lifespan has
-// several live states, so "the live-neighbour count" is not one number; an
-// expression rule has no table to look in; and a counted rule that counts
-// something other than the live state is answering a different question. Each
-// of those keeps the conventional 30%, which is a known default rather than a
-// guess dressed up as a derivation.
+// Two shapes of rule can be read this way. A two-state table rule, where the
+// one live state is 1; and a rule with a hard **lifespan**, where the live
+// states are the ages 1..L and `metadata.lifespan` says so (BUG-026). In both
+// the question is the same — at which neighbour counts does a cell end up alive
+// — and the only difference is which next states count as alive.
+//
+// Everything else keeps the conventional 30%, and the restriction is the point
+// rather than laziness. An expression rule has no table to look in; a cyclic or
+// Generations rule means something different by each of its states, so there is
+// no band to aim at; and a counted rule counting something other than the live
+// states is answering a different question. A known default beats a derivation
+// that is really a guess.
 std::optional<double> meanLiveBand(const rule::RuleIR& ir) {
-    if (ir.cell_type != core::CellType::U8 || ir.states != 2) return std::nullopt;
+    if (ir.cell_type != core::CellType::U8) return std::nullopt;
     if (ir.kind != rule::Kind::OuterTotalistic && ir.kind != rule::Kind::CountedTotalistic) {
         return std::nullopt;
     }
+    // The last state that counts as alive. Ordinarily state 1 and nothing else;
+    // with a lifespan, every age up to L. A tail beyond that is a dying cell and
+    // is not alive, which is why this is the *last live* state and not `states`.
+    const uint16_t lastLive = ir.metadata.lifespan.value_or(1);
+    if (lastLive >= ir.states) return std::nullopt;
+    if (!ir.metadata.lifespan && ir.states != 2) return std::nullopt;
+    if (ir.metadata.lifespan && ir.kind != rule::Kind::CountedTotalistic) return std::nullopt;
     const auto* table = std::get_if<rule::Table>(&ir.transition);
     if (!table) return std::nullopt;
     // A counted rule's `k` is the number of neighbours in the set that own
@@ -47,6 +59,10 @@ std::optional<double> meanLiveBand(const rule::RuleIR& ir) {
     uint32_t hits = 0;
     for (uint32_t k = 0; k <= N; ++k) {
         bool alive = false;
+        // Own state 0 answers "is a cell born here", own state 1 "does one
+        // survive". Every later age gives the same answer as age 1 — a lifespan
+        // rule's table is the base rule's answer with a deadline on top — so two
+        // probes cover the band whatever L is.
         for (uint8_t own = 0; own < 2 && !alive; ++own) {
             // For two states the outer form's count vector is one digit — the
             // number of live neighbours — so both kinds index the same shape.
@@ -55,7 +71,8 @@ std::optional<double> meanLiveBand(const rule::RuleIR& ir) {
                                      ? layout.indexCounted(own, k)
                                      : layout.indexOuterTotalistic(own, counts);
             if (idx >= table->entries.size()) return std::nullopt;
-            alive = table->entries[idx] != 0;
+            const uint8_t next = table->entries[idx];
+            alive = next >= 1 && next <= lastLive;
         }
         if (alive) { sum += k; ++hits; }
     }
@@ -76,6 +93,22 @@ std::vector<double> defaultDensity(const rule::RuleIR& ir) {
     const uint16_t live = ir.metadata.decay_from.value_or(ir.states);
     std::vector<double> out(ir.states > 1 ? ir.states - 1u : 0u, 0.0);
     if (live < 2 || out.empty()) return out;
+
+    // A lifespan rule's live states are one cell's ages, so seeding them evenly
+    // is not a fair spread over several kinds of cell — it is most of the grid
+    // alive at once, and nothing Life-like survives that (BUG-026). Every cell
+    // starts newly born, at the density the rule's own band asks for, which is
+    // the same question the two-state branch below answers.
+    //
+    // Before the `live == 2` test deliberately: a lifespan rule has more than
+    // two live states and would otherwise fall to the even spread.
+    if (ir.metadata.lifespan) {
+        const uint32_t N = rule::neighbourCount(ir.dimensions, ir.neighbourhood);
+        const auto band = meanLiveBand(ir);
+        out[0] = band && N > 0 ? std::clamp(*band / N, 0.02, 0.5) : 0.3;
+        return out;   // every other age stays at zero
+    }
+
     if (live == 2) {
         // Seed so that the expected number of live neighbours lands in the
         // middle of the band the rule is alive in (BUG-023). The conventional

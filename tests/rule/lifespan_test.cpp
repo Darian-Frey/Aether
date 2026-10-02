@@ -15,8 +15,11 @@
 #include "rule/lua.hpp"
 #include "rule/decay.hpp"
 #include "rule/lifespan.hpp"
+#include "rule/ir_json.hpp"
 #include "rule/table_layout.hpp"
 #include "support/table.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -225,4 +228,43 @@ TEST_CASE("a genome-tunable lifespan needs no feature at all", "[lifespan][genom
     CHECK(isValid(ir));
     // Nothing about `lifespan` is in this rule: the deadline is arithmetic the
     // author wrote, so it varies per cell and is inherited with everything else.
+}
+
+TEST_CASE("a lifespan records which states are ages, outside the hash (BUG-026)", "[lifespan]") {
+    const RuleIR base = life();
+    const auto spanned = applyLifespan(base, 6);
+    REQUIRE(std::holds_alternative<RuleIR>(spanned));
+    const RuleIR& ir = std::get<RuleIR>(spanned);
+
+    // States 1..6 are one cell growing older. Nothing else downstream can work
+    // that out — the table says every age counts as a neighbour, which is
+    // semantics, but not that an age is a poor place to start a cell.
+    REQUIRE(ir.metadata.lifespan.has_value());
+    CHECK(*ir.metadata.lifespan == 6);
+    CHECK(*ir.metadata.lifespan < ir.states);   // the last age, not the state count
+
+    // A hint, like decay_from: it travels in the metadata and the metadata is
+    // not hashed, so it cannot make two rules that step alike look different.
+    RuleIR without = ir;
+    without.metadata.lifespan.reset();
+    CHECK(irHash(without) == irHash(ir));
+
+    // And it survives a round trip, or a saved rule would seed differently from
+    // the one that wrote it.
+    auto back = irFromJson(nlohmann::json::parse(irToJson(ir).dump()));
+    REQUIRE(std::holds_alternative<RuleIR>(back));
+    CHECK(std::get<RuleIR>(back).metadata.lifespan == 6);
+
+    // A lifespan of one changes nothing, so it leaves no hint behind either.
+    const auto none = applyLifespan(base, 1);
+    REQUIRE(std::holds_alternative<RuleIR>(none));
+    CHECK_FALSE(std::get<RuleIR>(none).metadata.lifespan.has_value());
+
+    // With a tail on top the two hints coexist and say different things: ages
+    // run 1..6 and the tail starts at 7.
+    const auto both = applyDecay(ir, 3);
+    REQUIRE(std::holds_alternative<RuleIR>(both));
+    const RuleIR& bi = std::get<RuleIR>(both);
+    CHECK(bi.metadata.lifespan == 6);
+    CHECK(bi.metadata.decay_from == 7);
 }

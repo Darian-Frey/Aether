@@ -246,7 +246,7 @@ A rule that keeps making new cells barely notices a deadline. One that merely pe
 
 `lifespan` and `decay` compose, in that order — ages, then a tail — and the result is refused rather than truncated if it would need more than 256 states or exceed the table threshold, with a message naming the longest that fits.
 
-> **Seeding a lifespan rule needs a hand at present (BUG-026).** The default random fill spreads cells evenly across every state, and for a lifespan rule the states are ages, so it starts with 89% of the grid alive at `lifespan 8`. No Life-like rule survives that. Open **Grid → Density**, set *state 1* to about 0.3 and every other state to zero, and fill again — the figures above are from that seeding.
+A fresh grid seeds a lifespan rule the way the table above was measured: every cell newly born at age 1, at the density the base rule's own band asks for. It does not spread cells across the ages, which would start a `lifespan 8` rule with 89% of the grid alive and kill it within fifty generations. You can still set the weights by hand in **Grid → Density** if you want a population that starts part-way through its life.
 
 Nothing downstream learns a new concept here either: an age is an ordinary state. That is also why a per-cell deadline needs no feature of its own — a cell's age *is* its state index, so `age >= (genome & 7)` is an ordinary comparison over a genome, and fertility windows and juvenile periods are ordinary conditions over states.
 

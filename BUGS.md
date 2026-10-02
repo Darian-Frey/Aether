@@ -24,56 +24,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-### BUG-026: the default seeding starts a lifespan rule with 89% of the grid alive
-**Status:** open
-**Found:** 2026-10-02 (writing the lifespan chapter of MANUAL.md and running its examples)
-**Location:** `src/sim/fill.cpp` (`defaultDensity`), `src/rule/lifespan.cpp`
-**Severity:** medium
-**Description.** `defaultDensity` has two branches: a two-state rule gets one weight, and anything else gets an even share `1/live` in each of states 1..live-1. For a cyclic or Generations rule that is right — the states are different things and an even spread is a fair start. For a **lifespan** rule they are not different things: states 1..L are one cell's ages, and spreading cells evenly across them seeds `(live-1)/live` of the grid alive. At `lifespan 8` that is **88.9%**.
-
-No Life-like rule survives that. Every correctly-written lifespan rule tried emptied the grid within fifty generations from the default seed — `B2/S23`, `B3/S23`, `B34/S34`, at lifespans 8 and 30. Seed the same rules with everything at age 1 instead and `B2/S23 lifespan 8` holds 34.5% of a 64² grid at generation 2000, within a point of plain `B2/S23`. The feature works; its default seeding does not.
-
-**Reproduction.**
-```
-states 2; neighbourhood moore 1; lifespan 8;
-0: n(1) == 2 -> 1;
-1: n(1) < 2 or n(1) > 3 -> 0;
-```
-Run it from a default random fill: empty by generation 50. Set the Density panel to age 1 only at 0.3 and it holds a third of the grid indefinitely.
-
-**Notes.** The same root as BUG-023 one level up: the seeding does not know what the rule's states *mean*. BUG-023 fixed the two-state case by reading the band out of the table; this is the multi-state case, and it cannot be fixed the same way because the question is different — not "how dense" but "which states are a sensible starting state at all".
-A tail already answers it. `metadata.decay_from` tells `defaultDensity` that states from there on are a dying cell and takes no share, "since a half-faded cell is not a sensible thing to start a run with". A half-aged cell is the same thing and there is no hint for it: `applyLifespan` records nothing, so nothing downstream can tell age 5 of 8 from state 5 of a cyclic rule. The obvious fix is the mirror of `decay_from` — a hint naming the last *age*, after which `defaultDensity` seeds age 1 alone and derives its density the way BUG-023 does for a two-state rule, since a lifespan rule's band is the band of the rule it was made from.
-Logged rather than applied: it needs a metadata field, which is a schema question, and it changes the seeding of any rule using `lifespan`. See also BUG-027, found in the same session — the published figures for this feature were taken on a rule that does not have this problem because it never dies.
-
-### BUG-027: F-034's measured figures were taken on a rule that is not the rule they name
-**Status:** fixed
-**Found:** 2026-10-02 (the same investigation)
-**Location:** `SPEC.md` §7, `FEATURES.md` F-034, `tests/sim/equivalence_test.cpp`, `CLAUDE.md`
-**Severity:** medium
-**Description.** SPEC §7 says: "`B3/S23` with a deadline empties the grid at any lifespan, measured as far as 120 on a 64² grid. `B2/S23` with `lifespan 8` holds about half the grid indefinitely." FEATURES F-034 and CLAUDE.md repeat it. The second figure is wrong and the rule it was measured on is not `B2/S23`.
-
-The two equivalence fixtures spell their base rule:
-```
-0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;
-```
-In this DSL **a cell matching nothing keeps its state** (MANUAL, Table blocks). So the second statement is a complete no-op: a live cell with 2 or 3 neighbours would have stayed alive anyway, and one with any other count stays alive too. The rule is "born on 2, never dying" — with a deadline on top, which is the only thing that kills anything. That rule holds 47% of a 64² grid, which is where "about half" came from.
-
-Written with the death explicit, `1: n(1) < 2 or n(1) > 3 -> 0;`, and seeded at age 1 to avoid BUG-026, the real figures are:
-
-| rule | plain | with `lifespan 8` |
-|---|---|---|
-| B3/S23 | 9.4% | 0.3% |
-| B2/S23 | 35.5% | 34.5% |
-
-So the *direction* of the claim holds — a deadline guts Life and barely touches a rule that reproduces — but "about half" should be about a third, and "empties" is a trace of fourteen cells rather than nothing.
-
-**Reproduction.** Compare the two spellings of the survival line at the same lifespan and seed.
-
-**Notes.** The fixtures are not broken as *tests*: they compare the two paths on a rule that does exercise lifespan, and IMP-011's evidence check confirms the grids are not empty. What is wrong is the label and everything derived from it. The sentence in F-034 saying "the two equivalence fixtures use `B2/S23` for exactly that reason, and IMP-011's guard would have caught it had they not" is exactly backwards: a correctly written `B2/S23 lifespan 8` fixture *would* have emptied under the default seeding, and IMP-011 would have caught that.
-Worth naming the mechanism, because it is not the usual one. The rule parsed, validated, compiled, ran on both paths identically and produced a lively grid. Nothing could have failed. A no-op statement is invisible to every check the project has, and the only way to catch it is to ask what the rule does rather than whether it runs — which is what running the examples for a manual chapter forces.
-**Resolution (2026-10-02).** The figures are corrected in SPEC §7, FEATURES F-034 and CLAUDE.md against a fresh measurement, each saying what was wrong and how. The fixtures keep their rule and lose their false name — "Born on 2, never dying, with an 8-generation lifespan" — with a comment saying why the survival line is a no-op, because they are a good fixture for comparing two paths and a bad one to quote figures from. Whether to re-base them on a rule that also dies of its neighbours is left open: it would need BUG-026 fixed first, since such a fixture empties under the default seeding.
-MANUAL.md's new `lifespan` section leads with the trap — write the deaths, not the survivals — since it is invisible to every check the project has.
-
+*None.*
 
 ## Fixed
 
@@ -394,6 +345,61 @@ The in-app Keys list said so outright — `, / .` appeared twice in it, once for
 **Notes.** The pitfall CLAUDE.md records about this block is the right half of the rule and I followed it: a key that means the same thing in every dimension goes above the branch. What it does not say, and now will, is that putting one there means checking the per-dimension blocks below have not already claimed it. "Shared" is not "free".
 The collision is one-way, which is what let it through: in 2D the keys do only what IMP-012 intended, and 2D is where the screenshot that verified the slider was taken.
 **Resolution (2026-10-02).** The slice moves to `-` and `=`, which nothing else uses. The rate keeps `,` and `.`: it is the control that exists in every dimension, and `<`/`>` is what the keycaps say. Both key lists and the manual's three references are corrected, and the manual's key table gained the rate row it never had.
+
+### BUG-026: the default seeding starts a lifespan rule with 89% of the grid alive
+**Status:** fixed
+**Found:** 2026-10-02 (writing the lifespan chapter of MANUAL.md and running its examples)
+**Location:** `src/sim/fill.cpp` (`defaultDensity`), `src/rule/lifespan.cpp`
+**Severity:** medium
+**Description.** `defaultDensity` has two branches: a two-state rule gets one weight, and anything else gets an even share `1/live` in each of states 1..live-1. For a cyclic or Generations rule that is right — the states are different things and an even spread is a fair start. For a **lifespan** rule they are not different things: states 1..L are one cell's ages, and spreading cells evenly across them seeds `(live-1)/live` of the grid alive. At `lifespan 8` that is **88.9%**.
+
+No Life-like rule survives that. Every correctly-written lifespan rule tried emptied the grid within fifty generations from the default seed — `B2/S23`, `B3/S23`, `B34/S34`, at lifespans 8 and 30. Seed the same rules with everything at age 1 instead and `B2/S23 lifespan 8` holds 34.5% of a 64² grid at generation 2000, within a point of plain `B2/S23`. The feature works; its default seeding does not.
+
+**Reproduction.**
+```
+states 2; neighbourhood moore 1; lifespan 8;
+0: n(1) == 2 -> 1;
+1: n(1) < 2 or n(1) > 3 -> 0;
+```
+Run it from a default random fill: empty by generation 50. Set the Density panel to age 1 only at 0.3 and it holds a third of the grid indefinitely.
+
+**Notes.** The same root as BUG-023 one level up: the seeding does not know what the rule's states *mean*. BUG-023 fixed the two-state case by reading the band out of the table; this is the multi-state case, and it cannot be fixed the same way because the question is different — not "how dense" but "which states are a sensible starting state at all".
+A tail already answers it. `metadata.decay_from` tells `defaultDensity` that states from there on are a dying cell and takes no share, "since a half-faded cell is not a sensible thing to start a run with". A half-aged cell is the same thing and there is no hint for it: `applyLifespan` records nothing, so nothing downstream can tell age 5 of 8 from state 5 of a cyclic rule. The obvious fix is the mirror of `decay_from` — a hint naming the last *age*, after which `defaultDensity` seeds age 1 alone and derives its density the way BUG-023 does for a two-state rule, since a lifespan rule's band is the band of the rule it was made from.
+Logged rather than applied: it needs a metadata field, which is a schema question, and it changes the seeding of any rule using `lifespan`. See also BUG-027, found in the same session — the published figures for this feature were taken on a rule that does not have this problem because it never dies.
+**Resolution (2026-10-02, D-026).** `applyLifespan` records the last age in `metadata.lifespan`, the mirror of `decay_from` in shape and in use: one says where a cell is dying, the other how far it is living, and neither is a sensible place to start a fresh one. `defaultDensity` seeds a lifespan rule at age 1 alone, at the density its own band asks for.
+`meanLiveBand` generalised rather than gaining a branch. It already asked at which neighbour counts a cell ends up alive; the only thing that changes is which next states count as alive — `{1}` ordinarily, `{1..L}` with a lifespan — so a lifespan rule gets the same number the rule it was made from would have got. On 64² at generation 2000, `B2/S23 lifespan 8` goes from an empty grid to 34.8%, within a tenth of a point of plain `B2/S23`, while `B3/S23 lifespan 8` still collapses to 0.1% because that is the feature rather than the defect.
+Inferring the shape from the table was the alternative and was turned down: `applyLifespan`'s output is not unique to it, and a hand-written counted rule whose states form a chain means whatever its author meant. D-026 has the reasoning, and the limit — this gives the engine no general notion of what a state means, and is not a first step toward one.
+Additive and unhashed, so no existing rule, session or `ir_hash` changes; `ir_version` stays at 1.
+
+
+### BUG-027: F-034's measured figures were taken on a rule that is not the rule they name
+**Status:** fixed
+**Found:** 2026-10-02 (the same investigation)
+**Location:** `SPEC.md` §7, `FEATURES.md` F-034, `tests/sim/equivalence_test.cpp`, `CLAUDE.md`
+**Severity:** medium
+**Description.** SPEC §7 says: "`B3/S23` with a deadline empties the grid at any lifespan, measured as far as 120 on a 64² grid. `B2/S23` with `lifespan 8` holds about half the grid indefinitely." FEATURES F-034 and CLAUDE.md repeat it. The second figure is wrong and the rule it was measured on is not `B2/S23`.
+
+The two equivalence fixtures spell their base rule:
+```
+0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;
+```
+In this DSL **a cell matching nothing keeps its state** (MANUAL, Table blocks). So the second statement is a complete no-op: a live cell with 2 or 3 neighbours would have stayed alive anyway, and one with any other count stays alive too. The rule is "born on 2, never dying" — with a deadline on top, which is the only thing that kills anything. That rule holds 47% of a 64² grid, which is where "about half" came from.
+
+Written with the death explicit, `1: n(1) < 2 or n(1) > 3 -> 0;`, and seeded at age 1 to avoid BUG-026, the real figures are:
+
+| rule | plain | with `lifespan 8` |
+|---|---|---|
+| B3/S23 | 9.4% | 0.3% |
+| B2/S23 | 35.5% | 34.5% |
+
+So the *direction* of the claim holds — a deadline guts Life and barely touches a rule that reproduces — but "about half" should be about a third, and "empties" is a trace of fourteen cells rather than nothing.
+
+**Reproduction.** Compare the two spellings of the survival line at the same lifespan and seed.
+
+**Notes.** The fixtures are not broken as *tests*: they compare the two paths on a rule that does exercise lifespan, and IMP-011's evidence check confirms the grids are not empty. What is wrong is the label and everything derived from it. The sentence in F-034 saying "the two equivalence fixtures use `B2/S23` for exactly that reason, and IMP-011's guard would have caught it had they not" is exactly backwards: a correctly written `B2/S23 lifespan 8` fixture *would* have emptied under the default seeding, and IMP-011 would have caught that.
+Worth naming the mechanism, because it is not the usual one. The rule parsed, validated, compiled, ran on both paths identically and produced a lively grid. Nothing could have failed. A no-op statement is invisible to every check the project has, and the only way to catch it is to ask what the rule does rather than whether it runs — which is what running the examples for a manual chapter forces.
+**Resolution (2026-10-02).** The figures are corrected in SPEC §7, FEATURES F-034 and CLAUDE.md against a fresh measurement, each saying what was wrong and how. The fixtures keep their rule and lose their false name — "Born on 2, never dying, with an 8-generation lifespan" — with a comment saying why the survival line is a no-op, because they are a good fixture for comparing two paths and a bad one to quote figures from. Whether to re-base them on a rule that also dies of its neighbours is left open: it would need BUG-026 fixed first, since such a fixture empties under the default seeding.
+MANUAL.md's new `lifespan` section leads with the trap — write the deaths, not the survivals — since it is invisible to every check the project has.
 
 ## Won't Fix
 

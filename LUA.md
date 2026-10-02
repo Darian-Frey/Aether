@@ -589,7 +589,9 @@ Two-state table rules only, and the message says so — *lifespan applies to two
 
 Writing the transition as a **function** rather than an expression matters here, because `lifespan` needs a table to rewrite. It composes with a tail if you write one out by hand, ages first.
 
-As in the notation, a deadline needs a rule that **reproduces** — `B3/S23` with one empties the grid, because still lifes and oscillators persist without ever making a new cell. See the manual's `lifespan` section for the figures, and for the seeding you currently have to do by hand (BUG-026).
+As in the notation, a deadline needs a rule that **reproduces** — `B3/S23` with one empties the grid, because still lifes and oscillators persist without ever making a new cell. See the manual's `lifespan` section for the figures.
+
+Unlike the tail recipe above, this one loses nothing by being written in Lua: `lifespan` records which states are ages in the rule's metadata exactly as the notation does, so a fresh grid seeds your rule at age 1 rather than scattering cells through middle age.
 
 ### Check your rule against one you trust
 

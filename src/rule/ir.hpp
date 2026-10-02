@@ -217,6 +217,19 @@ struct Metadata {
     // A presentation hint for palettes and age shading, excluded from the
     // hash with the rest of the metadata and carrying no semantics.
     std::optional<uint16_t>    decay_from;
+    // Last age state, when the rule has a hard lifespan (SPEC §7 lifespan):
+    // states 1..lifespan are one cell growing older, not states that mean
+    // different things. Its mirror in use as well as in shape — `decay_from`
+    // tells a fresh grid not to seed cells partway through *dying*, and this
+    // tells it not to seed them partway through *living* (BUG-026). Without it
+    // nothing downstream can tell age five of eight from state five of a cyclic
+    // rule, and the even spread meant for the second starts a lifespan rule
+    // with almost the whole grid alive.
+    //
+    // Excluded from the hash with the rest of the metadata, so a wrong value
+    // seeds oddly and never changes the automaton; the cells it produces are
+    // stored in the session either way.
+    std::optional<uint16_t>    lifespan;
 
     bool operator==(const Metadata&) const = default;
 };

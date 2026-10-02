@@ -728,3 +728,37 @@ This decision said the engine "derives a child's bits from its live neighbours a
 So the order is: a dead cell's prospective genome is derived first, made visible to the transition, and committed only if the cell really is born. The child inherits its parents' rule and that rule then decides whether the child exists. The alternative was to leave the ordering alone and require every genome rule's *birth* half to read its neighbours' genomes rather than its own — expressible, but it puts the inheritance scheme into each rule's own arithmetic, which is the opposite of what this decision is for.
 
 Two consequences worth recording. The derivation now runs for every dead cell with a live neighbour each generation rather than only at births, which costs more: the per-bit loops are bounded by the genome's width and the neighbour count, so it is a constant factor on the boundary cells rather than a new order of work, but it is not free. And a `B0` rule cannot be born under a genome at all: a cell with no live neighbours has no parent to take a genome from, so it keeps a genome of zero and no birth bit is ever set. Documented rather than worked around — inventing a genome for a cell with no parents would be inventing the cell.
+
+### D-026 What a rule's states *mean* for seeding is a metadata hint, not an inference
+**Decided:** 2026-10-02
+**Recorded:** 2026-10-02
+**Authors:** Shane Hartley (with Claude, session 2026-10-02)
+**Status:** Accepted
+**Status note:** Adds `metadata.lifespan` to SPEC §4. Additive, unhashed and optional, so no existing rule, session or `ir_hash` changes; `ir_version` stays at 1.
+**Related:** F-034, BUG-023, BUG-026, D-014, SPEC.md §4, §7
+
+**Context.** `defaultDensity` decides what a fresh grid is filled with. It has two answers: a two-state rule gets one weight derived from the counts the rule is alive on (BUG-023), and anything else gets an even share `1/live` in each live state. The second is right for a cyclic rule, whose states are phases, and for Generations, whose tail is excluded by `metadata.decay_from`.
+
+It is wrong for a rule with a hard lifespan, and badly. Those states are one cell growing older, so an even spread seeds `(live-1)/live` of the grid alive — 88.9% at `lifespan 8` — and no Life-like rule survives the first few generations. Every correctly written lifespan rule tried emptied the grid from the default fill (BUG-026).
+
+**Options.**
+
+**A. Infer it.** `applyLifespan` leaves a recognisable shape: `counted_totalistic`, every own state counting the same set 1..L, a table in which own state *a* either advances to *a+1* or dies. `defaultDensity` could look for that.
+
+**B. Record it.** `applyLifespan` writes the last age into the metadata, as `applyDecay` already writes the first tail state, and `defaultDensity` reads it.
+
+**C. Leave it to the author.** Document the Density panel and let anybody writing a lifespan rule set the weights by hand.
+
+**Decision: B.** The engine records what it knows at the moment it knows it.
+
+A is a guess wearing a derivation's clothes, and this project has turned that down before — `resolveKernel` samples a declared profile rather than inferring one, `lifespan` itself is refused on a three-or-more-state rule rather than picking which state is alive, and BUG-023's fix reads a band out of a table rather than estimating one. The shape A would match is not unique to `applyLifespan`: a hand-written counted rule whose states happen to form a chain is a legal thing to write and means whatever its author meant. Matching it would be the seeding deciding what somebody's states are for.
+
+C was the state of affairs when BUG-026 was found, and the argument against it is that nothing tells you. The grid is empty by generation fifty and there is nothing to distinguish a rule that cannot work from a rule seeded wrongly, which is precisely what happened: the published figures for F-034 were taken on a rule that avoided the problem by never dying of anything, and nobody noticed for a day (BUG-027).
+
+**Consequences.** `Metadata` gains `std::optional<uint16_t> lifespan`, the last age state, and the `decay_from` precedent carries over whole: set by the transform, excluded from `ir_hash`, serialised with the rest of the metadata, and carrying no semantics. A wrong value seeds oddly and never changes how the rule steps.
+
+The two hints coexist and say different things — after `lifespan 6; decay 3;` the ages run 1..6 and the tail starts at 7 — which is the clearest statement of what each is for: `decay_from` says where a cell is *dying*, `lifespan` says how far it is *living*, and neither is a sensible place to start a fresh cell.
+
+`meanLiveBand` generalises rather than gaining a branch: it already asked "at which neighbour counts does a cell end up alive", and the only thing that changes is which next states count as alive — `{1}` ordinarily, `{1..L}` with a lifespan. A lifespan rule is then seeded at age 1 alone, at the density the band asks for, which is the same number the rule it was made from would have got. Measured on 64² at generation 2000, `B2/S23 lifespan 8` goes from an empty grid to 34.8%, within a tenth of a point of plain `B2/S23`.
+
+What this does **not** do is give the engine a general notion of what a state means. There is no `state_kind` enum and this entry is not the first step toward one. Two transforms produce states whose meaning the author did not choose, and both now say what they produced; a rule whose states are the author's own is not asked and not guessed at.

@@ -87,7 +87,7 @@ RuleIR {
   counted       : [StateSet]?      // counted_totalistic only: one set per state
   fields        : [Field]?         // auxiliary fields beyond the state (F-031)
   transition    : Table | Expression | Kernel
-  metadata      : { name?, author?, source_notation? }
+  metadata      : { name?, author?, source_notation?, decay_from?, lifespan? }
 }
 
 Field {
@@ -395,11 +395,15 @@ A lifespan applies to **two-state** table-form rules only. A rule with three or 
 
 Worth knowing before using it: **a hard lifespan needs a rule that reproduces.** Life does not — its long-term population is still lifes and oscillators, every one of which persists *without* reproducing — so a deadline kills them and nothing replaces them. Measured on 64² with cells seeded at age 1, at generation 2000: `B3/S23` holds 9.4% of the grid on its own and **0.3%** with `lifespan 8`, while `B2/S23` holds 35.5% and **34.5%**. A rule that keeps making new cells barely notices a deadline; one that merely persists is gutted by it. This is the design note's "nothing persists without reproduction" taken to its conclusion, and it is the feature working rather than failing.
 
-Two cautions that cost a day between them. **Write the deaths, not the survivals**: a cell matching nothing keeps its state, which under a lifespan means advancing an age, so a statement saying a cell survives is a no-op and the rule never dies of anything but the deadline. The first figures published here were taken on exactly that mistake (BUG-027). And **the default random fill is not usable for a lifespan rule** at present: it spreads cells evenly across every state, which for ages means 89% of the grid alive at `lifespan 8`, and nothing Life-like survives that (BUG-026).
+One caution that cost a day. **Write the deaths, not the survivals**: a cell matching nothing keeps its state, which under a lifespan means advancing an age, so a statement saying a cell survives is a no-op and the rule never dies of anything but the deadline. The first figures published here were taken on exactly that mistake (BUG-027), and nothing in the project could have caught it — such a rule parses, validates, compiles and runs identically on both paths.
+
+A fresh grid seeds a lifespan rule at age 1, at the density its own band asks for, rather than spreading cells across the ages; `metadata.lifespan` is what tells it to (D-026, BUG-026).
 
 A **per-cell** deadline needs no feature at all, which is F-034's third acceptance point. With the ages as states, a cell's age *is* its state index, so a limit from a genome is an ordinary comparison between that index and some bits of the field — `age >= (genome & 7)` — which §6's bitwise operators already express. `lifespan` gives a fixed deadline because it bakes the ages into a table; a varying one is arithmetic the rule author writes, and is inherited with everything else. The same reasoning covers the design note's fertility windows and juvenile periods: both are conditions over age states.
 
 `metadata.decay_from` records the first tail state so that palettes and age shading can colour the tail as a ramp (§13). It is a presentation hint, excluded from `ir_hash` like the rest of `metadata`, and carries no semantics: a wrong value gives odd colours, never a different automaton.
+
+`metadata.lifespan` is its mirror and records the last **age** state, so that states 1..`lifespan` are known to be one cell growing older rather than states meaning different things (D-026). A fresh grid uses it to seed newly born cells rather than spreading them across the ages, which would start a `lifespan 8` rule with 88.9% of the grid alive. Same status as `decay_from`: set by the transform, unhashed, and carrying no semantics — a wrong value seeds oddly and never changes how the rule steps. The two coexist and say different things: after `lifespan 6; decay 3;` the ages run 1..6 and the tail starts at 7, and neither an age nor a tail state is a sensible place to start a cell.
 
 Notes fixed by the Phase 1 implementation (2026-09-11): `and` binds tighter than `or`; `n(0)` counts quiescent neighbours and is derived as `N − Σ n(s≠0)`; `#` introduces a comment to end of line; `B`, `S` and `C` are accepted in either case. (`signature_literal` was named in the grammar but undefined until 2026-09-14; it is specified above.) Generations notation is the two-state rule with an ageing tail attached through the same transform as `decay`, so `C` is bounded by SPEC §1's 256 states rather than by the table (2026-09-14, D-016, IMP-003).
 

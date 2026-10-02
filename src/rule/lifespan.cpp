@@ -94,6 +94,13 @@ std::variant<RuleIR, std::string> applyLifespan(const RuleIR& base, uint16_t age
     ir.kind = Kind::CountedTotalistic;
     ir.counted.assign(S2, live);
     ir.transition = std::move(out);
+    // The one thing downstream cannot work out for itself: that states 1..L are
+    // one cell growing older. The table says every age counts as a neighbour,
+    // which is semantics, but not that an age is a poor place to *start* a cell
+    // — and the seeding needs exactly that (BUG-026). A hint rather than part of
+    // the rule, like `decay_from`, because it changes what a fresh grid is
+    // filled with and nothing about how it steps.
+    ir.metadata.lifespan = ages;
     return ir;
 }
 
