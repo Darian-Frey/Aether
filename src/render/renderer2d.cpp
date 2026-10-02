@@ -50,6 +50,9 @@ std::variant<Renderer2D, core::Error> Renderer2D::create() {
         out.decayFrom  = GetShaderLocation(sh, "decayFrom");
         out.overlay    = GetShaderLocation(sh, "overlay");
         out.tint       = GetShaderLocation(sh, "tint");
+        out.genomeOn   = GetShaderLocation(sh, "genomeOn");
+        out.genomeTex  = GetShaderLocation(sh, "genomeTex");
+        out.genomeMask = GetShaderLocation(sh, "genomeMask");
         // raylib allocated locs[]; we keep only the id and free its table.
         RL_FREE(sh.locs);
         return std::nullopt;
@@ -132,6 +135,13 @@ void Renderer2D::drawBand(unsigned int stateTexture, const core::GridSpec& spec,
     drawPass(stateTexture, spec, view, vp, frameWidth, frameHeight, states, false, {0.0, 0.0}, Rgba{});
 }
 
+void Renderer2D::setGenomeSource(unsigned int texture, uint32_t bits) {
+    cfg_.genomeTex = texture;
+    // The live bits only, so a genome's unused upper bits cannot change its
+    // colour — the same reason the engine mutates only those (F-033).
+    cfg_.genomeMask = bits >= 32u ? 0xFFFFFFFFu : ((1u << bits) - 1u);
+}
+
 void Renderer2D::drawPass(unsigned int stateTexture, const core::GridSpec& spec, const View2D& view,
                           const Rect& vp, int frameWidth, int frameHeight, unsigned int states,
                           bool isOverlay, std::pair<double, double> originShift, Rgba tintColour) {
@@ -185,6 +195,17 @@ void Renderer2D::drawPass(unsigned int stateTexture, const core::GridSpec& spec,
     rlSetUniform(prog.tint, tint, RL_SHADER_UNIFORM_VEC4, 1);
     rlSetUniformSampler(prog.state, stateTexture);
     rlSetUniformSampler(prog.palette, owned_.paletteTex);
+    // Genome colouring, and only when there is something to colour by. A
+    // usampler2D left bound to nothing is undefined even when it goes unread,
+    // which is why the flag and the sampler are set together or not at all —
+    // the same reason the discrete and continuous passes are two programs
+    // rather than two branches of one.
+    const int genomeOn = (cfg_.genomeTex != 0 && overlay == 0) ? 1 : 0;
+    if (prog.genomeOn >= 0) rlSetUniform(prog.genomeOn, &genomeOn, RL_SHADER_UNIFORM_INT, 1);
+    if (genomeOn == 1) {
+        rlSetUniform(prog.genomeMask, &cfg_.genomeMask, RL_SHADER_UNIFORM_UINT, 1);
+        rlSetUniformSampler(prog.genomeTex, cfg_.genomeTex);
+    }
 
     // A quad over the viewport; the fragment shader does the rest. The
     // batch flushes inside EndShaderMode, while `locs` is still alive.

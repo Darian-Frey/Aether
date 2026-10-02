@@ -36,6 +36,40 @@ uniform int   lattice;      // 0 square, 1 hexagonal (axial storage, pointy-topp
 // look provisional and a refused one look wrong.
 uniform int   overlay;      // 0 normal, 1 preview
 uniform vec4  tint;
+// Colouring by genome hash (F-033). A live cell takes its hue from its genome
+// rather than from its state, so a lineage is a patch of one colour and its
+// spread is something you watch rather than something a test asserts. Off by
+// default and meaningless without a genome: `genomeOn` is 0 unless the rule
+// declares one and the Palette section asks for it.
+uniform int        genomeOn;
+uniform usampler2D genomeTex;
+uniform uint       genomeMask;   // the live bits, so dead bits cannot tint
+
+// The twin of sim::mix32 — the same constants in the same order, because a
+// genome's colour has to be the same after a save and reload, and the obvious
+// way for it not to be is a second hash that drifted. Presentational, so a wrong
+// colour here is odd rather than a different automaton; that is why it is a
+// relaxed twin and not one the equivalence suite guards.
+uint aetherPaletteMix(uint v) {
+    v ^= v >> 16;
+    v *= 0x7feb352du;
+    v ^= v >> 15;
+    v *= 0x846ca68bu;
+    v ^= v >> 16;
+    return v;
+}
+
+// A hue from a genome, at a saturation and value that keep every lineage legible
+// against the background. Full saturation on a dark ground makes some hues much
+// louder than others, so both are held back from their extremes.
+vec3 genomeColour(uint genome) {
+    uint h = aetherPaletteMix(genome ^ 0x5bd1e995u);
+    float hue = float(h & 0xFFFFFFu) / 16777216.0;
+    // HSV to RGB, with S and V fixed. Written out rather than branched, so the
+    // six sectors cost the same.
+    vec3 k = mod(vec3(5.0, 3.0, 1.0) + hue * 6.0, 6.0);
+    return 0.95 - 0.55 * clamp(min(k, 4.0 - k), 0.0, 1.0);
+}
 
 const float HEX_A = 0.5;
 const float HEX_B = 0.86602540378443865;   // sqrt(3)/2
@@ -91,6 +125,12 @@ void main() {
     // erase whatever the pattern is about to land on.
     if (overlay == 1 && s == 0u) discard;
     vec4 c = texelFetch(paletteTex, ivec2(int(s), 0), 0);
+    // A live cell's hue comes from its genome; a dead one keeps the palette's
+    // background so the grid still reads as a grid. Before the ageing shade,
+    // which then darkens the lineage's own colour rather than the palette's.
+    if (genomeOn == 1 && s != 0u) {
+        c.rgb = genomeColour(texelFetch(genomeTex, idx, 0).r & genomeMask);
+    }
     if (ageShade == 1) {
         // With an ageing tail, darken only the tail: a rule whose states are
         // not ages (Wireworld, cyclic) must not be shaded by state index.

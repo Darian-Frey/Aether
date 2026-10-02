@@ -275,6 +275,10 @@ int App::run() {
                 // ramp of its full width instead (SPEC §13).
                 const unsigned int ramp = sim_->spec().cell_type == core::CellType::F32
                                               ? 256u : sim_->rule().states;
+                // Per frame, not once: a field's texture pair swaps every
+                // generation, so a handle cached when the box was ticked points
+                // at last generation's buffer from the next step onward.
+                refreshGenomeSource();
                 renderer_->draw(sim_->texture(), sim_->spec(), view_, viewport_,
                                 GetRenderWidth(), GetRenderHeight(), ramp);
             }
@@ -614,6 +618,12 @@ bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
     // Whether it has been seeded is not stored anywhere, and does not need to be:
     // a seeded capacity is a capacity that is not all zero, which is the thing the
     // warning is actually about.
+    refreshGenomeSource();
+    // From the simulation, not from what the panel last showed: a loaded session
+    // carries its own and stale widgets would describe a run that is not going.
+    genomeScheme_ = static_cast<int>(sim_->genome().scheme);
+    genomeMutationOn_ = sim_->genome().threshold != 0;
+    genomeBlock_ = sim_->genome().blockShift;
     resourceSeeded_ = false;
     if (sim_->rule().resource) {
         const auto capacity = sim_->fieldHost(sim_->rule().resource->capacity).current();
@@ -681,6 +691,19 @@ void App::applyPaletteForStates() {
 }
 
 // A rule's own palette, laid over the default for its state count (SPEC §13).
+void App::refreshGenomeSource() {
+    if (!renderer_) return;
+    // Texture 0 is off, and that is what a rule without a genome leaves: a
+    // sampler bound to a texture the rule no longer has is undefined even when
+    // the flag says not to read it.
+    if (!sim_ || !sim_->rule().genome || !genomeColouring_) {
+        renderer_->setGenomeSource(0, 0);
+        return;
+    }
+    const uint32_t field = sim_->rule().genome->field;
+    renderer_->setGenomeSource(sim_->fieldTexture(field), sim_->rule().genome->bits);
+}
+
 void App::applyPaletteOverrides(const rule::RuleIR& ir) {
     if (!renderer_) return;
     render::Palette pal = ir.cell_type == core::CellType::F32

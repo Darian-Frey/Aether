@@ -53,6 +53,7 @@ void usage() {
               "  --cell-mutation P[:K]  mutation probability, optionally in blocks of 2^K cells\n"
               "  --resource R[:T[:S]]   resource regrowth, trickle and spread per generation\n"
               "  --seed-resource F[:O[:LO[:HI]]]  seed the resource: patches, octaves, range\n"
+              "  --inherit S[:P[:K]]    genome inheritance: majority|parent|crossover, per-bit p, clan\n"
               "  --gl-check   verify the compute path and exit\n"
               "  --version    print the version and exit\n"
               "  --load FILE  resume a saved session\n"
@@ -172,6 +173,20 @@ int main(int argc, char** argv) {
                     if (const char* c3 = std::strchr(c2 + 1, ':')) {
                         opts.resourceNoise.high = std::strtof(c3 + 1, nullptr);
                     }
+                }
+            }
+        }
+        else if (a == "--inherit") {
+            // SCHEME[:P[:K]] — majority|parent|crossover, per-bit chance, clan shift
+            const char* v = value("--inherit");
+            if (std::strncmp(v, "majority", 8) == 0)   opts.genome.scheme = aether::sim::Inheritance::Majority;
+            else if (std::strncmp(v, "parent", 6) == 0) opts.genome.scheme = aether::sim::Inheritance::RandomParent;
+            else if (std::strncmp(v, "crossover", 9) == 0) opts.genome.scheme = aether::sim::Inheritance::Crossover;
+            else { std::fprintf(stderr, "aether: unknown inheritance scheme '%s'\n", v); return 2; }
+            if (const char* c1 = std::strchr(v, ':')) {
+                opts.genome.threshold = aether::sim::mutationThreshold(std::strtod(c1 + 1, nullptr));
+                if (const char* c2 = std::strchr(c1 + 1, ':')) {
+                    opts.genome.blockShift = static_cast<uint8_t>(std::atoi(c2 + 1));
                 }
             }
         }

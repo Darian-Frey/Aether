@@ -185,6 +185,7 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
                 if (auto e = sim.seedResource(opts.resourceNoise)) return fail(e->message);
             }
         }
+        if (ir.genome) sim.setGenome(opts.genome);
         sim.fillRandom(sim::defaultDensity(ir));
         if (opts.ruleMutationInterval > 0) sim.setRuleMutation({true, opts.ruleMutationInterval, opts.ruleMutationMagnitude});
         if (opts.cellMutationP > 0.0) sim.setCellMutation(opts.cellMutationP, static_cast<uint8_t>(opts.cellMutationBlock));

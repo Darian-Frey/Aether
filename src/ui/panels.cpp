@@ -434,6 +434,49 @@ void App::drawMutationPanel() {
     if (rchanged) {
         sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
     }
+
+    // The third mutation control, and the only one that is inherited (F-033).
+    // Here rather than in a section of its own because this is where somebody
+    // looking for "how does variation get in" will look — and only for a rule
+    // that has a genome, since otherwise every widget would do nothing.
+    if (sim_->rule().genome) {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Inheritance");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%u bits", sim_->rule().genome->bits);
+
+        static const char* kSchemes[] = {"majority", "random parent", "crossover"};
+        bool gchanged = ImGui::Combo("from", &genomeScheme_, kSchemes, 3);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("How a newborn's genome comes from its live neighbours.\n"
+                              "majority: each bit as more than half the parents have it.\n"
+                              "random parent: one of them, copied whole.\n"
+                              "crossover: each bit from one of two, drawn per bit.");
+        }
+        gchanged |= ImGui::Checkbox("mutate bits", &genomeMutationOn_);
+        ImGui::BeginDisabled(!genomeMutationOn_);
+        gchanged |= ImGui::SliderFloat("per bit", &genomeMutationLog_, -7.0f, 0.0f,
+                                       std::format("{:.2e}", std::pow(10.0, genomeMutationLog_)).c_str());
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("The chance each bit flips at a birth. This is what makes variety\n"
+                              "in the first place: with it off, a grid of one genome stays one rule.");
+        }
+        gchanged |= ImGui::SliderInt("clan", &genomeBlock_, 0, 8,
+                                     genomeBlock_ == 0 ? "one cell"
+                                                       : std::format("{} cells", 1 << genomeBlock_).c_str());
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Births in one aligned block are mutated the same way, so a change\n"
+                              "arrives in a whole clan at once. The parent draws are never grouped.");
+        }
+        ImGui::EndDisabled();
+        if (gchanged) {
+            sim::GenomeParams gp;
+            gp.scheme = static_cast<sim::Inheritance>(genomeScheme_);
+            gp.threshold = genomeMutationOn_ ? sim::mutationThreshold(std::pow(10.0, genomeMutationLog_)) : 0;
+            gp.blockShift = static_cast<uint8_t>(genomeBlock_);
+            sim_->setGenome(gp);
+        }
+    }
     ImGui::PopID();
 }
 
@@ -628,6 +671,23 @@ void App::drawPalettePanel() {
     ImGui::PushID("palette");
     bool age = renderer_->ageShading();
     if (ImGui::Checkbox("Age shading", &age)) renderer_->setAgeShading(age);
+
+    // Colouring by genome, for a rule that has one (F-033). Above the palette
+    // entries because it overrides them: a live cell takes its hue from its
+    // lineage, and editing state 1's colour while this is on would do nothing
+    // visible, which is worth not inviting.
+    if (sim_->rule().genome) {
+        if (ImGui::Checkbox("Colour by genome", &genomeColouring_)) refreshGenomeSource();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("A live cell takes its hue from its genome rather than its state,\n"
+                              "so a lineage is a patch of one colour and you can watch it\n"
+                              "spread or die out. Overrides the state colours below.");
+        }
+        if (is3D()) {
+            ImGui::TextDisabled("2D only: the volume pass colours by state");
+        }
+    }
+
     render::Palette pal = renderer_->palette();
     bool changed = false;
     for (uint16_t s = 0; s < sim_->rule().states && s < 32; ++s) {

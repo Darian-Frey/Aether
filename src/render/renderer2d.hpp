@@ -74,6 +74,12 @@ public:
     // the texture's rows every generation; this is the entry point that lets
     // a caller say which row a band starts at, which `draw` cannot because it
     // takes a camera rather than an origin.
+    // Colour live cells by their genome instead of their state (F-033). The
+    // texture belongs to the simulation and is only read; `bits` is the genome's
+    // width, so that bits the rule does not use cannot tint the result. Passing
+    // texture 0 turns it off, which is what a rule without a genome does.
+    void setGenomeSource(unsigned int texture, uint32_t bits);
+
     void drawBand(unsigned int stateTexture, const core::GridSpec& spec, const Rect& viewport,
                   int frameWidth, int frameHeight, unsigned int states,
                   double zoom, double firstRow);
@@ -97,7 +103,8 @@ private:
         unsigned int id = 0;
         int state = -1, palette = -1, frame = -1, viewport = -1, origin = -1, zoom = -1,
             grid = -1, states = -1, age = -1, background = -1, lattice = -1, decayFrom = -1,
-            overlay = -1, tint = -1;
+            overlay = -1, tint = -1,
+            genomeOn = -1, genomeTex = -1, genomeMask = -1;
     };
 
     // GL handles: exchanged wholesale on move, never listed one at a time.
@@ -112,6 +119,11 @@ private:
         Rgba         background{22, 24, 28, 255};
         bool         ageShade = false;
         std::optional<uint16_t> decayFrom;
+        // Colouring by genome hash (F-033). The texture is the caller's — the
+        // renderer never owns a simulation texture — and zero means off, which
+        // is also what a rule without a genome leaves it at.
+        unsigned int genomeTex = 0;
+        uint32_t     genomeMask = 0;
     };
 
     Owned  owned_;

@@ -64,6 +64,10 @@ struct Options {
     bool        resourceSeed = false;
     sim::NoiseParams resourceNoise;
     sim::ResourceParams resource;
+    // Inheritance (F-033). Off by default: a genome rule with no mutation is a
+    // grid of one rule, which is the honest starting point rather than a
+    // surprise.
+    sim::GenomeParams genome;
     int         windowWidth  = 1280;
     int         windowHeight = 800;
     int         exitAfterFrames = 0;   // > 0: run this many frames, then exit
@@ -143,6 +147,10 @@ private:
     void drawBrushPanel();
     void drawMutationPanel();
     void drawResourcePanel();
+    // Hands the renderer the genome texture, or nothing. Called when the box is
+    // ticked and after any rule change, because a rule without a genome must
+    // leave the sampler unbound rather than pointing at a texture that is gone.
+    void refreshGenomeSource();
     void drawLineagePanel();
     void drawPalettePanel();
     void drawLogPanel();
@@ -283,6 +291,11 @@ private:
     float noiseLow_ = 0.1f;
     float noiseHigh_ = 1.0f;
     bool  resourceSeeded_ = false;   // whether this run has been seeded yet
+    bool  genomeColouring_ = false;  // F-033, off until asked for
+    int   genomeScheme_ = 0;            // Inheritance, as an index for the combo
+    bool  genomeMutationOn_ = false;
+    float genomeMutationLog_ = -3.0f;   // log10 of the per-bit chance
+    int   genomeBlock_ = 0;
 
     // A frame sequence being written (F-021). While one exists the transport
     // stops deciding how far to step — a recording is specified in
