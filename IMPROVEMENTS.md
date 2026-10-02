@@ -23,8 +23,12 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Suggested
 
+*None.*
+
+## Applied
+
 ### IMP-011: the equivalence sweep never checks that it compared anything
-**Status:** open
+**Status:** applied 2026-10-02
 **Found:** 2026-09-27 (F-032 step 5, adding a bundled resource rule to the library sweep)
 **Location:** `tests/sim/equivalence_test.cpp` (`checkEquivalence`)
 **Effort:** small
@@ -35,7 +39,20 @@ This is neither hypothetical nor new. AV-015's own history records the same mist
 **Notes.** Found while checking whether a bundled resource rule would be swept with a zero resource. It would not — the sweep's defaults give it a regrowth of 0.02 and random field contents, so that fixture is live — but the reason it is live is a default rather than an assertion, and the next one may not be. The dedicated resource tests do assert liveness; the sweep does not.
 Logged rather than applied, per the convention: it changes the meaning of every case in the suite's most load-bearing file, and which fixtures may end empty is the author's call rather than a mechanical one.
 
-## Applied
+**As built (2026-10-02).** Not the proposal. The proposal was a flag on `Fixture` for rules that legitimately end empty, which would have excused twenty real holes and left them excused for ever. What the measurement showed was that no fixture needs excusing at all.
+
+The guard went in first and found **twenty fixture-and-boundary combinations comparing two empty grids**, which is a coverage hole rather than a tidiness problem. In the order the diagnostic reported them: the resource fixture under wrap and zero, carrying evidence at *no* generation; five 3D fixtures dying between generations 5 and 14; `diamoeba` at 20 and 26; `star-wars` at 35; the neighbour-indexed expression at 42 and 58; and Brian's Brain — both the hand-written fixture and the bundled rule — at 122 and 142.
+
+Two of those were worth more than the fix. The resource fixture was mine, from F-032: its draw-down took a fifth of the food a generation against a 4% regrowth, which settles at 0.17 of capacity and is below that rule's own 0.35 feeding threshold whatever the capacity. It went extinct on its first generation and had compared two empty grids for as long as it existed. The arithmetic that predicts it is in `LUA.md` and in `rules/grazing.lua`'s header, both written by the same hand a week earlier.
+
+And the first guess at a fix was wrong, which is why it was measured. Seeding the 3D fixtures sparser looked obvious — a 26-neighbour lattice at 0.4 gives every cell ten live neighbours — but a probe across six densities showed the *boundary* is what kills them, not the density: `3D B5/S45` runs the full thousand generations under wrap at the default density and dies at nine under zero. The 0.12 experiment made things worse, taking that fixture from failing two boundaries to failing all three. It was reverted.
+
+So the comparison point is **found rather than configured**. The CPU pass runs the full thousand generations and remembers the last one at which the grid still held something; the GPU then runs to exactly that generation and the two are compared there. A rule that dies at nine is compared at eight, which is a real comparison of the step function rather than of two empty grids, and a rule that lives keeps its full thousand. No fixture carries a number, because the number would have been per fixture *and* per boundary, and stale the first time a rule changed. The cost is one grid copy per generation while the grid is alive, against a step over the whole of it.
+
+A fixture that is empty after one generation is now a hard failure rather than a flag: there is no generation at which it compares anything, so it is a broken fixture and not a world that happened to end.
+
+`continuous_test.cpp` had the same hole in **two of its three** comparisons, which matters because that is the file AV-015's withdrawn claim came from. The third had carried a mass check since Phase 5 — so the guard was known, applied once, and never carried across. Both now check the field still holds something. `tests/support/evidence.hpp` holds the shared test, working on raw bytes so one implementation serves `u8`, `u32` and `f32` alike.
+
 
 ### IMP-001: Outer-totalistic tables are oversized for rules that count a single state
 **Status:** applied

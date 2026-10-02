@@ -264,13 +264,21 @@ TEST_CASE("the continuous step agrees between the two paths", "[gpu][continuous]
             worst = std::max(worst, std::abs(cpuCells[i] - gpuCells[i]));
         }
     }
-    INFO(std::format("{} / {}: {} of {} cells differ after 1000 generations, worst by {}",
+    // The field has to still be there, or the comparison proves nothing: two
+    // empty grids agree perfectly. The case below this one has carried that
+    // guard since Phase 5 and these two never did (IMP-011) — which is also
+    // where AV-015's withdrawn claim came from, a 10,000-generation comparison
+    // of two empty grids.
+    float mass = 0.0f;
+    for (float v : cpuCells) mass += v;
+    INFO(std::format("{} / {}: {} of {} cells differ after 1000 generations, worst by {}; mass {}",
                      rule::toString(boundary), rule::toString(form), differing, cpuCells.size(),
-                     worst));
+                     worst, mass));
     if (firstDiff != cpuCells.size()) {
         INFO(std::format("first at cell {}: cpu {} vs gpu {}", firstDiff,
                          cpuCells[firstDiff], gpuCells[firstDiff]));
     }
+    CHECK(mass > 0.0f);
     CHECK(differing == 0);
 }
 
@@ -421,8 +429,14 @@ TEST_CASE("every bundled continuous rule steps identically on both paths", "[gpu
                     worst = std::max(worst, std::abs(cpuCells[i] - gpuCells[i]));
                 }
             }
-            INFO(std::format("{}: {} of {} cells differ after 1000 generations, worst by {}; first at {}",
-                             entry.id, differing, cpuCells.size(), worst, firstDiff));
+            // As above (IMP-011): a bundled continuous rule that drains to
+            // nothing would compare identical and prove nothing about either path.
+            float mass = 0.0f;
+            for (float v : cpuCells) mass += v;
+            INFO(std::format("{}: {} of {} cells differ after 1000 generations, worst by {}; "
+                             "first at {}; mass {}",
+                             entry.id, differing, cpuCells.size(), worst, firstDiff, mass));
+            CHECK(mass > 0.0f);
             CHECK(differing == 0);
         }
     }

@@ -13,6 +13,7 @@
 #include "sim/inspect.hpp"
 #include "sim/resource.hpp"
 #include "sim/gpu_step.hpp"
+#include "support/evidence.hpp"
 #include "support/fields.hpp"
 #include "support/gl_context.hpp"
 
@@ -301,8 +302,16 @@ rule::RuleIR resourceExpression() {
         {rule::ExprOp::IntLiteral, 0, 0, 0, 1},              // 1
         {rule::ExprOp::Eq, 0, 1},                            // 2  alive
         {rule::ExprOp::FieldSelf, 0},                        // 3
-        {rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.8f},      // 4
-        {rule::ExprOp::Mul, 3, 4},                           // 5  eats a fifth
+        // 0.98, not 0.8. A draw-down of a fifth a generation against a 4%
+        // regrowth settles at 0.17 of capacity, which is below this rule's own
+        // 0.35 feeding threshold whatever the capacity — so the fixture went
+        // extinct on its first generation and compared two empty grids for as
+        // long as it has existed (IMP-011). At 0.98 it settles at 0.68 of
+        // capacity and about half the grid can sustain life. The same arithmetic
+        // is in LUA.md and in rules/grazing.lua's header, which is where this
+        // should have been looked up rather than guessed.
+        {rule::ExprOp::FloatLiteral, 0, 0, 0, 0, 0.98f},     // 4
+        {rule::ExprOp::Mul, 3, 4},                           // 5  eats two percent
         {rule::ExprOp::Select, 2, 5, 3},                     // 6
     };
     store.write = draw;
@@ -489,6 +498,8 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
 
     core::HostGrid host(spec);
     fill(host, ir.states, 0x5eed + static_cast<uint32_t>(boundary), 0.4);
+    // Kept so the comparison can be checked for having compared anything.
+    const std::vector<uint8_t> seed(host.current().begin(), host.current().end());
 
     auto made = core::GpuGrid::create(spec, core::queryVram());
     REQUIRE(std::holds_alternative<core::GpuGrid>(made));
@@ -541,15 +552,56 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     genomeParams.seedB = mutation.seedB;
     stepper.setGenome(genomeParams);
 
+    // The comparison is made at the last generation the CPU run still held
+    // something, rather than always at 1000 (IMP-011). A rule that dies at
+    // generation 9 under a zero boundary used to be compared at 1000, which was
+    // a comparison of two empty grids: green, fast and worthless. Found rather
+    // than configured, because which generation that is depends on the rule *and*
+    // the boundary — `3D B5/S45` runs the full thousand under wrap and dies at
+    // nine under zero — so a number written into each fixture would have been a
+    // number per fixture per boundary, and wrong the first time a rule changed.
+    //
+    // The cost is one grid copy per generation while the grid is alive, which is
+    // a few kilobytes against a step over the whole thing.
+    std::vector<uint8_t> lastLiving(host.current().begin(), host.current().end());
+    int lastLivingAt = 0;
+    auto remember = [&](int generation) {
+        for (uint8_t b : host.current()) {
+            if (b != 0) {
+                std::copy(host.current().begin(), host.current().end(), lastLiving.begin());
+                lastLivingAt = generation;
+                return;
+            }
+        }
+    };
+
+    // The CPU pass first, all the way, remembering where it last held something.
     for (int i = 0; i < kGenerations; ++i) {
         if (fields.size() == 0) {
             sim::cpuStep(lut, host, static_cast<uint64_t>(i), mutation);
-            stepper.step(gpu);
         } else {
             sim::cpuStep(lut, spec, host.current(), host.next(), static_cast<uint64_t>(i), mutation,
                          fields.reads(), fields.writes(), resource, nullptr, genomeParams);
             host.swap();
             fields.swap();
+        }
+        remember(i + 1);
+    }
+
+    // A fixture whose rule is dead on arrival is a broken fixture, not a world
+    // that happened to end: there is no generation at which the two paths could
+    // have been compared on anything.
+    if (lastLivingAt == 0) {
+        FAIL(std::format("{} / {}: the grid was empty after one generation, so there is no "
+                         "generation at which this fixture compares anything (IMP-011)",
+                         f.name, rule::toString(boundary)));
+    }
+
+    // Then the GPU, to exactly that generation.
+    for (int i = 0; i < lastLivingAt; ++i) {
+        if (fields.size() == 0) {
+            stepper.step(gpu);
+        } else {
             stepper.step(gpu.current(), gpu.next(), fieldGpu.textures());
             gpu.swap();
             fieldGpu.swap();
@@ -558,7 +610,7 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
 
     std::vector<uint8_t> fromGpu(spec.bytesPerBuffer());
     gpu.download(fromGpu);
-    const std::vector<uint8_t> fromCpu(host.current().begin(), host.current().end());
+    const std::vector<uint8_t>& fromCpu = lastLiving;
 
     size_t firstDiff = fromCpu.size();
     for (size_t i = 0; i < fromCpu.size(); ++i) {
@@ -566,16 +618,26 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     }
     std::string detail;
     if (firstDiff != fromCpu.size()) {
-        // The grids are compared after kGenerations, so this cell is where the
-        // divergence had reached, not necessarily where it began.
+        // The grids are compared after `lastLivingAt` generations, so this cell is
+        // where the divergence had reached, not necessarily where it began.
         detail = std::format("\n  cpu {} vs gpu {}\n  the CPU path reads that cell as {}",
                              static_cast<int>(fromCpu[firstDiff]), static_cast<int>(fromGpu[firstDiff]),
-                             explainCell(lut, spec, fromCpu, firstDiff, kGenerations, mutation,
+                             explainCell(lut, spec, fromCpu, firstDiff, lastLivingAt, mutation,
                                          fields.reads()));
     }
-    INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}{}", f.name,
-                     rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff, detail));
+    INFO(std::format("{} / {} / {}x{}x{} / p={} / compared at generation {}: "
+                     "first difference at cell {}{}",
+                     f.name, rule::toString(boundary), spec.width, spec.height, spec.depth, p,
+                     lastLivingAt, firstDiff, detail));
     CHECK(firstDiff == fromCpu.size());
+
+    // And the comparison was of something: not empty, by construction above, and
+    // not the seed either — a grid that never moved means the step was never
+    // really exercised (IMP-011).
+    if (auto why = aether::test::comparisonEvidence(seed, fromCpu)) {
+        FAIL(std::format("{} / {} at generation {}: {}", f.name, rule::toString(boundary),
+                         lastLivingAt, *why));
+    }
 
     // The fields on the same terms. A sweep that compared the state alone would
     // pass while the rule's own bookkeeping had diverged, and a field feeds the
@@ -998,3 +1060,4 @@ TEST_CASE("every bundled rule steps identically with cell mutation on", "[gpu][e
         }
     }
 }
+
