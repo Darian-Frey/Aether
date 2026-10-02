@@ -399,16 +399,24 @@ std::vector<Fixture> fixtures() {
         out.push_back({"Resource with regeneration and diffusion", resourceExpression(), rp});
     }
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
-    // A hard lifespan over a rule that *reproduces* (F-034). The base is B2/S23
-    // rather than Life, and that is not a detail: Life's long-term population is
-    // still lifes and oscillators, every one of which persists without
-    // reproducing, so a deadline empties the grid at any lifespan — measured as
-    // far as 120. A fixture over Life would have compared two empty grids, which
-    // IMP-011's guard would now catch but which is better not written.
-    out.push_back({"B2/S23 with an 8-generation lifespan", dsl(
+    // A hard lifespan over a rule that keeps making new cells (F-034). A fixture
+    // over Life would have compared two nearly empty grids: its long-term
+    // population is still lifes and oscillators, every one of which persists
+    // without reproducing, so a deadline kills them and nothing replaces them.
+    //
+    // Read the rule carefully, because its name is not what it does (BUG-027).
+    // A cell matching nothing *keeps its state*, so the second statement — a
+    // live cell with 2 or 3 neighbours becomes 1 — is a no-op, and the base is
+    // "born on 2, never dying" rather than B2/S23. The deadline is the only
+    // thing that kills anything here. It is a perfectly good fixture for
+    // comparing the two paths on a lifespan rule and a bad one to quote figures
+    // from, which is what was done with it; the names are left as they are
+    // pending a decision on whether to re-base them on a rule that also dies of
+    // its neighbours.
+    out.push_back({"Born on 2, never dying, with an 8-generation lifespan", dsl(
         "states 2; neighbourhood moore 1; lifespan 8;"
         "0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;")});
-    out.push_back({"Lifespan and an ageing tail together", dsl(
+    out.push_back({"Lifespan and an ageing tail together (the same base)", dsl(
         "states 2; neighbourhood moore 1; lifespan 5; decay 3;"
         "0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});

@@ -21,6 +21,7 @@ Every example here has been run. Where a claim could be checked, it was: the Lif
 - [Expression rules](#expression-rules)
 - [Auxiliary fields](#auxiliary-fields)
 - [The resource](#the-resource)
+- [Genomes](#genomes)
 - [Saving a rule into the library](#saving-a-rule-into-the-library)
 - [The sandbox, and why](#the-sandbox-and-why)
 - [When it goes wrong](#when-it-goes-wrong)
@@ -413,6 +414,66 @@ Two consequences you can feel: spreading is **refused** under a `mirror` boundar
 
 ---
 
+## Genomes
+
+A `u32` field with **no write** can be named as the rule's genome, and then the engine fills it at every birth from the genomes of the live neighbours:
+
+```lua
+fields = {
+    { name = "genome", cell_type = "u32" },   -- no write: the engine owns it
+},
+genome = { field = "genome", bits = 18 },
+```
+
+`bits` is how many low bits your rule actually uses. The engine needs it for two reasons and neither is "to understand your genes": mutation would otherwise scatter noise through bits nothing reads, and the hue in *Colour by genome* is a hash of the field, which over dead bits is a hash of noise and would show lineages that are not there.
+
+**No `write`, and the refusal is the feature.** The engine owns those bytes at a birth and carries them otherwise. A rule that could write its own genome would be Lamarckian: whatever a cell worked out in its lifetime would pass to its children, and nothing would be selected. So the genome appears in your transition as something to *read*.
+
+**The engine never learns what a bit means.** It inherits opaque bits; the layout is yours. `rules/lineages.lua` uses eighteen — nine birth conditions then nine survival conditions, indexed by the live-neighbour count — and that convention lives entirely in one expression:
+
+```lua
+local n = e.count(1)
+-- Alive: the survival half, nine bits up. Dead: the birth half.
+local which = e.select(e.eq(e.self(), e.int(1)), e.add(n, e.int(9)), n)
+transition = e.band(e.shr(e.field("genome"), which), e.int(1)),
+```
+
+That is the whole of "every cell runs the Life-like rule written in its own genome". Nothing in the engine knows it.
+
+A smaller one, if eighteen bits is more than you want to think about — one bit choosing between birth on two and birth on three:
+
+```lua
+local e = expr
+local n = e.count(1)
+local born     = e.eq(n, e.select(e.eq(e.band(e.field("genome"), e.int(1)), e.int(1)),
+                                  e.int(2), e.int(3)))
+local survives = e.and_(e.ge(n, e.int(2)), e.le(n, e.int(3)))
+return {
+    states = 2,
+    neighbourhood = { type = "moore", radius = 1 },
+    fields = { { name = "genome", cell_type = "u32" } },
+    genome = { field = "genome", bits = 1 },
+    transition = e.select(e.select(e.eq(e.self(), e.int(1)), survives, born),
+                          e.int(1), e.int(0)),
+}
+```
+
+Note the outer `select`: a comparison produces a boolean and a transition must produce a state, so the conditions are folded back to `1` or `0` at the end. `e.and_`, `e.or_` and `e.not_` are the logical operators; `e.band`, `e.bor`, `e.bxor`, `e.shl` and `e.shr` are the bitwise ones and take integers on both sides. Mixing them up gives you *bitwise operands must both be integers*, which is the validator being specific rather than cryptic.
+
+### What you do not set here
+
+The inheritance scheme, the per-bit mutation rate and the clan size are **not** in this table, for the same reason the resource's rates are not: they are the controls you most want to drag, and a constant in a rule recompiles and adds a lineage entry when you move it. They are the Mutation panel's, or `--inherit scheme[:per-bit[:clan]]` headlessly.
+
+Which means a genome rule does nothing visible until you turn mutation on. A grid seeded with one genome everywhere is one rule and stays it.
+
+### Two things that will catch you
+
+**`B0` cannot work.** A cell with no live neighbours has no parent to inherit from, so it keeps whatever it had — zero on a fresh grid — and no birth bit is ever set. This is structural, not a gap.
+
+**Inheritance runs before your transition.** It has to: if the genome *is* the birth rule, then what decides whether a dead cell is born is the genome it does not yet have. The engine derives a prospective genome, shows it to your rule, and keeps it only if the cell is actually born. So `e.field("genome")` on a dead cell is reading the genome it *would* inherit.
+
+Fields send a rule to the codegen backend whatever its shape, and a genome rule must have an **expression** transition — a function or an array is a table, and a table cannot express a field.
+
 ## Saving a rule into the library
 
 Put the file in `rules/` with a header in Lua comments, and it appears in the Library panel and answers to `--rule @name`:
@@ -505,6 +566,30 @@ return {
 ```
 
 One thing the notation does that this does not: `B/S/C` records `decay_from` in the rule's metadata, which tells the palette to shade the tail and tells a fresh grid not to seed cells partway through dying. A Lua rule has no way to set it — `metadata` takes only `name` and `author` — so a Lua generations rule and its `B/S/C` twin are the *same automaton* with different default colours and a different random fill. Worth knowing before you conclude they disagree: give both the same starting cells and they step identically.
+
+### A deadline
+
+Unlike `decay`, `lifespan` **is** available here — it is one key at the top level:
+
+```lua
+return {
+    states = 2,
+    neighbourhood = { type = "moore", radius = 1 },
+    lifespan = 8,
+    transition = function(own, k)
+        if own == 0 then return k == 2 and 1 or 0 end
+        return (k == 2 or k == 3) and 1 or 0
+    end,
+}
+```
+
+A cell is born at age 1, advances one age for every generation it survives, and dies at age 8 whatever its neighbours say. Write the transition as the plain two-state rule you want; the ages are inserted for you, and your `1` means "survives, so advance" rather than "stays at age 1".
+
+Two-state table rules only, and the message says so — *lifespan applies to two-state table-form rules; this rule has 3 states*. A rule with three or more already means something by each of them, and inserting ages among those would be the transform deciding which one was alive.
+
+Writing the transition as a **function** rather than an expression matters here, because `lifespan` needs a table to rewrite. It composes with a tail if you write one out by hand, ages first.
+
+As in the notation, a deadline needs a rule that **reproduces** — `B3/S23` with one empties the grid, because still lifes and oscillators persist without ever making a new cell. See the manual's `lifespan` section for the figures, and for the seeding you currently have to do by hand (BUG-026).
 
 ### Check your rule against one you trust
 

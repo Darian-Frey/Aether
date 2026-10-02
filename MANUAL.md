@@ -20,6 +20,7 @@ This manual is in three parts. **Getting started** is enough to see something mo
 - [Dimensions and lattices](#dimensions-and-lattices)
 - [Continuous automata](#continuous-automata)
 - [The resource](#the-resource)
+- [Genomes](#genomes)
 - [The pattern editor](#the-pattern-editor)
 - [Reproducibility](#reproducibility)
 - [Running without a window](#running-without-a-window)
@@ -214,6 +215,41 @@ decay 6;
 
 Conway's Life where a dying cell takes six generations to fade. `decay` is not a new concept — it rewrites into ordinary extra states before anything else sees it.
 
+### Deadlines: `lifespan`
+
+`decay` gives a dying cell somewhere to fade to. `lifespan` is its mirror: a cell is born at age 1, advances one age for every generation it survives, and at age *L* **dies regardless of its neighbours**.
+
+```
+states 2;
+neighbourhood moore 1;
+lifespan 8;
+0: n(1) == 2 -> 1;
+1: n(1) < 2 or n(1) > 3 -> 0;
+```
+
+That clause — regardless of its neighbours — is the whole feature. A deadline a supportive neighbourhood could override would just be a slower `decay`.
+
+Three things to know before you write one.
+
+**It needs the statement form.** B/S notation has no statement list to hang a lifespan on, and its `C` is a tail rather than a deadline, so `B2/S23 lifespan 8` is not something you can write. Use a table block, as above.
+
+**Write the deaths, not the survivals.** A cell matching nothing keeps its state, which under a lifespan means *advances an age* — so a line saying a cell survives is a no-op, and a rule whose only survival line says `-> 1` never dies of anything except the deadline. This is easy to get wrong and impossible to notice from the outside: the rule parses, compiles, runs on both paths and gives you a lively grid.
+
+**It needs a rule that reproduces.** Conway's Life does not: its long-term population is still lifes and oscillators, every one of which persists *without* reproducing, so a deadline kills them and nothing replaces them. Measured on 64², cells seeded at age 1, at generation 2000:
+
+| base rule | on its own | with `lifespan 8` |
+|---|---|---|
+| `B3/S23` | 9.4% of the grid | **0.3%** |
+| `B2/S23` | 35.5% | **34.5%** |
+
+A rule that keeps making new cells barely notices a deadline. One that merely persists is gutted by it. That is the feature working, not failing.
+
+`lifespan` and `decay` compose, in that order — ages, then a tail — and the result is refused rather than truncated if it would need more than 256 states or exceed the table threshold, with a message naming the longest that fits.
+
+> **Seeding a lifespan rule needs a hand at present (BUG-026).** The default random fill spreads cells evenly across every state, and for a lifespan rule the states are ages, so it starts with 89% of the grid alive at `lifespan 8`. No Life-like rule survives that. Open **Grid → Density**, set *state 1* to about 0.3 and every other state to zero, and fill again — the figures above are from that seeding.
+
+Nothing downstream learns a new concept here either: an age is an ordinary state. That is also why a per-cell deadline needs no feature of its own — a cell's age *is* its state index, so `age >= (genome & 7)` is an ordinary comparison over a genome, and fertility windows and juvenile periods are ordinary conditions over states.
+
 ### Lua
 
 For rules that are easier computed than tabulated, switch the dropdown to Lua. A script runs **once, at compile time**, and returns a table describing the rule. It cannot run during the simulation and has no access to files, the network or the clock.
@@ -313,6 +349,58 @@ The interesting version of this wants something that eats the plants, and that i
 The resource is the first quantity in this engine that is meant to be *conserved*, so the engine counts what enters and leaves: regrowth in, consumption out, spreading moved, and whatever the clamp adjusted. The four add up to the change in the total exactly, which is what makes a leak findable rather than merely suspected — it localises to the step that opened it instead of showing up as a total that is slightly wrong.
 
 That accounting earned its keep the day it was written: it caught the first version of spreading creating material out of nothing, by measuring its gradient against two different generations at once. Nothing about the code looked wrong. There is no readout for the books in the window yet; they are checked by the test suite.
+
+## Genomes
+
+The resource gives a cell something to compete *for*. A **genome** gives it something to compete *with*: every cell carries a word of bits, a newborn inherits them from its live neighbours, and the rule decides what they mean.
+
+This is the third way variation gets into a run, and the only one that is selected rather than merely applied. Rule mutation searches rule space over time; cell mutation flips cells over space; both are things done *to* the grid. Inheritance is passed on, so a genome that produces more offspring becomes more common without anything deciding that it should.
+
+### The division of labour
+
+The engine carries the bits and never reads them. It knows how many bits there are and nothing else — not that bit 3 means "born on three neighbours", not that bits 9 to 17 are survival conditions. The *rule* decides all of that, and the arrangement is why a later feature can put more genes in the same field without the engine learning anything new.
+
+A rule declares a `u32` field with **no write expression** and names it as the genome. No write is the point: the engine owns those bytes at a birth and carries them otherwise, so a cell cannot edit its own genome. A rule that could would be Lamarckian, and nothing it discovered would be inherited by anything.
+
+Genomes are Lua-only — the DSL has no way to declare a field, deliberately, since its business is notation that exists in the literature.
+
+### The controls
+
+They live in **Mutation**, under the two mutation controls, and appear only for a rule that has a genome.
+
+- **from** — how a newborn's bits come from its live neighbours. *majority* takes each bit as more than half the parents have it, with a tie leaving the bit clear. *random parent* copies one of them whole. *crossover* takes each bit from one of two, drawn per bit.
+- **mutate bits** and **per bit** — the chance each bit flips at a birth. This is where variety comes from: with it off, a grid of one genome is one rule and stays it for ever.
+- **clan** — births in one aligned block are mutated the same way, so a change arrives in a whole clan at once. The parent draws are never grouped; a block sharing one parent pick would make a clan's births identical rather than merely correlated.
+
+Every draw comes from stream B, hashed on the cell's coordinate and the generation, so nothing is stored and a run replays bit-identically. The draws are salted apart — one per parent pick, one per bit — because a single hash reused would correlate the parent with the mutations and the mutations with each other.
+
+In **Palette**, *Colour by genome* gives each live cell a hue from its genome instead of from its state, so a lineage is a patch of one colour and its spread is something you watch. It is 2D only, and the panel says so in a volume.
+
+### Trying it
+
+```bash
+aether --rule @lineages --size 256x256
+```
+
+Every cell carries the Life-like rule it runs, as eighteen bits: nine birth conditions then nine survival conditions, which is that rule's convention and not the engine's. The grid starts with a genome of all zeros — a rule that never births and never survives — so everything you see was built by mutation and kept by selection.
+
+Turn **Colour by genome** on, then turn the per-bit mutation up to around `1e-2` and let it run. Then turn it back down and watch which variant takes the grid.
+
+Headlessly, which is how the figures in that rule's header were measured:
+
+```bash
+aether headless --rule @lineages --size 64x64 --seed 9 --generations 1500 --inherit crossover:0.002 --png out.png
+```
+
+`--inherit` is `scheme[:per-bit[:clan]]`, with the scheme `majority`, `parent` or `crossover`. At `0.0005` that run goes extinct — too little variety to find a rule that reproduces before the grid empties. At `0.002` it ends with 3964 of 4096 cells alive and 600 distinct genomes. At `0.01` the grid is full with 1372 of them.
+
+### What is actually being selected for
+
+Nothing in `lineages` costs anything to be alive: there is no resource to eat and no deadline. So the fittest genome is simply the one that fills the most space, and the commonest survivor is one with nearly every survival bit set — a grid of cells that never die. That is a correct outcome and a dull one.
+
+Coupling a genome to the resource field, so that filling the grid starves it, is what would make the competition worth watching, and nothing prevents a rule declaring both. A deadline is the other half: see `lifespan` above.
+
+Two structural things worth knowing. A **`B0` rule cannot work under a genome** — a cell with no live neighbours has no parent to inherit from, so it keeps a genome of zero and no birth bit is ever set. And inheritance runs *before* the transition, which has to be the case for a Life-like genome: what decides whether a dead cell is born is the genome it does not yet have. A prospective genome is derived, shown to the rule, and kept only if the cell is actually born.
 
 ## The pattern editor
 
