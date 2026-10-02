@@ -71,6 +71,8 @@ struct CompiledRule {
     // regenerates that field toward the capacity one; the rule's write on it is
     // the draw-down and nothing more.
     std::optional<Resource> resource;
+    // Which field the engine inherits at birth, if any (F-033, D-025).
+    std::optional<Genome>   genome;
 
     // Continuous only: the kernel resolved onto the offsets above, one weight
     // each, and the weight of the cell itself, which is never an offset

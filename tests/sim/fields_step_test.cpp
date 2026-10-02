@@ -1178,3 +1178,47 @@ TEST_CASE("diffusion leaks at a zero boundary and the ledger says so", "[sim][re
     const auto store = floatsOf(fields.raw(0));
     CHECK(std::accumulate(store.begin(), store.end(), 0.0) < static_cast<double>(spec.cellCount()));
 }
+
+TEST_CASE("the bitwise operators step on the CPU", "[sim][genome]") {
+    // Isolates the oracle from the shader: if this passes and the equivalence
+    // sweep crashes, the fault is on the GPU side and vice versa.
+    rule::RuleIR ir = base();
+    rule::Field bits;
+    bits.name = "bits";
+    bits.cell_type = core::CellType::U32;
+    ir.fields = {bits};
+    ir.genome = rule::Genome{0};
+    Expression e;
+    e.nodes = {{ExprOp::FieldSelf, 0},
+               {ExprOp::Count, 1},
+               {ExprOp::Shr, 0, 1},
+               {ExprOp::IntLiteral, 0, 0, 0, 1},
+               {ExprOp::BitAnd, 2, 3}};
+    ir.transition = e;
+
+    const rule::CompiledRule rule = compiled(ir);
+    REQUIRE(rule.fields.size() == 1);
+    CHECK(rule.fields[0].cell_type == core::CellType::U32);
+
+    const core::GridSpec spec = spec2d(16, 16);
+    core::HostGrid host(spec);
+    aether::test::HostFields fields(rule, spec.cellCount());
+    CHECK(fields.raw(0).size() == spec.cellCount() * 4);
+
+    // Conway's mask: B3 is bit 3, S2 and S3 are bits 11 and 12.
+    const uint32_t life = (1u << 3) | (1u << (9 + 2)) | (1u << (9 + 3));
+    for (size_t i = 0; i < spec.cellCount(); ++i) {
+        std::memcpy(const_cast<uint8_t*>(fields.raw(0).data()) + i * 4, &life, 4);
+        host.current()[i] = static_cast<uint8_t>((i * 5u) % 3u == 0u ? 1 : 0);
+    }
+    for (int g = 0; g < 10; ++g) {
+        cpuStep(rule, spec, host.current(), host.next(), static_cast<uint64_t>(g), {},
+                fields.reads(), fields.writes());
+        host.swap();
+        fields.swap();
+    }
+    // It ran, and the genome was carried rather than lost.
+    uint32_t back = 0;
+    std::memcpy(&back, fields.raw(0).data(), 4);
+    CHECK(back == life);
+}

@@ -56,6 +56,11 @@ std::string_view toString(ExprOp v) {
         case ExprOp::Mul:          return "mul";
         case ExprOp::Div:          return "div";
         case ExprOp::Mod:          return "mod";
+        case ExprOp::BitAnd:       return "band";
+        case ExprOp::BitOr:        return "bor";
+        case ExprOp::BitXor:       return "bxor";
+        case ExprOp::Shl:          return "shl";
+        case ExprOp::Shr:          return "shr";
         case ExprOp::Eq:           return "eq";
         case ExprOp::Ne:           return "ne";
         case ExprOp::Lt:           return "lt";
@@ -223,6 +228,18 @@ ExprType checkExpression(const Expression& e, const ExprContext& ctx,
                 if (!numeric(ta) || ta != tb) fail(i, "operands must be numeric and of the same type");
                 else types[i] = ta;
                 break;
+            case ExprOp::BitAnd: case ExprOp::BitOr: case ExprOp::BitXor:
+            case ExprOp::Shl: case ExprOp::Shr:
+                // Integers only. A float has no bits to speak of here: the
+                // operators work on the two's-complement pattern, and a rule
+                // asking to shift a convolution result is a mistake worth
+                // naming rather than a conversion worth guessing at (D-025).
+                if (ta != ExprType::Int || tb != ExprType::Int) {
+                    fail(i, "bitwise operands must both be integers");
+                } else {
+                    types[i] = ExprType::Int;
+                }
+                break;
             case ExprOp::Eq: case ExprOp::Ne: case ExprOp::Lt:
             case ExprOp::Le: case ExprOp::Gt: case ExprOp::Ge:
                 if (!numeric(ta) || ta != tb) fail(i, "operands must be numeric and of the same type");
@@ -315,6 +332,14 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
         return out;
     }
 
+    // u32 is a field type and not a state type (D-025). What a "state count"
+    // would mean for four billion of them, and what a palette or a pattern
+    // encoding would do with it, are questions nothing is asking yet — so they
+    // are left unasked rather than half-answered.
+    if (ir.cell_type == CellType::U32) {
+        err("a cell's state is u8 or f32; u32 is for auxiliary fields");
+        return out;
+    }
     const bool continuous = ir.cell_type == CellType::F32;
     if (!continuous && (ir.states < 2 || ir.states > 256)) {
         err(std::format("states must be in 2..256 (got {})", ir.states));
@@ -400,6 +425,29 @@ std::vector<Diagnostic> validate(const RuleIR& ir) {
         if (t != ExprType::Invalid && t != want) {
             err(std::format("{} holds {} cells, so its expression must produce {}",
                             where, toString(field.cell_type), want == ExprType::Float ? "a float" : "an integer"));
+        }
+    }
+
+    // --- The genome (F-033, D-025) ------------------------------------------
+    //
+    // The engine writes these bytes at birth and F-031's carry-forward keeps them
+    // otherwise, so a `write` here would be a rule fighting the engine for the
+    // same field — and Lamarckian in a feature whose point is that variation is
+    // inherited rather than acquired.
+    if (ir.genome) {
+        const uint32_t g = ir.genome->field;
+        if (g >= ir.fields.size()) {
+            err(std::format("genome names field {} and the rule declares {}", g, ir.fields.size()));
+        } else {
+            if (ir.fields[g].cell_type != CellType::U32) {
+                err(std::format("genome field '{}' holds {} cells; a genome is a bit pattern and must be u32",
+                                ir.fields[g].name, toString(ir.fields[g].cell_type)));
+            }
+            if (ir.fields[g].write) {
+                err(std::format("genome field '{}' has a write expression; the engine writes a genome at birth "
+                                "and a rule does not acquire one",
+                                ir.fields[g].name));
+            }
         }
     }
 
@@ -572,6 +620,9 @@ uint64_t irHash(const RuleIR& ir) {
         h.integer(ir.resource->field);
         h.integer(ir.resource->capacity);
     }
+    // Same again: a rule with no genome contributes no bytes, so every hash
+    // written before F-033 is unmoved (D-025).
+    if (ir.genome) h.integer(ir.genome->field);
     h.integer(static_cast<uint8_t>(ir.transition.index()));
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         h.integer(static_cast<uint64_t>(t->entries.size()));

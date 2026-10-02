@@ -82,6 +82,16 @@ void evalArena(const rule::Expression& e, std::span<const rule::ExprType> types,
             case rule::ExprOp::Le: v.b = types[node.a] == rule::ExprType::Float ? a.f <= b.f : a.i <= b.i; break;
             case rule::ExprOp::Gt: v.b = types[node.a] == rule::ExprType::Float ? a.f >  b.f : a.i >  b.i; break;
             case rule::ExprOp::Ge: v.b = types[node.a] == rule::ExprType::Float ? a.f >= b.f : a.i >= b.i; break;
+            // Bitwise, on the two's-complement pattern. `Shr` is logical and
+            // both shifts mask their count to five bits, because C++ and GLSL
+            // both leave a shift by 32 or more undefined and an arithmetic right
+            // shift would smear a genome's top bit (D-025, SPEC §6). Twin of the
+            // same five statements in rule/glsl.cpp.
+            case rule::ExprOp::BitAnd: v.i = static_cast<int32_t>(static_cast<uint32_t>(a.i) & static_cast<uint32_t>(b.i)); break;
+            case rule::ExprOp::BitOr:  v.i = static_cast<int32_t>(static_cast<uint32_t>(a.i) | static_cast<uint32_t>(b.i)); break;
+            case rule::ExprOp::BitXor: v.i = static_cast<int32_t>(static_cast<uint32_t>(a.i) ^ static_cast<uint32_t>(b.i)); break;
+            case rule::ExprOp::Shl:    v.i = static_cast<int32_t>(static_cast<uint32_t>(a.i) << (static_cast<uint32_t>(b.i) & 31u)); break;
+            case rule::ExprOp::Shr:    v.i = static_cast<int32_t>(static_cast<uint32_t>(a.i) >> (static_cast<uint32_t>(b.i) & 31u)); break;
             case rule::ExprOp::And: v.b = a.b && b.b; break;
             case rule::ExprOp::Or:  v.b = a.b || b.b; break;
             case rule::ExprOp::Not: v.b = !a.b; break;
@@ -116,7 +126,10 @@ ExprValue evalFieldWrite(const rule::CompiledField& field, const ExprInputs& in,
                          std::vector<ExprValue>& scratch) {
     evalArena(*field.write, field.writeTypes, in, scratch);
     ExprValue v = scratch.back();
-    if (field.cell_type != core::CellType::F32) {
+    // A u8 field clamps to the width of its storage. A u32 field does not: it
+    // holds a bit pattern, and clamping one to 255 would quietly discard
+    // twenty-four bits of it. An f32 field is written as computed (D-025).
+    if (field.cell_type == core::CellType::U8) {
         v.i = v.i < 0 ? 0 : (v.i > 255 ? 255 : v.i);
     }
     return v;
@@ -218,14 +231,29 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
     const size_t F = rule.fields.size();
     if (F != 0) {
         assert(fields.size() == F && "a multi-field rule needs its field buffers");
+        // Three widths now, and the one that was missing cost a day: reading a
+        // u32 field as a single byte loses its top twenty-four bits, while the
+        // shader's imageLoad reads all thirty-two. The two paths then disagree
+        // about a genome in a way that looks like a bitwise-operator fault and
+        // is not (D-025).
         auto fieldAt = [&](size_t f, size_t idx) -> ExprValue {
             ExprValue v;
-            if (rule.fields[f].cell_type == core::CellType::F32) {
-                float value = 0.0f;
-                std::memcpy(&value, fields[f].data() + idx * sizeof(float), sizeof(float));
-                v.f = value;
-            } else {
-                v.i = fields[f][idx];
+            switch (rule.fields[f].cell_type) {
+                case core::CellType::F32: {
+                    float value = 0.0f;
+                    std::memcpy(&value, fields[f].data() + idx * sizeof(float), sizeof(float));
+                    v.f = value;
+                    break;
+                }
+                case core::CellType::U32: {
+                    uint32_t value = 0;
+                    std::memcpy(&value, fields[f].data() + idx * sizeof(uint32_t), sizeof(uint32_t));
+                    v.i = static_cast<int32_t>(value);
+                    break;
+                }
+                case core::CellType::U8:
+                    v.i = fields[f][idx];
+                    break;
             }
             return v;
         };
@@ -378,10 +406,18 @@ void cpuStep(const rule::CompiledRule& rule, const core::GridSpec& spec,
                 // last generation's, so keeping a value means copying it.
                 for (size_t f = 0; f < F; ++f) {
                     const ExprValue& v = scratch.fieldNext[f];
-                    if (rule.fields[f].cell_type == core::CellType::F32) {
-                        std::memcpy(fieldsNext[f].data() + i * sizeof(float), &v.f, sizeof(float));
-                    } else {
-                        fieldsNext[f][i] = static_cast<uint8_t>(v.i);
+                    switch (rule.fields[f].cell_type) {
+                        case core::CellType::F32:
+                            std::memcpy(fieldsNext[f].data() + i * sizeof(float), &v.f, sizeof(float));
+                            break;
+                        case core::CellType::U32: {
+                            const uint32_t bits = static_cast<uint32_t>(v.i);
+                            std::memcpy(fieldsNext[f].data() + i * sizeof(uint32_t), &bits, sizeof(uint32_t));
+                            break;
+                        }
+                        case core::CellType::U8:
+                            fieldsNext[f][i] = static_cast<uint8_t>(v.i);
+                            break;
                     }
                 }
             }

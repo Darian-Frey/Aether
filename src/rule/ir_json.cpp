@@ -81,10 +81,10 @@ json expressionToJson(const Expression& e) {
 }
 
 std::optional<ExprOp> parseExprOp(const std::string& s) {
-    // Bounded by the last operator rather than by `Select`, which it happened
-    // to be until F-031 added two after it. A hard-coded end here fails by
-    // refusing to parse a rule this very file just wrote.
-    for (int i = 0; i <= static_cast<int>(ExprOp::FieldNeighbour); ++i) {
+    // Bounded by `kLastExprOp`, which lives beside the enum. A number written
+    // out here has failed twice — F-031's two new operators and F-033's five —
+    // each time by refusing to parse a rule this very file had just written.
+    for (int i = 0; i <= static_cast<int>(kLastExprOp); ++i) {
         const auto op = static_cast<ExprOp>(i);
         if (toString(op) == s) return op;
     }
@@ -143,6 +143,9 @@ json irToJson(const RuleIR& ir) {
     if (ir.resource && ir.resource->field < ir.fields.size() && ir.resource->capacity < ir.fields.size()) {
         j["resource"] = {{"field", ir.fields[ir.resource->field].name},
                          {"capacity", ir.fields[ir.resource->capacity].name}};
+    }
+    if (ir.genome && ir.genome->field < ir.fields.size()) {
+        j["genome"] = {{"field", ir.fields[ir.genome->field].name}};
     }
     if (const auto* t = std::get_if<Table>(&ir.transition)) {
         j["transition"] = {{"form", "table"}, {"entries", base64Encode(t->entries)}, {"size", t->entries.size()}};
@@ -222,6 +225,17 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
             if (!capacity) return std::format("resource names a capacity '{}' the rule does not declare",
                                               r.at("capacity").get<std::string>());
             ir.resource = Resource{*field, *capacity};
+        }
+        if (j.contains("genome")) {
+            const json& g = j.at("genome");
+            if (!g.is_object() || !g.contains("field")) return "genome needs a field";
+            const std::string name = g.at("field").get<std::string>();
+            std::optional<uint32_t> at;
+            for (size_t i = 0; i < ir.fields.size(); ++i) {
+                if (ir.fields[i].name == name) at = static_cast<uint32_t>(i);
+            }
+            if (!at) return std::format("genome names a field '{}' the rule does not declare", name);
+            ir.genome = Genome{*at};
         }
         if (j.contains("counted")) {
             for (const json& set : j.at("counted")) {

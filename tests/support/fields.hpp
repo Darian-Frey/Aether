@@ -53,6 +53,15 @@ public:
     void setU8(size_t f, size_t i, uint8_t v) { buffers_[cur_][f][i] = v; }
     uint8_t u8(size_t f, size_t i) const { return buffers_[cur_][f][i]; }
 
+    void setU32(size_t f, size_t i, uint32_t v) {
+        std::memcpy(buffers_[cur_][f].data() + i * sizeof(uint32_t), &v, sizeof(uint32_t));
+    }
+    uint32_t u32(size_t f, size_t i) const {
+        uint32_t v = 0;
+        std::memcpy(&v, buffers_[cur_][f].data() + i * sizeof(uint32_t), sizeof(uint32_t));
+        return v;
+    }
+
     void setF32(size_t f, size_t i, float v) {
         std::memcpy(buffers_[cur_][f].data() + i * sizeof(float), &v, sizeof(float));
     }

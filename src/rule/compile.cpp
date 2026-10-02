@@ -95,6 +95,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .glsl          = std::get<std::string>(std::move(glsl)),
             .fields        = {},
             .resource      = {},
+            .genome        = {},
             .weights       = std::move(rk.weights),
             .selfWeight    = rk.self,
         };
@@ -128,6 +129,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
             .glsl          = std::move(generated),
             .fields        = compileFields(ir, nbrs),
             .resource      = ir.resource,
+            .genome        = ir.genome,
         };
     }
 
@@ -161,6 +163,7 @@ std::variant<CompiledRule, CompileError> compileRule(const RuleIR& ir) {
         .glsl          = {},
         .fields        = {},
         .resource      = {},
+        .genome        = {},
     };
 
     if (ir.kind == Kind::OuterTotalistic) {

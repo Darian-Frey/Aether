@@ -119,6 +119,24 @@ std::variant<std::string, GlslError> emitNodes(const Expression& expr, const std
                 out += std::format("    {} {} = fld.{}[{}];\n", decl(types[i]), t,
                                    glslFieldNbrMember(node.a), node.b);
                 break;
+            // The twin of the same five in cpu_step.cpp. Through `uint` so the
+            // shift is logical and the mask is on the pattern, and the count is
+            // masked to five bits so a shift by 32 or more is defined (D-025).
+            case ExprOp::BitAnd:
+                out += std::format("    int {} = int(uint({}) & uint({}));\n", t, a, b);
+                break;
+            case ExprOp::BitOr:
+                out += std::format("    int {} = int(uint({}) | uint({}));\n", t, a, b);
+                break;
+            case ExprOp::BitXor:
+                out += std::format("    int {} = int(uint({}) ^ uint({}));\n", t, a, b);
+                break;
+            case ExprOp::Shl:
+                out += std::format("    int {} = int(uint({}) << (uint({}) & 31u));\n", t, a, b);
+                break;
+            case ExprOp::Shr:
+                out += std::format("    int {} = int(uint({}) >> (uint({}) & 31u));\n", t, a, b);
+                break;
             case ExprOp::Not:
                 out += std::format("    bool {} = !{};\n", t, a);
                 break;
@@ -271,11 +289,12 @@ std::variant<std::string, GlslError> generateGlsl(const RuleIR& ir) {
         out += emitCounts(*field.write);
         out += std::get<std::string>(wbody);
         const std::string root = std::format("t{}", field.write->nodes.size() - 1);
-        // The u8 clamp is the width of the storage, not a state range, and an
-        // f32 field is written as computed. The twin of evalFieldWrite in
-        // sim/cpu_step.cpp (SPEC §6).
-        if (field.cell_type == CellType::F32) out += std::format("    return {};\n", root);
-        else                                  out += std::format("    return clamp({}, 0, 255);\n", root);
+        // The u8 clamp is the width of the storage, not a state range. A u32
+        // field holds a bit pattern and is not clamped at all — 255 would
+        // discard twenty-four bits of it — and an f32 field is written as
+        // computed. The twin of evalFieldWrite in sim/cpu_step.cpp (SPEC §6).
+        if (field.cell_type == CellType::U8) out += std::format("    return clamp({}, 0, 255);\n", root);
+        else                                 out += std::format("    return {};\n", root);
         out += "}\n";
     }
     return out;

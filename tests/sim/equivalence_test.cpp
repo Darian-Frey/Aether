@@ -195,6 +195,49 @@ rule::RuleIR twoFieldExpression() {
     return ir;
 }
 
+// A rule built out of the bitwise operators, including the genome's reference
+// case: `(bits >> count) & 1`. Here because the five operators are twins across
+// rule/glsl.cpp and cpu_step.cpp, and the agreement rules they carry — a logical
+// right shift, and a count masked to five bits — are exactly the sort that look
+// the same on both sides until a value with its top bit set arrives (D-025).
+rule::RuleIR bitwiseExpression() {
+    rule::RuleIR ir;
+    ir.states = 2;
+    ir.kind = rule::Kind::Expression;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};
+
+    rule::Field bits;
+    bits.name = "bits";
+    bits.cell_type = core::CellType::U32;
+    ir.fields = {bits};
+    ir.genome = rule::Genome{0};
+
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::FieldSelf, 0},                    //  0  the bit pattern
+        {rule::ExprOp::Count, 1},                        //  1  live neighbours
+        {rule::ExprOp::Self},                            //  2
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},          //  3
+        {rule::ExprOp::Eq, 2, 3},                        //  4  alive
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 9},          //  5
+        {rule::ExprOp::Add, 1, 5},                       //  6  survival half
+        {rule::ExprOp::Select, 4, 6, 1},                 //  7  which nine bits
+        {rule::ExprOp::Shr, 0, 7},                       //  8  logical shift
+        {rule::ExprOp::BitAnd, 8, 3},                    //  9  & 1
+        // The operators the reference case does not need, so that they are
+        // exercised too rather than merely compiled. A shift count well past 31
+        // is deliberate: both sides mask it, and nothing else would make them.
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 40},         // 10
+        {rule::ExprOp::Shl, 0, 10},                      // 11  masked to 8
+        {rule::ExprOp::BitXor, 11, 0},                   // 12
+        {rule::ExprOp::BitOr, 12, 9},                    // 13
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},          // 14
+        {rule::ExprOp::BitAnd, 13, 14},                  // 15
+    };
+    ir.transition = e;
+    return ir;
+}
+
 // A resource rule (F-032, D-024): the engine regenerates one field toward another
 // and the rule's write on it is only the draw-down. In this sweep because the
 // engine's arithmetic and the GLSL it generates are twins, and a twin that is only
@@ -287,6 +330,7 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Arithmetic expression, 5 states (codegen)", arithmeticExpression(5)});
     out.push_back({"Neighbour-indexed expression (codegen)", shiftExpression()});
     out.push_back({"Two fields, u8 and f32 (codegen)", twoFieldExpression()});
+    out.push_back({"Bitwise over a u32 genome field", bitwiseExpression()});
     {
         sim::ResourceParams rp;
         rp.regen = 0.04f;
@@ -351,12 +395,21 @@ std::vector<Fixture> fixtures1d() {
 // was worth doing: a failing case used to name a cell index and stop there.
 std::string explainCell(const rule::CompiledRule& r, const core::GridSpec& spec,
                         std::span<const uint8_t> cells, size_t linear,
-                        uint64_t generation, sim::CellMutation mutation) {
+                        uint64_t generation, sim::CellMutation mutation,
+                        sim::FieldReads fields = {}) {
+    // `stepCell` wants a buffer pair per declared field and a Release build does
+    // not check, so a diagnostic called without them reads past the end of
+    // nothing — which is BUG-022 again, and worse here: the crash replaces the
+    // mismatch report that would have said what was actually wrong.
+    if (r.fields.size() != fields.size()) {
+        return std::format("(no explanation: this rule declares {} field(s) and the diagnostic was given {})",
+                           r.fields.size(), fields.size());
+    }
     const uint32_t x = static_cast<uint32_t>(linear % spec.width);
     const uint32_t y = static_cast<uint32_t>((linear / spec.width) % spec.height);
     const uint32_t z = static_cast<uint32_t>(linear / (size_t{spec.width} * spec.height));
     sim::StepScratch scratch(r);
-    const sim::CellTransition t = sim::stepCell(r, spec, cells, x, y, z, generation, mutation, scratch);
+    const sim::CellTransition t = sim::stepCell(r, spec, cells, x, y, z, generation, mutation, scratch, fields);
 
     std::string nbrs;
     for (uint32_t i = 0; i < r.neighbourCount(); ++i) {
@@ -399,15 +452,23 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     auto nextByte = [&] { fs = fs * 1664525u + 1013904223u; return fs >> 8; };
     for (size_t f = 0; f < fields.size(); ++f) {
         for (uint64_t i = 0; i < spec.cellCount(); ++i) {
-            if (fields.type(f) == core::CellType::F32) {
-                fields.setF32(f, i, static_cast<float>(nextByte() % 1000) / 1000.0f);
-            } else {
-                fields.setU8(f, i, static_cast<uint8_t>(nextByte() % 256));
+            switch (fields.type(f)) {
+                case core::CellType::F32:
+                    fields.setF32(f, i, static_cast<float>(nextByte() % 1000) / 1000.0f);
+                    break;
+                case core::CellType::U32:
+                    // A genome's whole point is a bit pattern, so seed one:
+                    // eighteen bits, which is what a Life-like mask occupies.
+                    fields.setU32(f, i, nextByte() & 0x3ffffu);
+                    break;
+                case core::CellType::U8:
+                    fields.setU8(f, i, static_cast<uint8_t>(nextByte() % 256));
+                    break;
             }
         }
     }
     auto madeFields = aether::test::GpuFields::create(lut, spec);
-    REQUIRE(std::holds_alternative<aether::test::GpuFields>(madeFields));
+    if (const auto* e = std::get_if<core::Error>(&madeFields)) FAIL(f.name + ": " + e->message);
     aether::test::GpuFields& fieldGpu = std::get<aether::test::GpuFields>(madeFields);
     fieldGpu.upload(fields);
 
@@ -453,7 +514,8 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
         // divergence had reached, not necessarily where it began.
         detail = std::format("\n  cpu {} vs gpu {}\n  the CPU path reads that cell as {}",
                              static_cast<int>(fromCpu[firstDiff]), static_cast<int>(fromGpu[firstDiff]),
-                             explainCell(lut, spec, fromCpu, firstDiff, kGenerations, mutation));
+                             explainCell(lut, spec, fromCpu, firstDiff, kGenerations, mutation,
+                                         fields.reads()));
     }
     INFO(std::format("{} / {} / {}x{}x{} / p={}: first difference at cell {}{}", f.name,
                      rule::toString(boundary), spec.width, spec.height, spec.depth, p, firstDiff, detail));

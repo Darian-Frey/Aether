@@ -141,6 +141,11 @@ constexpr ExprCtor kCtors[] = {
     // Lua's `and`, `or` and `not` are keywords, so these carry a trailing
     // underscore rather than being spelled something else.
     {"and_", ExprOp::And, 2}, {"or_", ExprOp::Or, 2}, {"not_", ExprOp::Not, 1},
+    // Bitwise (D-025). Named rather than spelled with Lua 5.4's own `&`, `|`,
+    // `~`, `<<` and `>>`, because those would evaluate on the numbers in the
+    // script rather than building a node — a trap worth not laying.
+    {"band", ExprOp::BitAnd, 2}, {"bor", ExprOp::BitOr, 2}, {"bxor", ExprOp::BitXor, 2},
+    {"shl", ExprOp::Shl, 2}, {"shr", ExprOp::Shr, 2},
     {"select", ExprOp::Select, 3},
 };
 
@@ -860,6 +865,27 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
         const auto capacity = indexOf("capacity");
         if (const auto* bad = std::get_if<std::string>(&capacity)) return LuaError{*bad};
         ir.resource = Resource{std::get<uint32_t>(field), std::get<uint32_t>(capacity)};
+    }
+    lua_pop(L, 1);
+
+    // The genome (F-033, D-025), named like everything else that points at a
+    // field. No parameters here either: the inheritance scheme and the per-bit
+    // mutation rate are run-time controls, for the reason D-024 gives.
+    lua_getfield(L, rule, "genome");
+    if (!lua_isnil(L, -1)) {
+        const int block = lua_gettop(L);
+        if (!lua_istable(L, block)) {
+            return LuaError{std::format("'genome' must be a table, not a {}", typeName(L, block))};
+        }
+        const auto name = stringField(L, block, "field", err);
+        if (!err.empty()) return LuaError{err};
+        if (!name) return LuaError{"genome needs a 'field'"};
+        std::optional<uint32_t> at;
+        for (size_t i = 0; i < fieldNames.size(); ++i) {
+            if (fieldNames[i] == *name) at = static_cast<uint32_t>(i);
+        }
+        if (!at) return LuaError{std::format("genome names a field '{}' the rule does not declare", *name)};
+        ir.genome = Genome{*at};
     }
     lua_pop(L, 1);
 

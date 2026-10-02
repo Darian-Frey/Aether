@@ -26,9 +26,26 @@ bool hasExtension(std::string_view name) {
     return false;
 }
 
-GLenum internalFormat(CellType t) { return t == CellType::F32 ? GL_R32F : GL_R8UI; }
+// Three now (D-025). u32 is a field type only, so GL_R32UI never appears as a
+// grid's own format — but a field *is* a grid of one value per site, so it comes
+// through here like any other.
+GLenum internalFormat(CellType t) {
+    switch (t) {
+        case CellType::F32: return GL_R32F;
+        case CellType::U32: return GL_R32UI;
+        case CellType::U8:  break;
+    }
+    return GL_R8UI;
+}
 GLenum transferFormat(CellType t) { return t == CellType::F32 ? GL_RED : GL_RED_INTEGER; }
-GLenum transferType(CellType t)   { return t == CellType::F32 ? GL_FLOAT : GL_UNSIGNED_BYTE; }
+GLenum transferType(CellType t) {
+    switch (t) {
+        case CellType::F32: return GL_FLOAT;
+        case CellType::U32: return GL_UNSIGNED_INT;
+        case CellType::U8:  break;
+    }
+    return GL_UNSIGNED_BYTE;
+}
 
 }  // namespace
 

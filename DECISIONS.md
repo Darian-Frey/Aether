@@ -680,3 +680,42 @@ It was caught by the balance test of step 4 rather than by anyone reading the ar
 - SPEC §11's determinism contract gains the resource parameters as recorded state and the seed as a journal event. The field itself still needs no initial buffer: seeding is an event, so replay re-draws it from stream A in the same order.
 
 **Reversal conditions.** Take C if run-time rule parameters are built for another feature — at that point the resource's parameters are a special case of a general mechanism and keeping them special would be the odd choice. Take B only if the harshness control is abandoned, since B's single real cost is that the control becomes expensive.
+
+---
+
+### D-025 A genome is an opaque `u32` field the engine inherits and the rule interprets
+**Decided:** 2026-10-02
+**Recorded:** 2026-10-02
+**Authors:** Shane Hartley (with Claude, session 2026-10-02)
+**Status:** Accepted
+**Status note:** Extends SPEC §1's cell types and §6's operator set. Both are schema changes and are why this entry exists rather than being details of F-033.
+**Related:** F-033, F-034, F-035, F-036, D-019, D-022, D-024, AV-015, AV-019, SPEC.md §1, §4, §6
+
+**Context.** F-033 asks for a genome the cell runs, "bounded to what a shader can interpret cheaply, a Life-like B/S bitmask being the reference case". The design note is more ambitious — "the genome *is* the rule" — and F-033's own notes already record why that cannot be taken literally: a million cells would be a million rules to compile. A Life-like mask is eighteen bits, nine for birth and nine for survival, and the rule that reads one is a shift and a mask.
+
+Two things stood in the way, and both are schema. Eighteen bits fits in none of the existing cell types: `u8` is too small, and `f32` holds the value exactly but cannot be masked, because the expression IR has no integer cast and generated float code is forbidden from the arithmetic that would fake one. And the IR has no bitwise operators at all — the operator set grew from what rules written in B/S notation and table blocks needed, and neither needs a shift.
+
+**Options considered for storage.**
+- **A. A field-only `u32` cell type.** Chosen. `CellType` gains `U32`, permitted for an auxiliary field and refused for the state. The state's type reaches patterns, palettes, the space-time view and the continuous path; a genome touches none of them, so keeping `u32` out of the state keeps the change to `cellBytes`, the GPU format, the field gather and store, and the expression typing.
+- **B. A fully general `u32` cell type**, for the state as well. Rejected for now. It buys nothing F-033 needs and costs a decision about what a "state count" means when a cell holds four billion of them, plus a palette and a pattern encoding for a case nothing is asking for. Nothing here forecloses it: lifting the refusal later is additive.
+- **C. Two or three `u8` fields.** Rejected. Nine birth bits do not fit in eight, so it is three fields or quietly dropping `B0`/`S0`. One concept stored as three fields is a seam every later feature has to know about, and inheritance would have to be told which fields belong together.
+
+**Options considered for the operators.**
+- **D. The full set — `and`, `or`, `xor`, `shl`, `shr`.** Chosen. Five ordinary integer operators, `Int × Int → Int`, one statement apiece in the interpreter and in GLSL. Nothing about them is genome-specific, so a rule packing two things into one field is served too, and the twins stay twins with no special cases.
+- **E. Only `and` and `shr`,** the two a genome test needs. Rejected: the next rule to want the others would have the agreement rules written a second time.
+- **F. A dedicated `genome_bit(field, index)`.** Rejected, and it is the option worth explaining. It would be impossible to misuse, and it puts knowledge of what the bits *mean* into the IR — which is precisely what the inheritance design below keeps out.
+
+**Decision.** A and D, with the division of labour below.
+
+- **The engine inherits bits; the rule interprets them.** `RuleIR::genome` names one declared `u32` field. At birth the engine derives the child's bits from its live neighbours and applies a per-bit mutation; it never knows that bit 3 means "born on three neighbours". The rule reads the field and decides. That is the same split D-024 made for the resource, and it is what lets F-034's lifespan and F-035's similarity genes be more bits in the same field, or more fields, without the engine learning anything new.
+- The genome field must have **no `write`**. The engine writes it at birth and F-031's carry-forward preserves it otherwise. A rule writing its own genome every generation would be fighting the engine for the same bytes, and it would be Lamarckian in a feature whose point is that variation is *inherited* rather than acquired.
+- **A `u32` field is read as a signed 32-bit integer**, because `ExprType` has `Int` and adding an unsigned type would double every arithmetic rule for one case. A field using its top bit reads as negative; a genome of 31 bits or fewer never notices. Documented rather than refused, since the IR does not know a field's intended width.
+- **`Shr` is a logical shift and both shifts mask their count to five bits.** C++ and GLSL both leave a shift by 32 or more undefined, and an arithmetic right shift of a negative value would make a genome's top bit smear. Defining the pair as operations on the two's-complement pattern, with the count masked, is the same class of agreement as division-by-zero yielding zero and is settled the same way (SPEC §6).
+
+**Consequences.**
+- `selectBackend` already routes a rule declaring any field to codegen (D-022), so F-033's acceptance bullet about routing is satisfied by a decision already taken rather than by new code.
+- A third GPU image format joins the field plumbing: `r32ui` beside `r8ui` and `r32f`. The `GL_MAX_IMAGE_UNITS` arithmetic is unchanged — a field is still two units.
+- The bitwise operators are available to every rule, not only a genome one, which widens SPEC §6's contract by five operators and two agreement rules. That is the price of not special-casing, and it is small.
+- Nothing yet says what a *state* of type `u32` would mean. The validator refuses it, so the question stays unasked rather than half-answered.
+
+**Reversal conditions.** Take B if a feature wants a state with more than 256 values — a per-cell integer quantity that is not a genome, say — at which point the palette and pattern questions have to be answered anyway and the refusal is the only thing in the way. Take F only if the bitwise operators turn out to be a source of rules that pass validation and compute nonsense, which would be an argument about authoring ergonomics rather than about the IR.

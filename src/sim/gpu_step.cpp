@@ -60,9 +60,19 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
     const uint32_t N = rule.neighbourCount();
 
     std::string out = uniforms;
+    // Three formats now: a u8 field is r8ui, an f32 one r32f, a u32 genome r32ui
+    // (D-025). The image type follows — only a float field gets a plain `image`.
+    auto formatOf = [](core::CellType t) {
+        switch (t) {
+            case core::CellType::F32: return "r32f";
+            case core::CellType::U32: return "r32ui";
+            case core::CellType::U8:  break;
+        }
+        return "r8ui";
+    };
     for (size_t f = 0; f < rule.fields.size(); ++f) {
         const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
-        const char* format  = isFloat ? "r32f" : "r8ui";
+        const char* format  = formatOf(rule.fields[f].cell_type);
         const std::string image = std::format("{}image{}", isFloat ? "" : "u", suffix);
         out += std::format("layout({}, binding = {}) uniform readonly  {} aether_fsrc{};\n",
                            format, fieldReadUnit(f), image, f);
@@ -306,7 +316,14 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     cfg_.continuous = continuous;
     cfg_.fieldFormats.clear();
     for (const rule::CompiledField& f : rule.fields) {
-        cfg_.fieldFormats.push_back(f.cell_type == core::CellType::F32 ? GL_R32F : GL_R8UI);
+        // Three, matching core/gpu_grid's internalFormat. Binding a u32 field as
+        // R8UI is a format mismatch rather than a narrowing: glBindImageTexture
+        // takes the format on trust and what comes back is undefined (D-025).
+        switch (f.cell_type) {
+            case core::CellType::F32: cfg_.fieldFormats.push_back(GL_R32F);  break;
+            case core::CellType::U32: cfg_.fieldFormats.push_back(GL_R32UI); break;
+            case core::CellType::U8:  cfg_.fieldFormats.push_back(GL_R8UI);  break;
+        }
     }
     cfg_.target = spec.dimensions == 3 ? GL_TEXTURE_3D : GL_TEXTURE_2D;
     cfg_.width = spec.width; cfg_.height = spec.height; cfg_.depth = spec.depth;

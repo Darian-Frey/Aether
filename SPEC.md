@@ -97,6 +97,18 @@ Field {
 }
 ```
 
+**The genome** *(added 2026-10-02, F-033, D-025)*. One declared `u32` field may be marked as the genome:
+
+```json
+"genome": { "field": "rule_bits" }
+```
+
+The engine derives a child's bits from its live neighbours at birth and mutates them per bit; it never learns what a bit means. The rule reads the field and decides — so a Life-like B/S mask is a *rule's* convention and not an engine concept, which is what lets later features put more genes in the same field without the engine learning anything.
+
+The field must be `u32`, and must have **no `write`**. The engine owns those bytes at birth and §4's carry-forward keeps them otherwise; a rule writing its own genome every generation would be fighting the engine for the same field, and Lamarckian in a feature whose point is that variation is inherited rather than acquired.
+
+`u32` is a **field** type and not a state type. A state is `u8` or `f32` and the validator refuses `u32` for one: what a state count would mean for four billion values, and what a palette or a pattern encoding would do with it, are questions nothing is asking yet (D-025). A `u32` field is read as a *signed* 32-bit integer, because `ExprType` has `Int` and no unsigned counterpart — a field using its top bit reads as negative, which a genome of 31 bits or fewer never notices.
+
 **The resource** *(added 2026-09-27, F-032, D-024)*. One declared field may be marked as the resource and another as its per-site carrying capacity, both `f32`:
 
 ```json
@@ -279,6 +291,7 @@ Four rules settle cases where C++ and GLSL would otherwise differ, and the CPU i
 - **Division and modulo by zero yield zero.** A zero divisor is undefined in GLSL and a trap in C++, so neither is allowed to happen: both are emitted and interpreted as `(b == 0) ? 0 : a / b`.
 - **Integer arithmetic is 32-bit and wraps.** `IntLiteral` values are validated to fit `int32` (§4), and the interpreter computes through unsigned arithmetic so that overflow wraps exactly as GLSL's does rather than being undefined.
 - **The result is clamped to `0 … S-1`.** Nothing can prove in general that an arithmetic tree stays in range, and a cell outside the state range would index past the next generation's count array. The clamp is the last statement of the generated function.
+- **Bitwise operators work on the two's-complement pattern, `Shr` is logical, and both shifts mask their count to five bits.** *(added 2026-10-02, F-033, D-025.)* `band`, `bor`, `bxor`, `shl` and `shr` are `Int × Int → Int`; a float operand is a validation error rather than a conversion. C++ and GLSL both leave a shift by 32 or more undefined, and an arithmetic right shift of a negative value would smear a field's top bit — so the pair is defined as operations on the pattern, through `uint` on both sides, with the count masked. Generated as `int(uint(a) >> (uint(b) & 31u))` and interpreted the same way.
 - **A subnormal float is flushed to zero, after every float operation.** GLSL does not require an implementation to support values below `FLT_MIN` (about 1.18e-38) and both GPUs measured here flush them; C++ does not. A float expression that decays therefore parted company with the oracle — a value against zero, not a rounding difference, and compounding from the next generation on (BUG-021). Both sides now flush explicitly, which holds whatever the driver does: one that flushes finds the value already zero, one that does not gets the zero the oracle produced, and an implementation that flushes an *input* cannot matter because no input is subnormal by the time it is read. The statement is `v = (abs(v) < FLT_MIN) ? 0.0 : v;` in the generated code and `std::fabs(v) < std::numeric_limits<float>::min()` in the interpreter; the number itself is written in one place, `rule/glsl.hpp`, and reaches the shaders as the `AETHER_FTZ` macro. It applies to the float arithmetic a shader does for itself as well as to generated code: the convolution's running sum and each `weight × value` term, which is the likeliest place of all to reach the range, and `self + increment`, the last operation before the clamp and where a field decaying to nothing arrives.
 
 Where an expression counts neighbours by state, the function begins by filling a `cnt` array of `S` entries with one statically bounded loop. It is emitted only when some node asks for a count.

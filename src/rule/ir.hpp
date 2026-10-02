@@ -78,7 +78,23 @@ enum class ExprOp : uint8_t {
     // read of zero: there would be no type to give it.
     FieldSelf,                 // field[a] at this site
     FieldNeighbour,            // field[a] at neighbour b, canonical order
+    // Bitwise, on the two's-complement pattern (F-033, D-025). Int x Int -> Int,
+    // like the arithmetic above. `Shr` is *logical* — zero-filled, not
+    // sign-extended — and both shifts mask their count to five bits, because
+    // C++ and GLSL both leave a shift by 32 or more undefined and an arithmetic
+    // right shift would smear a field's top bit. Two more of SPEC §6's agreement
+    // rules, settled the way division by zero was.
+    BitAnd, BitOr, BitXor,     // (a, b)
+    Shl, Shr,                  // (a, b) — b is the count, masked to 0..31
 };
+
+// The last operator, kept here rather than anywhere that iterates the enum.
+// `ir_json`'s reader walks the range and a hard-coded end there has now failed
+// twice — once when F-031 added two operators after `Select`, and again when
+// F-033 added five after `FieldNeighbour`, each time by refusing to parse a rule
+// the same file had just written. Adding an operator means editing the line
+// below the enum, which is harder to miss than a bound in another file.
+constexpr ExprOp kLastExprOp = ExprOp::Shr;
 
 struct ExprNode {
     ExprOp   op   = ExprOp::IntLiteral;
@@ -165,6 +181,18 @@ struct Field {
 // rule text: a constant here would make the primary control of the feature the
 // one thing that cannot be adjusted without recompiling and appending to the
 // lineage (D-024).
+// Which declared field is the genome (F-033, D-025). The engine derives a
+// child's bits from its live neighbours at birth and mutates them per bit; it
+// never learns what a bit means. The field must be `u32` and must have no
+// `write`: the engine owns those bytes at birth and F-031's carry-forward keeps
+// them otherwise, and a rule writing its own genome would be Lamarckian in a
+// feature whose whole point is that variation is inherited.
+struct Genome {
+    uint32_t field = 0;   // index into RuleIR::fields
+
+    bool operator==(const Genome&) const = default;
+};
+
 struct Resource {
     uint32_t field    = 0;   // index into RuleIR::fields — the quantity
     uint32_t capacity = 0;   // index into RuleIR::fields — what it regenerates toward
@@ -204,6 +232,7 @@ struct RuleIR {
     // written before F-032, which is what keeps their hashes and their sessions
     // exactly as they were.
     std::optional<Resource> resource;
+    std::optional<Genome>   genome;
     Transition    transition    = Table{};
     Metadata      metadata      = {};
 

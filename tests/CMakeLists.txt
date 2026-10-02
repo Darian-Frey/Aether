@@ -15,6 +15,7 @@ add_executable(aether_tests
     rule/signature_test.cpp
     rule/lua_test.cpp
     rule/resource_test.cpp
+    rule/genome_test.cpp
     rule/library_test.cpp
     rule/compile_test.cpp
     rule/glsl_test.cpp
