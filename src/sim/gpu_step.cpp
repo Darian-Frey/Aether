@@ -2,6 +2,7 @@
 
 #include "core/gl.hpp"
 #include "rule/glsl.hpp"
+#include "sim/genome.hpp"
 #include "sim/shaders.hpp"
 
 #include <raylib.h>
@@ -51,6 +52,11 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
         uniforms += "uniform float aetherResourceRegen;\n";
         uniforms += "uniform float aetherResourceMinSeed;\n";
         uniforms += "uniform float aetherResourceDiffusion;\n";
+    }
+    if (rule.genome) {
+        uniforms += "uniform uint aetherGenomeScheme;\n";
+        uniforms += "uniform uint aetherGenomeThreshold;\n";
+        uniforms += "uniform uint aetherGenomeBlockShift;\n";
     }
     const bool is3D = dimensions == 3;
     const char* suffix = is3D ? "3D" : "2D";
@@ -140,6 +146,93 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
         out += "    return value;\n}\n";
     }
 
+    // Inheritance (F-033, D-025), the twin of sim::inherit. Every loop is bounded
+    // by a compile-time constant — the neighbour count and the genome's width —
+    // as SPEC §6 requires. The salt constants come from sim/genome.hpp so there
+    // is one spelling of each: two draws that accidentally shared a salt would be
+    // correlated in a way no test of either alone would notice.
+    if (rule.genome) {
+        const size_t g = rule.genome->field;
+        const uint32_t bits = rule.genome->bits;
+        const std::string self = rule::glslFieldSelfMember(g);
+        const std::string nbrs = rule::glslFieldNbrMember(g);
+        const std::string mask = bits >= 32 ? "0xFFFFFFFFu" : std::format("{}u", (1u << bits) - 1u);
+        // The generation and the seed arrive as parameters rather than being read
+        // from the uniforms directly: this block is prepended *before*
+        // lut_step.comp, which is where those uniforms are declared, so reaching
+        // for them here is a compile error. It is also what SPEC §6 asks for —
+        // everything a generated function needs comes in through its signature.
+        const std::string draw = "uint genLo, uint genHi, uint seedLo, uint seedHi";
+        const std::string hash =
+            "aetherHashSalted(uint(p.x), uint(p.y), uint(p.z), genLo, genHi, seedLo, seedHi, ";
+        const std::string blockHash =
+            "aetherHashSalted(bx, by, bz, genLo, genHi, seedLo, seedHi, ";
+
+        out += std::format("uint aether_inherit(ivec3 p, uint nbr[{}], {} fld, uint current, {}) {{\n",
+                           N, rule::glslFieldsStruct(), draw);
+        out += std::format("    uint parents[{}];\n", N);
+        out += "    uint n = 0u;\n";
+        out += std::format("    for (int i = 0; i < {}; ++i) {{\n", N);
+        out += std::format("        if (nbr[i] != 0u) {{ parents[n] = uint(fld.{}[i]); n += 1u; }}\n", nbrs);
+        out += "    }\n";
+        // Nothing to inherit from. Keeping what the field holds is the only
+        // answer that invents nothing — and it is why a B0 rule cannot be born
+        // under a genome.
+        out += "    if (n == 0u) return current;\n";
+        out += "    uint child = 0u;\n";
+        out += "    if (aetherGenomeScheme == 0u) {\n";
+        out += std::format("        for (uint b = 0u; b < {}u; ++b) {{\n", bits);
+        out += "            uint set = 0u;\n";
+        out += "            for (uint pi = 0u; pi < n; ++pi) set += (parents[pi] >> b) & 1u;\n";
+        // Strictly more than half; a tie leaves the bit clear.
+        out += "            if (2u * set > n) child |= 1u << b;\n";
+        out += "        }\n";
+        out += "    } else if (aetherGenomeScheme == 1u) {\n";
+        out += std::format("        child = parents[aetherUniformState({}{}u), n)] & {};\n",
+                           hash, kSaltParentA, mask);
+        out += "    } else {\n";
+        out += std::format("        uint a = parents[aetherUniformState({}{}u), n)];\n", hash, kSaltParentA);
+        out += std::format("        uint b2 = parents[aetherUniformState({}{}u), n)];\n", hash, kSaltParentB);
+        out += std::format("        for (uint i = 0u; i < {}u; ++i) {{\n", bits);
+        out += std::format("            uint h = {}{}u + i);\n", hash, kSaltCrossover);
+        out += "            uint from = (h & 0x80000000u) != 0u ? a : b2;\n";
+        out += "            child |= ((from >> i) & 1u) << i;\n";
+        out += "        }\n";
+        out += "    }\n";
+        out += std::format("    child &= {};\n", mask);
+        out += "    if (aetherGenomeThreshold == 0u) return child;\n";
+        // Grouped on the coordinate when asked, as cell mutation is. The parent
+        // draws above are never grouped: a block sharing one parent pick would
+        // make a clan's births identical rather than merely correlated.
+        out += "    uint bx = uint(p.x) >> aetherGenomeBlockShift;\n";
+        out += "    uint by = uint(p.y) >> aetherGenomeBlockShift;\n";
+        out += "    uint bz = uint(p.z) >> aetherGenomeBlockShift;\n";
+        out += std::format("    for (uint b = 0u; b < {}u; ++b) {{\n", bits);
+        out += std::format("        uint h = {}{}u + b);\n", blockHash, kSaltMutate);
+        out += "        if (h < aetherGenomeThreshold) child ^= 1u << b;\n";
+        out += "    }\n";
+        out += std::format("    return child & {};\n}}\n", mask);
+
+        // The two hooks lut_step.comp calls around the transition. Generated
+        // rather than written there, because only this file knows which struct
+        // member the genome is.
+        out += std::format("uint aether_genome_before(ivec3 p, uint own, uint nbr[{}], inout {} fld, {}) {{\n",
+                           N, rule::glslFieldsStruct(), draw);
+        out += std::format("    uint current = uint(fld.{});\n", self);
+        // A dead cell is given its parents' genome *before* the rule runs, because
+        // that genome is what decides whether it is born (D-025's refinement).
+        out += std::format("    if (own == 0u) fld.{} = int(aether_inherit(p, nbr, fld, current, "
+                           "genLo, genHi, seedLo, seedHi));\n", self);
+        out += "    return current;\n}\n";
+
+        out += std::format("void aether_genome_after(uint own, uint next, uint current, inout {} fld) {{\n",
+                           rule::glslFieldsStruct());
+        // Not born after all: put back what was there, or the store's
+        // carry-forward would commit a genome to a cell that does not exist.
+        out += std::format("    if (own == 0u && next == 0u) fld.{} = int(current);\n", self);
+        out += "}\n";
+    }
+
     // The store. A field the rule writes goes through its generated function;
     // one it does not is copied from the gather, because the destination
     // texture is last generation's and would otherwise be read back as the
@@ -217,6 +310,7 @@ std::optional<core::Error> GpuStepper::compileVariant(const ShapeKey& key, const
     // Always defined, so the shader's `#if AETHER_FIELDS > 0` does not rest on
     // how the preprocessor treats an unknown identifier.
     src += std::format("#define AETHER_FIELDS {}\n", rule.fields.size());
+    src += std::format("#define AETHER_GENOME {}\n", rule.genome ? 1 : 0);
     // SPEC §6's fourth agreement rule, for the float arithmetic the shaders do
     // themselves rather than through a generated function — the convolution.
     // The number comes from rule/glsl so that it is written once (BUG-021).
@@ -259,16 +353,6 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
             return core::Error{std::format(
                 "{} fields need {} image units and this driver offers {}",
                 rule.fields.size(), needed, maxUnits)};
-        }
-        if (rule.genome) {
-            // F-033 step 3. The shader carries a genome forward and never derives
-            // one, so every cell born would run whatever happened to be in its
-            // field — a world where nothing is selected, which reads as a dull
-            // run rather than as a defect. `Simulation` gates on the path too,
-            // but the equivalence sweep drives the steppers directly and found
-            // this by diverging: the refusal belongs here, where it cannot be
-            // bypassed (AV-007).
-            return core::Error{"the GPU path does not inherit a genome yet"};
         }
         if (rule.kind == rule::Kind::Continuous) {
             // compileRule refuses this already; repeated here because the
@@ -322,6 +406,13 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
     } else {
         cfg_.locRegen = cfg_.locMinSeed = cfg_.locDiffusion = -1;
     }
+    if (rule.genome) {
+        cfg_.locScheme     = rlGetLocationUniform(cfg_.program, "aetherGenomeScheme");
+        cfg_.locGenomeP    = rlGetLocationUniform(cfg_.program, "aetherGenomeThreshold");
+        cfg_.locGenomeShift = rlGetLocationUniform(cfg_.program, "aetherGenomeBlockShift");
+    } else {
+        cfg_.locScheme = cfg_.locGenomeP = cfg_.locGenomeShift = -1;
+    }
     cfg_.selfWeight = rule.selfWeight;
     cfg_.continuous = continuous;
     cfg_.fieldFormats.clear();
@@ -366,6 +457,13 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture,
         rlSetUniform(cfg_.locRegen, &cfg_.resource.regen, RL_SHADER_UNIFORM_FLOAT, 1);
         rlSetUniform(cfg_.locMinSeed, &cfg_.resource.minSeed, RL_SHADER_UNIFORM_FLOAT, 1);
         rlSetUniform(cfg_.locDiffusion, &cfg_.resource.diffusion, RL_SHADER_UNIFORM_FLOAT, 1);
+    }
+    if (cfg_.locScheme >= 0) {
+        const uint32_t scheme = static_cast<uint32_t>(cfg_.genome.scheme);
+        const uint32_t shift = cfg_.genome.blockShift;
+        rlSetUniform(cfg_.locScheme, &scheme, RL_SHADER_UNIFORM_UINT, 1);
+        rlSetUniform(cfg_.locGenomeP, &cfg_.genome.threshold, RL_SHADER_UNIFORM_UINT, 1);
+        rlSetUniform(cfg_.locGenomeShift, &shift, RL_SHADER_UNIFORM_UINT, 1);
     }
     const unsigned int format = cfg_.continuous ? GL_R32F : GL_R8UI;
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  format);

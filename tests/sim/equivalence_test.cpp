@@ -38,6 +38,8 @@ struct Fixture {
     // These are run-time controls rather than rule text, so they travel beside
     // the IR rather than inside it (D-024).
     sim::ResourceParams resource;
+    // The same for a genome (F-033, D-025).
+    sim::GenomeParams genome;
 };
 
 // Deterministic fill so a failure reproduces exactly. Not the session RNG;
@@ -242,6 +244,44 @@ rule::RuleIR bitwiseExpression() {
     return ir;
 }
 
+// A genome rule (F-033, D-025): the engine derives a newly born cell's bits from
+// its live neighbours and the rule reads them to decide. In this sweep because
+// inheritance is a twin — `sim/genome` and the GLSL `sim/gpu_step` generates —
+// and because it is the only one of the three mutation controls whose arithmetic
+// runs per *bit* per *parent*, which is a lot of places for two sides to differ.
+// Crossover rather than majority, so the parent draws are exercised too: majority
+// alone would agree even if the hashes did not.
+rule::RuleIR genomeExpression() {
+    rule::RuleIR ir;
+    ir.states = 2;
+    ir.kind = rule::Kind::Expression;
+    ir.neighbourhood = {rule::NeighbourhoodType::Moore, 1};
+
+    rule::Field gene;
+    gene.name = "genome";
+    gene.cell_type = core::CellType::U32;
+    ir.fields = {gene};
+    ir.genome = rule::Genome{0, 18};
+
+    // (genome >> (alive ? count + 9 : count)) & 1 — the Life-like convention,
+    // which is this rule's and not the engine's.
+    rule::Expression e;
+    e.nodes = {
+        {rule::ExprOp::FieldSelf, 0},                  // 0
+        {rule::ExprOp::Count, 1},                      // 1
+        {rule::ExprOp::Self},                          // 2
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 1},        // 3
+        {rule::ExprOp::Eq, 2, 3},                      // 4
+        {rule::ExprOp::IntLiteral, 0, 0, 0, 9},        // 5
+        {rule::ExprOp::Add, 1, 5},                     // 6
+        {rule::ExprOp::Select, 4, 6, 1},               // 7
+        {rule::ExprOp::Shr, 0, 7},                     // 8
+        {rule::ExprOp::BitAnd, 8, 3},                  // 9
+    };
+    ir.transition = e;
+    return ir;
+}
+
 // A resource rule (F-032, D-024): the engine regenerates one field toward another
 // and the rule's write on it is only the draw-down. In this sweep because the
 // engine's arithmetic and the GLSL it generates are twins, and a twin that is only
@@ -335,6 +375,13 @@ std::vector<Fixture> fixtures() {
     out.push_back({"Neighbour-indexed expression (codegen)", shiftExpression()});
     out.push_back({"Two fields, u8 and f32 (codegen)", twoFieldExpression()});
     out.push_back({"Bitwise over a u32 genome field", bitwiseExpression()});
+    {
+        sim::GenomeParams gp;
+        gp.scheme = sim::Inheritance::Crossover;
+        gp.threshold = sim::mutationThreshold(0.01);
+        gp.blockShift = 1;
+        out.push_back({"Genome with crossover and per-bit mutation", genomeExpression(), {}, gp});
+    }
     {
         sim::ResourceParams rp;
         rp.regen = 0.04f;
@@ -488,6 +535,11 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     sim::ResourceParams resource = f.resource;
     if (sim::resourceProblem(resource, boundary) != nullptr) resource.diffusion = 0.0f;
     stepper.setResource(resource);
+    // Inheritance, on both paths. The seed is the mutation's, as `Simulation`
+    // makes it: one seed governs the whole of stream B.
+    sim::GenomeParams genomeParams = f.genome;
+    genomeParams.seedB = mutation.seedB;
+    stepper.setGenome(genomeParams);
 
     for (int i = 0; i < kGenerations; ++i) {
         if (fields.size() == 0) {
@@ -495,7 +547,7 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
             stepper.step(gpu);
         } else {
             sim::cpuStep(lut, spec, host.current(), host.next(), static_cast<uint64_t>(i), mutation,
-                         fields.reads(), fields.writes(), resource);
+                         fields.reads(), fields.writes(), resource, nullptr, genomeParams);
             host.swap();
             fields.swap();
             stepper.step(gpu.current(), gpu.next(), fieldGpu.textures());

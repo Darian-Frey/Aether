@@ -371,7 +371,13 @@ A genome rule runs on the **CPU path only** until step 3, the same gate F-032 us
 
 The gate was not enough on its own, and the equivalence sweep said so. `Simulation` refuses the GPU path for a genome rule, but the sweep drives the two steppers *directly* and so bypassed it entirely — comparing a path that inherits against one that does not, which it reported as sixteen failing assertions across three cases. So the refusal now sits in `GpuStepper::setRule` where it cannot be bypassed, and the sweep's bitwise fixture no longer declares a genome it never needed: that fixture exists for the five operators and a `u32` field's width, and the genome fixture joins the sweep when the twin exists. Worth noting that the filtered run of `[genome]` passed throughout — the divergence was in a case that tests neither genomes nor bitwise operators by name.
 
-The remaining steps: the shader twin, then colouring by genome hash with the panel.
+**Step 3 of 4 done 2026-10-02**: the shader twin, so a genome rule runs on both paths and both refusals are gone. `sim/gpu_step` generates `aether_inherit` plus two hooks, `aether_genome_before` and `aether_genome_after`, which `lut_step.comp` calls around the transition — generated rather than written there because only that file knows which struct member the genome is. Every loop is bounded by a compile-time constant, the neighbour count and the genome's width, as SPEC §6 requires, and the salt constants come from `sim/genome.hpp` so there is one spelling of each.
+
+The generation and the seed arrive as **parameters** rather than being read from the uniforms. That was not a preference: this block is prepended *before* `lut_step.comp`, which is where those uniforms are declared, so reaching for them is a compile error — `generationLo' undeclared`, four times per call site. It is also what SPEC §6 asks for, so the fix and the rule agree.
+
+**The genome fixture is in the equivalence sweep**, which was the omission flagged at the end of step 2 as the kind that looks finished. Crossover rather than majority, with per-bit mutation and grouping, because majority alone would agree even if the hashes did not — it is the parent draws that exercise `hashSalted` on both sides. 1000 generations, all three boundaries, bitwise.
+
+The remaining step: colouring by genome hash with the panel.
 **Notes:** Added 2026-09-16 by D-019. The design note's "the genome is the rule" is unimplementable in general — a million cells would be a million rules to compile — but a Life-like genome is eighteen bits and the rule that reads it is one shift and one mask, which the codegen backend already emits. This is the third mutation control, after F-015 over time and F-016 over space: variation that is inherited, and therefore selected rather than merely applied.
 
 ### F-034 Hard cell lifespan

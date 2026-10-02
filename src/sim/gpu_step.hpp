@@ -10,6 +10,7 @@
 #include "core/gpu_grid.hpp"
 #include "rule/compile.hpp"
 #include "sim/hash.hpp"
+#include "sim/genome.hpp"
 #include "sim/resource.hpp"
 
 #include <cstdint>
@@ -69,6 +70,10 @@ public:
     void setResource(ResourceParams p) { cfg_.resource = p; }
     ResourceParams resource() const { return cfg_.resource; }
 
+    // The genome's run-time controls (F-033). Uniforms, like the resource's.
+    void setGenome(GenomeParams p) { cfg_.genome = p; }
+    GenomeParams genome() const { return cfg_.genome; }
+
     size_t cachedPrograms() const { return owned_.programs.size(); }
 
 private:
@@ -100,7 +105,9 @@ private:
         uint64_t     generation = 0;
         CellMutation mutation;
         ResourceParams resource;
+        GenomeParams   genome;
         int locRegen = -1, locMinSeed = -1, locDiffusion = -1;
+        int locScheme = -1, locGenomeP = -1, locGenomeShift = -1;
         // The internal format of each declared field, in declaration order,
         // so that step() binds R8UI or R32F without consulting the rule again.
         std::vector<unsigned int> fieldFormats;

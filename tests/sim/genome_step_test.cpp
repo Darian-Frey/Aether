@@ -227,7 +227,7 @@ TEST_CASE("a genome sweeps a grid under selection", "[genome][gpu]") {
     // outcome — it is selected.
     const core::GridSpec spec = spec2d(64, 64);
     auto made = sim::Simulation::create(spec, lifeLikeGenomeRule(), sim::Path::Cpu, 5u, 11u);
-    REQUIRE(std::holds_alternative<sim::Simulation>(made));
+    if (const auto* e = std::get_if<core::Error>(&made)) FAIL(e->message);
     sim::Simulation& s = std::get<sim::Simulation>(made);
 
     sim::GenomeParams gp;

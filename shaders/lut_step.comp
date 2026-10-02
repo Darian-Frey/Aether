@@ -8,6 +8,7 @@
 //                    3 expression (aether_rule is prepended), 5 counted-totalistic
 //   AETHER_BOUNDARY  0 wrap, 1 zero, 2 mirror
 //   AETHER_FIELDS    number of declared auxiliary fields, 0 when there are none
+//   AETHER_GENOME    1 when one of them is a genome the engine inherits
 //
 // shaders/hash.glsl is prepended before this file. For a rule with fields, so
 // are three generated blocks in this order: rule/glsl's struct and functions,
@@ -123,6 +124,14 @@ void main() {
     // world (D-022). Outside a zero boundary a field reads zero, as state 0
     // does, which aether_gather_fields does from the sentinel above.
     AetherFields fld = aether_gather_fields(gid, ncoord);
+#if AETHER_GENOME
+    // A dead cell is given its parents' genome *before* the rule runs, because a
+    // genome is the birth rule and the rule is what decides whether the cell
+    // exists (F-033, D-025's refinement). `current` is what to put back if it
+    // turns out not to be born.
+    uint genomeCurrent = aether_genome_before(gid, own, nbr, fld,
+                                              generationLo, generationHi, seedBLo, seedBHi);
+#endif
     uint next = aether_rule(own, nbr, fld);
 #else
     uint next = aether_rule(own, nbr);
@@ -183,6 +192,11 @@ void main() {
             next = aetherMutatedState(hc, uint(AETHER_S));
         }
     }
+#if AETHER_GENOME
+    // After the mutation above, so that a cell mutation which killed a birth also
+    // takes its genome back. The store's carry-forward is what commits it.
+    aether_genome_after(own, next, genomeCurrent, fld);
+#endif
     writeCell(gid, next);
 #if AETHER_FIELDS > 0
     // Every declared field is written, including one the rule does not write:
