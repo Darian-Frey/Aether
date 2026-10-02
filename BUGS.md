@@ -295,6 +295,28 @@ Arrived with step 4 on 2026-09-26 and lived for one commit. It was not reachable
 Widening the pad to hold fields was the alternative and was rejected: a pattern is states, the pad exists to draw one, and a field the editor could paint but no format could carry would be a dead end. The inspector is the same boundary — it reads the pad, which is D-018's option B.
 **Resolution (2026-09-26).** `Scratch::make` and `Scratch::setRule` refuse a rule that declares auxiliary fields, with a message the editor logs, so opening the pad on a multi-field rule says so instead of crashing. `sim/inspect.hpp` records that it is state-only and why. The equivalence sweep's inspector cases skip fixtures with fields rather than being handed a rule they cannot describe.
 
+### BUG-023: the default seed density ignores the neighbourhood, so every 3D rule is over-crowded
+**Status:** open
+**Found:** 2026-10-02 (checking why both bundled 3D Life rules appear to die out)
+**Location:** `src/sim/fill.cpp` (`defaultDensity`)
+**Severity:** low
+**Description.** `defaultDensity` returns 0.3 for any two-state rule, whatever the lattice. In 2D Moore that is 8 × 0.3 ≈ 2.4 expected live neighbours, which sits squarely in Life's survival band of 2–3 — the number is not arbitrary, it is the conventional Life soup. In **3D Moore the same 0.3 is 26 × 0.3 ≈ 7.8**, and Bays' 4555 survives on 4 or 5. Almost every cell is over-crowded on the first generation.
+Measured on a 48³ grid, `life-3d-4555` from the default soup: 33,203 cells alive at generation 0, 2,461 by generation 25, 56 by generation 50. At 0.15 the same rule holds 1,789 cells at generation 50 — about thirty times as many — so the default roughly halves the time the rule is worth watching.
+**Reproduction.** Open either bundled 3D rule and press play. The grid empties within a few seconds of real time.
+**Notes.** This is a contributing cause and not the whole story, which is why it is logged separately from BUG-024. Both rules collapse to a frozen residue at *every* density tried between 0.05 and 0.30 — that part is the rules behaving as published. What the density does is make the collapse about twice as fast as it needs to be.
+A principled fix is available and is more than a constant: for a table rule the engine can read which neighbour counts the rule survives on and seed at a density whose expected count lands in that band — `density = midpoint / N`. That keeps one number for 2D Life (2.5/8 = 0.31, which is what it already uses) and gives 4555 about 0.17 without anybody choosing it. Logged rather than applied, per the convention: it changes the seeding of every rule in the library and therefore every session's stream A draws, so it is the author's call.
+
+### BUG-024: both bundled 3D rules claim to be stable and collapse to still lifes
+**Status:** open
+**Found:** 2026-10-02 (the same investigation)
+**Location:** `rules/life-3d-4555.rule`, `rules/life-3d-5766.rule`
+**Severity:** low
+**Description.** `life-3d-4555`'s header says "Bays' first stable three-dimensional Life" and `life-3d-5766`'s says "A denser cousin of 4555". Neither says what a reader will actually see, which is a rapid collapse from a random soup to a handful of frozen cells.
+Measured on 48³ at the default density, with the number of cells that *change* between two late generations in brackets: 4555 goes 33,203 → 2,461 (gen 25) → 40 (gen 200, 10 moving); 5766 goes 33,203 → 1,566 (gen 25) → 142 (gen 200, **0 moving**). The residue is still lifes. 5766 is essentially finished by generation 25.
+Both transcriptions are **correct** — Bays writes his rules as environment-lower, environment-upper, fertility-lower, fertility-upper, so 4555 is survive 4–5 born 5 and 5766 is survive 5–7 born 6, which is what the files say. The rules are not wrong and neither is the engine. What is wrong is a header that invites somebody to press play and conclude the feature is broken.
+**Notes.** The same class as BUG-017 and BUG-018: a documented claim that is not what happens. The word doing the damage is "stable", which in Bays' work means that *designed* configurations persist and support gliders, not that a soup settles into anything. A 3D Life rule has a narrow survival band against the variance of twenty-six neighbours, so almost every cell in a soup is over- or under-populated; collapse is the expected outcome and the published results are about seeded starts.
+Which exposes the real gap rather than a wording problem: **there is no way to seed a 3D rule from a designed configuration.** Pattern placement is 2D only (F-012), so Bays' rules cannot be tried the way they are meant to be tried, and the headers describe behaviour the engine cannot currently produce. Fixing the wording is five minutes; the honest fix is 3D pattern support, which is a feature and not a bug.
+
 ## Won't Fix
 
 *None.*

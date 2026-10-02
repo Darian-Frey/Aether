@@ -1,5 +1,6 @@
 add_library(aether_rule STATIC
     decay.cpp
+    lifespan.cpp
     growth.cpp
     kernel.cpp
     library.cpp

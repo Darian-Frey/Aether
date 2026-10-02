@@ -333,6 +333,7 @@ rule_block := header statement*
 header     := "states" integer ";"
               "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
               [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
+              [ "lifespan" integer ";" ]
               [ "decay" integer ";" ]
 statement  := integer ":" condition "->" integer ";"
 condition  := term { ("and"|"or") term }
@@ -383,6 +384,18 @@ The desugaring is a front-end transform: it produces an ordinary `outer_totalist
 
 - `states + N ≤ 256` (SPEC §1).
 - The resulting table must fit `LUT_MAX_ENTRIES`. A rule that counts one set takes its tail in `S·(N+1)` entries, so this binds at 256 states rather than sooner (D-016); a rule needing the full count vector is still capped at a 6-state tail on 2D Moore r=1. The compiler rejects a longer tail and names the largest that fits.
+
+**Lifespan** *(added 2026-10-02, F-034, D-019)*. `lifespan L;` is decay's mirror: where a tail appends states *after* a death so a cell has somewhere to fade to, a lifespan inserts states *before* one so a cell has a deadline. A cell is born at age `1`, advances an age for every generation it survives, and at age `L` dies **regardless of its neighbours**. That last clause is the whole feature — a lifespan that could be overridden by a supportive neighbourhood would be a slower decay.
+
+The two compose, in that order, which is also the order the grammar accepts them: ages, then a tail to fade into. `lifespan 6; decay 2;` gives state `0`, ages `1…6`, and a tail `7…8`, and a cell reaching its deadline enters the tail rather than vanishing.
+
+The result is `counted_totalistic` whatever the input, and that is forced rather than chosen: every age must count as a live neighbour, and counting a *set* of states as one thing is what the counted kind is for (D-016). An outer-totalistic table would need a count per age and grow combinatorially in `L` for nothing.
+
+A lifespan applies to **two-state** table-form rules only. A rule with three or more states already means something by each of them — Wireworld's tail, a cyclic rule's phase — and inserting an age among those would be the transform deciding which of the author's states was the living one. Refused rather than guessed.
+
+Worth knowing before using it: **a hard lifespan needs a rule that reproduces.** Life does not — its long-term population is still lifes and oscillators, every one of which persists *without* reproducing — so `B3/S23` with a deadline empties the grid at any lifespan, measured as far as 120 on a 64² grid. `B2/S23` with `lifespan 8` holds about half the grid indefinitely. This is the design note's "nothing persists without reproduction" taken to its conclusion, and it is the feature working rather than failing.
+
+A **per-cell** deadline needs no feature at all, which is F-034's third acceptance point. With the ages as states, a cell's age *is* its state index, so a limit from a genome is an ordinary comparison between that index and some bits of the field — `age >= (genome & 7)` — which §6's bitwise operators already express. `lifespan` gives a fixed deadline because it bakes the ages into a table; a varying one is arithmetic the rule author writes, and is inherited with everything else. The same reasoning covers the design note's fertility windows and juvenile periods: both are conditions over age states.
 
 `metadata.decay_from` records the first tail state so that palettes and age shading can colour the tail as a ramp (§13). It is a presentation hint, excluded from `ir_hash` like the rest of `metadata`, and carries no semantics: a wrong value gives odd colours, never a different automaton.
 

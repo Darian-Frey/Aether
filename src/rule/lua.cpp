@@ -1,5 +1,7 @@
 #include "rule/lua.hpp"
 
+#include "rule/lifespan.hpp"
+
 #include "rule/growth.hpp"
 
 #include "rule/table_layout.hpp"
@@ -930,6 +932,19 @@ std::variant<RuleIR, LuaError> compileLua(std::string_view source, const LuaCont
         lua_pop(L, 1);
         ir.transition = std::move(table);
     }
+
+    // Ages (F-034). A transform over a finished rule, IR in and IR out, so it
+    // goes after the transition and before the metadata — and only on the
+    // discrete path, since a continuous rule returns above and has no state for
+    // an age to be.
+    if (const auto ages = integerField(L, rule, "lifespan", err)) {
+        if (*ages > 1) {
+            auto spanned = applyLifespan(ir, static_cast<uint16_t>(*ages));
+            if (const auto* bad = std::get_if<std::string>(&spanned)) return LuaError{*bad};
+            ir = std::get<RuleIR>(std::move(spanned));
+        }
+    }
+    if (!err.empty()) return LuaError{err};
 
     readMetadata(L, rule, ir);
 

@@ -1,6 +1,7 @@
 #include "rule/dsl.hpp"
 
 #include "rule/decay.hpp"
+#include "rule/lifespan.hpp"
 #include "rule/table_layout.hpp"
 
 #include <cctype>
@@ -165,6 +166,7 @@ Table buildLifeLikeTable(const LifeLike& rule, const TableLayout& layout) {
 //   header     := "states" integer ";"
 //                 "neighbourhood" ("moore"|"von_neumann"|"hex"|"hexagonal") integer ";"
 //                 [ "boundary" ("wrap"|"zero"|"mirror") ";" ]
+//                 [ "lifespan" integer ";" ]
 //                 [ "decay" integer ";" ]
 //   statement  := integer ":" condition "->" integer ";"
 //   condition  := count_expr
@@ -279,6 +281,7 @@ struct Block {
     Neighbourhood nb;
     std::optional<Boundary> boundary;
     uint16_t      decay = 0;
+    uint16_t      lifespan = 0;
     bool          hasSignature = false;   // any literal makes the rule non-totalistic
     std::vector<Statement> statements;
 };
@@ -314,6 +317,16 @@ public:
             if (!bd) return err(t, std::format("unknown boundary '{}'", t.text));
             b.boundary = *bd;
             ++i_;
+            if (auto e = expect(Tok::Semi, "';'")) return *e;
+        }
+
+        // Before `decay`, because that is the order they compose in: ages first,
+        // then a tail to fade into (F-034). Writing them the other way round in
+        // the source would read as though the tail came first, which it does not.
+        if (cur().kind == Tok::Ident && cur().text == "lifespan") {
+            lifespanToken_ = i_;
+            ++i_;
+            if (auto v = integer(0, 255, "lifespan"); v) b.lifespan = static_cast<uint16_t>(*v); else return err_;
             if (auto e = expect(Tok::Semi, "';'")) return *e;
         }
 
@@ -474,6 +487,7 @@ public:
     // Where `decay` appeared, so the compiler can point at it if the tail
     // does not fit.
     size_t decayToken() const { return decayToken_; }
+    size_t lifespanToken() const { return lifespanToken_; }
     const Token& token(size_t i) const { return toks_[i]; }
 
 private:
@@ -481,6 +495,7 @@ private:
     uint8_t    dimensions_ = 2;
     size_t     i_ = 0;
     size_t     decayToken_ = 0;
+    size_t     lifespanToken_ = 0;
     ParseError err_;
 };
 
@@ -790,6 +805,9 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
         const TableLayout baseLayout(Kind::OuterTotalistic, 2, mooreN);
         ir.transition = buildLifeLikeTable(binary, baseLayout);
 
+        // No `lifespan` here: B/S notation has no statement list to carry one,
+        // and `C` is the tail rather than a lifespan. A rule wanting ages writes
+        // them in the statement form.
         if (rule.states > 2) {
             auto decayed = applyDecay(ir, static_cast<uint16_t>(rule.states - 2));
             if (const auto* e = std::get_if<std::string>(&decayed)) return fail(1, 1, *e);
@@ -831,6 +849,15 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
                 ir.counted = *sets;
                 const TableLayout countedLayout(ir.kind, ir.states, N);
                 ir.transition = buildCountedTable(b, countedLayout, N, *sets);
+                if (b.lifespan > 1) {
+                    auto spanned = applyLifespan(ir, b.lifespan);
+                    if (const auto* e = std::get_if<std::string>(&spanned)) {
+                        const Token& t = parser.token(parser.lifespanToken());
+                        return fail(t.line, t.column, *e);
+                    }
+                    ir = std::get<RuleIR>(std::move(spanned));
+                    ir.metadata.source_notation = std::string(trim(source));
+                }
                 if (b.decay > 0) {
                     auto decayed = applyDecay(ir, b.decay);
                     if (const auto* e = std::get_if<std::string>(&decayed)) {
@@ -845,6 +872,32 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
         }
     }
 
+    // Ages then tail, which is the order they compose in and the order the
+    // grammar accepts them (F-034). One helper rather than two copies, because
+    // there are two places a rule reaches this point from.
+    auto applyAgeing = [&](RuleIR&& in) -> std::variant<RuleIR, DslResult> {
+        RuleIR out = std::move(in);
+        if (b.lifespan > 1) {
+            auto spanned = applyLifespan(out, b.lifespan);
+            if (const auto* e = std::get_if<std::string>(&spanned)) {
+                const Token& t = parser.token(parser.lifespanToken());
+                return fail(t.line, t.column, *e);
+            }
+            out = std::get<RuleIR>(std::move(spanned));
+            out.metadata.source_notation = std::string(trim(source));
+        }
+        if (b.decay > 0) {
+            auto decayed = applyDecay(out, b.decay);
+            if (const auto* e = std::get_if<std::string>(&decayed)) {
+                const Token& t = parser.token(parser.decayToken());
+                return fail(t.line, t.column, *e);
+            }
+            out = std::get<RuleIR>(std::move(decayed));
+            out.metadata.source_notation = std::string(trim(source));
+        }
+        return out;
+    };
+
     const TableLayout layout(ir.kind, ir.states, N);
     if (layout.size() && *layout.size() <= kLutMaxEntries) {
         ir.transition = b.hasSignature ? buildSignatureTable(b, layout, N) : buildBlockTable(b, layout, N);
@@ -855,21 +908,17 @@ DslResult parseDsl(std::string_view source, const DslContext& ctx) {
                                       ir.states, N,
                                       layout.size() ? std::to_string(*layout.size()) : "more than 2^64",
                                       kLutMaxEntries));
-    } else if (b.decay > 0) {
-        return fail(1, 1, "this rule is already too large for a table, so it cannot take a decay tail");
+    } else if (b.decay > 0 || b.lifespan > 1) {
+        return fail(1, 1, "this rule is already too large for a table, so it cannot take ages or a decay tail");
     } else {
         ir.kind = Kind::Expression;
         ir.transition = ExprBuilder().build(b);
     }
 
-    if (b.decay > 0) {
-        auto decayed = applyDecay(ir, b.decay);
-        if (const auto* e = std::get_if<std::string>(&decayed)) {
-            const Token& t = parser.token(parser.decayToken());
-            return fail(t.line, t.column, *e);
-        }
-        ir = std::get<RuleIR>(std::move(decayed));
-        ir.metadata.source_notation = std::string(trim(source));
+    {
+        auto aged = applyAgeing(std::move(ir));
+        if (const auto* bad = std::get_if<DslResult>(&aged)) return *bad;
+        ir = std::get<RuleIR>(std::move(aged));
     }
     return finish(std::move(ir));
 }

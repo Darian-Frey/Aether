@@ -399,6 +399,18 @@ std::vector<Fixture> fixtures() {
         out.push_back({"Resource with regeneration and diffusion", resourceExpression(), rp});
     }
     out.push_back({"Life with a 4-state ageing tail", dsl("states 2; neighbourhood moore 1; decay 4; 0: n(1) == 3 -> 1; 1: n(1) < 2 or n(1) > 3 -> 0;")});
+    // A hard lifespan over a rule that *reproduces* (F-034). The base is B2/S23
+    // rather than Life, and that is not a detail: Life's long-term population is
+    // still lifes and oscillators, every one of which persists without
+    // reproducing, so a deadline empties the grid at any lifespan — measured as
+    // far as 120. A fixture over Life would have compared two empty grids, which
+    // IMP-011's guard would now catch but which is better not written.
+    out.push_back({"B2/S23 with an 8-generation lifespan", dsl(
+        "states 2; neighbourhood moore 1; lifespan 8;"
+        "0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;")});
+    out.push_back({"Lifespan and an ageing tail together", dsl(
+        "states 2; neighbourhood moore 1; lifespan 5; decay 3;"
+        "0: n(1) == 2 -> 1; 1: n(1) == 2 or n(1) == 3 -> 1;")});
     out.push_back({"Random non-totalistic hex, 2 states", randomTable(Kind::NonTotalistic, 2, 2, {NeighbourhoodType::Hexagonal, 1}, 29)});
     out.push_back({"Random outer-totalistic hex r=2, 3 states", randomTable(Kind::OuterTotalistic, 2, 3, {NeighbourhoodType::Hexagonal, 2}, 31)});
     return out;

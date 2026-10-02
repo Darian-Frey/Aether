@@ -10,6 +10,7 @@ add_executable(aether_tests
     rule/fields_test.cpp
     rule/dsl_test.cpp
     rule/decay_test.cpp
+    rule/lifespan_test.cpp
     rule/elementary_test.cpp
     rule/langton_test.cpp
     rule/signature_test.cpp
