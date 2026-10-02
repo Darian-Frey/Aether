@@ -12,6 +12,7 @@
 
 #include "rule/compile.hpp"
 #include "rule/dsl.hpp"
+#include "sim/cpu_step.hpp"
 #include "sim/gpu_reduce.hpp"
 #include "sim/simulation.hpp"
 #include "sim/stats.hpp"
@@ -125,6 +126,22 @@ TEST_CASE("the GPU reduction agrees with the host exactly", "[stats][gpu]") {
 
         REQUIRE(host.stateCounts.size() == gpu.stateCounts.size());
         CHECK(host.stateCounts == gpu.stateCounts);
+        // And the change count, which needs the generation before this one.
+        // Taken by copying the grid and stepping once more rather than by
+        // reading `host().next()`: on the GPU path only `current()` is
+        // downloaded, so the other host buffer holds whatever it last held and
+        // comparing against it would be comparing against nothing in
+        // particular. The first draft of this case did exactly that and read
+        // 320 against the GPU's 374.
+        const std::vector<uint8_t> before(s.host().current().begin(), s.host().current().end());
+        s.step();
+        s.syncToHost();
+        const sim::GridStats hostCh = sim::reduce(rule, c.spec, s.host().current(), {}, before);
+        const sim::GridStats gpuCh = red.sample(s.texture(), {}, s.previousTexture());
+        REQUIRE(hostCh.changedKnown);
+        REQUIRE(gpuCh.changedKnown);
+        CHECK(hostCh.changed == gpuCh.changed);
+        CHECK(hostCh.changed > 0);   // ten generations of Life is not a still life
         // Something was alive, or this compares two grids of zeroes (IMP-011).
         CHECK(host.live() > 0);
         CHECK(host.live() < c.spec.cellCount());
@@ -216,4 +233,53 @@ TEST_CASE("field totals agree between the paths, bit for bit", "[stats][gpu]") {
     }
     INFO("tiled " << host.fieldTotals[0] << ", straight through " << straight);
     CHECK(static_cast<double>(straight) != host.fieldTotals[0]);
+}
+
+TEST_CASE("the change count tells a still life from an oscillator", "[stats]") {
+    // The number a population count cannot give you, and the reason it exists:
+    // a block and a blinker both hold a constant population for ever, and one
+    // of them is moving. Getting this wrong is not hypothetical — the first
+    // report on the bundled 3D rules said "frozen residue" on the strength of a
+    // population that had stopped moving, and it was a period-4 oscillator
+    // (BUG-024's correction).
+    const auto p = rule::parseDsl("B3/S23");
+    REQUIRE(p.ir);
+    const rule::CompiledRule rule = compiled(*p.ir);
+    const core::GridSpec spec{2, 16, 16, 1, core::CellType::U8};
+
+    auto at = [&](uint32_t x, uint32_t y) { return size_t{y} * spec.width + x; };
+
+    SECTION("a block never changes") {
+        core::HostGrid grid(spec);
+        for (auto [x, y] : {std::pair<uint32_t, uint32_t>{4, 4}, {5, 4}, {4, 5}, {5, 5}}) {
+            grid.current()[at(x, y)] = 1;
+        }
+        std::vector<uint8_t> before(grid.current().begin(), grid.current().end());
+        sim::cpuStep(rule, grid, 0);
+        const sim::GridStats s = sim::reduce(rule, spec, grid.current(), {}, before);
+        REQUIRE(s.changedKnown);
+        CHECK(s.live() == 4);
+        CHECK(s.changed == 0);
+    }
+
+    SECTION("a blinker changes four cells every generation") {
+        core::HostGrid grid(spec);
+        for (uint32_t x = 4; x <= 6; ++x) grid.current()[at(x, 5)] = 1;
+        std::vector<uint8_t> before(grid.current().begin(), grid.current().end());
+        sim::cpuStep(rule, grid, 0);
+        const sim::GridStats s = sim::reduce(rule, spec, grid.current(), {}, before);
+        REQUIRE(s.changedKnown);
+        CHECK(s.live() == 3);          // a blinker is three cells and stays three
+        CHECK(s.changed == 4);         // the two ends go out, the two sides come on
+        // Both this and the block above hold a *constant* population for ever,
+        // which is all a population count can see. One of them is moving.
+    }
+
+    SECTION("with no previous generation the count is absent, not zero") {
+        core::HostGrid grid(spec);
+        grid.current()[at(1, 1)] = 1;
+        const sim::GridStats s = sim::reduce(rule, spec, grid.current());
+        CHECK_FALSE(s.changedKnown);
+        CHECK(s.changed == 0);
+    }
 }

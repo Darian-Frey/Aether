@@ -36,7 +36,7 @@ std::string fieldImagesGlsl(const rule::CompiledRule& rule, uint8_t dimensions) 
         const bool isFloat = rule.fields[f].cell_type == core::CellType::F32;
         const std::string image = std::format("{}image{}", isFloat ? "" : "u", suffix);
         out += std::format("layout({}, binding = {}) uniform readonly {} aether_rsrc{};\n",
-                           formatOf(rule.fields[f].cell_type), 1 + f, image, f);
+                           formatOf(rule.fields[f].cell_type), 2 + f, image, f);
     }
 
     // Every field added to the caller's accumulators in field order, which is
@@ -154,7 +154,7 @@ std::optional<core::Error> GpuReducer::setRule(const rule::CompiledRule& rule,
     if (owned_.paramsSsbo) rlUnloadShaderBuffer(owned_.paramsSsbo);
     owned_.paramsSsbo = rlLoadShaderBuffer(sizeof(params), params, RL_DYNAMIC_COPY);
 
-    const size_t stride = size_t{cfg_.states} + cfg_.fields + cfg_.buckets;
+    const size_t stride = size_t{cfg_.states} + cfg_.fields + cfg_.buckets + 1u;
     const size_t words = stride * cfg_.tiles;
     if (owned_.partialsSsbo) rlUnloadShaderBuffer(owned_.partialsSsbo);
     owned_.partialsSsbo = rlLoadShaderBuffer(
@@ -163,17 +163,25 @@ std::optional<core::Error> GpuReducer::setRule(const rule::CompiledRule& rule,
     return std::nullopt;
 }
 
-GridStats GpuReducer::sample(unsigned int stateTexture, std::span<const unsigned int> fieldTextures) {
+GridStats GpuReducer::sample(unsigned int stateTexture, std::span<const unsigned int> fieldTextures,
+                             unsigned int previousTexture) {
     GridStats out;
     out.stateCounts.assign(cfg_.states ? cfg_.states : 1u, 0);
     out.fieldTotals.assign(cfg_.fields, 0.0);
     if (cfg_.buckets) out.genomeBuckets.assign(cfg_.buckets, 0);
+    out.changedKnown = previousTexture != 0 && previousTexture != stateTexture;
     if (cfg_.program == 0) return out;
 
     rlEnableShader(cfg_.program);
     glBindImageTexture(0, stateTexture, 0, GL_TRUE, 0, GL_READ_ONLY, GL_R8UI);
+    // The same texture when there is no previous generation, so every cell
+    // compares equal and the count is zero; the host reports it as *absent*
+    // rather than as zero, because zero is a claim about a world that has not
+    // stepped yet.
+    glBindImageTexture(1, out.changedKnown ? previousTexture : stateTexture, 0, GL_TRUE, 0,
+                       GL_READ_ONLY, GL_R8UI);
     for (size_t f = 0; f < fieldTextures.size() && f < cfg_.fieldFormats.size(); ++f) {
-        glBindImageTexture(static_cast<unsigned int>(1 + f), fieldTextures[f], 0, GL_TRUE, 0,
+        glBindImageTexture(static_cast<unsigned int>(2 + f), fieldTextures[f], 0, GL_TRUE, 0,
                            GL_READ_ONLY, cfg_.fieldFormats[f]);
     }
     rlBindShaderBuffer(owned_.paramsSsbo, 0);
@@ -194,7 +202,7 @@ GridStats GpuReducer::sample(unsigned int stateTexture, std::span<const unsigned
     // Tile order, which is the second half of the contract. A float total summed
     // in a different order is a different number, and the host oracle sums the
     // same way.
-    const size_t stride = size_t{cfg_.states} + cfg_.fields + cfg_.buckets;
+    const size_t stride = size_t{cfg_.states} + cfg_.fields + cfg_.buckets + 1u;
     std::vector<float> sums(cfg_.fields, 0.0f);
     for (uint32_t t = 0; t < cfg_.tiles; ++t) {
         const size_t base = size_t{t} * stride;
@@ -208,6 +216,7 @@ GridStats GpuReducer::sample(unsigned int stateTexture, std::span<const unsigned
         for (uint32_t b = 0; b < cfg_.buckets; ++b) {
             out.genomeBuckets[b] += readback_[base + cfg_.states + cfg_.fields + b];
         }
+        out.changed += readback_[base + cfg_.states + cfg_.fields + cfg_.buckets];
     }
     return out;
 }

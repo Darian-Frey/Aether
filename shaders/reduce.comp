@@ -32,8 +32,10 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 #ifdef AETHER_3D
 layout(r8ui, binding = 0) uniform readonly uimage3D srcImg;
+layout(r8ui, binding = 1) uniform readonly uimage3D prevImg;
 #else
 layout(r8ui, binding = 0) uniform readonly uimage2D srcImg;
+layout(r8ui, binding = 1) uniform readonly uimage2D prevImg;
 #endif
 
 layout(std430, binding = 0) readonly buffer Params {
@@ -81,6 +83,17 @@ uint loadState(ivec3 c) {
 #endif
 }
 
+// The generation before this one, for the change count. Bound to the same
+// texture as `srcImg` when there is no previous — generation 0 — in which case
+// nothing differs and the host reports the count as absent rather than as zero.
+uint loadPrevious(ivec3 c) {
+#ifdef AETHER_3D
+    return imageLoad(prevImg, c).r;
+#else
+    return imageLoad(prevImg, c.xy).r;
+#endif
+}
+
 #if AETHER_FIELDS > 0
 // The field images, generated beside this file because binding points are the
 // stepper's business and not this shader's.
@@ -95,8 +108,11 @@ void main() {
     uint begin = tile * uint(AETHER_TILE);
     uint end = min(begin + uint(AETHER_TILE), cells);
 
-    uint stride = uint(AETHER_S) + uint(AETHER_FIELDS) + uint(AETHER_BUCKETS);
+    // One extra word per tile for the change count, after everything else.
+    uint stride = uint(AETHER_S) + uint(AETHER_FIELDS) + uint(AETHER_BUCKETS) + 1u;
     uint base = tile * stride;
+    uint changedAt = base + uint(AETHER_S) + uint(AETHER_FIELDS) + uint(AETHER_BUCKETS);
+    partials[changedAt] = 0u;
 
     for (uint s = 0u; s < uint(AETHER_S); ++s) partials[base + s] = 0u;
 #if AETHER_BUCKETS > 0
@@ -118,6 +134,7 @@ void main() {
         ivec3 c = cellOf(i);
         uint s = loadState(c);
         if (s < uint(AETHER_S)) partials[base + s] += 1u;
+        if (loadPrevious(c) != s) partials[changedAt] += 1u;
 #if AETHER_FIELDS > 0
         aether_reduce_fields(c, sums);
 #endif

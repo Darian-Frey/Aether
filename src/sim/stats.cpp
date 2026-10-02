@@ -39,11 +39,13 @@ uint32_t genomeBucket(uint32_t genome, uint32_t bits) {
 
 GridStats reduce(const rule::CompiledRule& rule, const core::GridSpec& spec,
                  std::span<const uint8_t> cells,
-                 std::span<const std::span<const uint8_t>> fields) {
+                 std::span<const std::span<const uint8_t>> fields,
+                 std::span<const uint8_t> previous) {
     GridStats out;
     out.stateCounts.assign(rule.states ? rule.states : 1u, 0);
     out.fieldTotals.assign(rule.fields.size(), 0.0);
     if (rule.genome) out.genomeBuckets.assign(kGenomeBuckets, 0);
+    out.changedKnown = previous.size() == cells.size();
 
     const uint64_t n = spec.cellCount();
     const uint64_t tiles = (n + kTileCells - 1u) / kTileCells;
@@ -76,6 +78,7 @@ GridStats reduce(const rule::CompiledRule& rule, const core::GridSpec& spec,
         for (uint64_t i = begin; i < end; ++i) {
             const uint8_t s = cells[i];
             if (s < out.stateCounts.size()) ++out.stateCounts[s];
+            if (out.changedKnown && previous[i] != s) ++out.changed;
             if (rule.genome && s != 0 && rule.genome->field < fields.size()) {
                 const uint32_t g = readU32(fields[rule.genome->field], i);
                 ++out.genomeBuckets[genomeBucket(g, rule.genome->bits)];

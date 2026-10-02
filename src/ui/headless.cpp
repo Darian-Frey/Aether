@@ -225,7 +225,7 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
         // reduction and differ only in what they do with it.
         const uint32_t statsEvery = opts.statsInterval;
         if (statsEvery != 0) {
-            std::printf("# generation\talive");
+            std::printf("# generation\talive\tdensity\tchanged");
             for (const rule::Field& f : sim.rule().fields) std::printf("\t%s", f.name.c_str());
             std::printf("\n");
         }
@@ -239,8 +239,14 @@ int runHeadless(const Options& opts, uint64_t generations, const std::string& sa
             }
             if (statsEvery != 0 && g % statsEvery == 0) {
                 const sim::GridStats st = sim.sample();
-                std::printf("%llu\t%llu", static_cast<unsigned long long>(g),
-                            static_cast<unsigned long long>(st.live()));
+                const double cells = static_cast<double>(sim.spec().cellCount());
+                std::printf("%llu\t%llu\t%.4f", static_cast<unsigned long long>(g),
+                            static_cast<unsigned long long>(st.live()),
+                            static_cast<double>(st.live()) / cells);
+                // A dash rather than a zero before the first step: nothing has
+                // changed yet is not the same claim as nothing is changing.
+                if (st.changedKnown) std::printf("\t%llu", static_cast<unsigned long long>(st.changed));
+                else                 std::printf("\t-");
                 for (double t : st.fieldTotals) std::printf("\t%.6g", t);
                 std::printf("\n");
             }

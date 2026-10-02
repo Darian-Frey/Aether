@@ -306,11 +306,18 @@ GridStats Simulation::sample() {
         }
         fieldTextureList_.clear();
         for (const FieldStore& f : fields_) fieldTextureList_.push_back(f.gpu.current());
-        out = gpuReducer_.sample(gpu_.current(), fieldTextureList_);
+        // The other half of the pair is last generation's, which is what the
+        // change count compares against. Before the first step there is no such
+        // thing, and passing 0 says so rather than comparing against whatever
+        // the buffer was allocated holding.
+        out = gpuReducer_.sample(gpu_.current(), fieldTextureList_,
+                                 generation_ > 0 ? gpu_.next() : 0u);
     } else {
         fieldByteList_.clear();
         for (const FieldStore& f : fields_) fieldByteList_.push_back(f.host.current());
-        out = reduce(lut_, spec(), host_.current(), fieldByteList_);
+        out = reduce(lut_, spec(), host_.current(), fieldByteList_,
+                     generation_ > 0 ? std::span<const uint8_t>(host_.next())
+                                     : std::span<const uint8_t>{});
     }
     out.generation = generation_;
     return out;

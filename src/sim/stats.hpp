@@ -70,6 +70,14 @@ struct GridStats {
     // Live cells per genome bucket, empty for a rule without a genome.
     std::vector<uint64_t> genomeBuckets;
 
+    // Cells whose state differs from the previous generation's. The number that
+    // says whether anything is *happening*, which a population count cannot: a
+    // still life and a period-2 oscillator of the same size are the same
+    // population and a different world. Meaningless before the first step and
+    // reported as absent there rather than as zero, since zero is a claim.
+    uint64_t changed = 0;
+    bool     changedKnown = false;
+
     uint64_t generation = 0;
 
     uint64_t live() const {
@@ -92,8 +100,12 @@ uint32_t genomeBucket(uint32_t genome, uint32_t bits);
 // oracle for the step: the shader is written to match it, and a test compares
 // them. Summing in tile order rather than cell order costs nothing here and is
 // the whole reason the comparison can be an equality.
+// `previous` is the generation before `cells`, for the change count; an empty
+// span means there is none to compare against and `changedKnown` comes back
+// false.
 GridStats reduce(const rule::CompiledRule& rule, const core::GridSpec& spec,
                  std::span<const uint8_t> cells,
-                 std::span<const std::span<const uint8_t>> fields = {});
+                 std::span<const std::span<const uint8_t>> fields = {},
+                 std::span<const uint8_t> previous = {});
 
 }  // namespace aether::sim

@@ -49,7 +49,10 @@ public:
     // Synchronises — it reads a buffer back — which is why nothing calls this
     // every generation; the sampling interval is the caller's business and is
     // what the session records (SPEC §11).
-    GridStats sample(unsigned int stateTexture, std::span<const unsigned int> fieldTextures);
+    // `previousTexture` is the generation before `stateTexture`, for the change
+    // count; pass 0 when there is none and the count comes back absent.
+    GridStats sample(unsigned int stateTexture, std::span<const unsigned int> fieldTextures,
+                     unsigned int previousTexture = 0);
 
 private:
     using ShapeKey = std::tuple<uint8_t, uint16_t, uint32_t, uint32_t, uint64_t>;

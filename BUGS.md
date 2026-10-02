@@ -24,7 +24,24 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-*None.*
+### BUG-028: `--resource` and `--seed-resource` are ignored by the window
+**Status:** open
+**Found:** 2026-10-02 (taking a screenshot of F-036's readouts on `@grazing`, which came up empty)
+**Location:** `src/ui/app.cpp`
+**Severity:** medium
+**Description.** Both options are parsed in `main.cpp` into `Options::resource` and `Options::resourceSeed`/`resourceNoise`, and both are then read **only** by `ui/headless.cpp`. `App` never looks at either. So
+
+```
+aether --rule @grazing --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15
+```
+
+opens a window with an unseeded world and the default rates, and `grazing` starves: 0 alive, which is exactly what it should do with no resource. The same flags headless give 2727 cells at generation 0 and 4693 by generation 200.
+
+Nothing says they are headless-only. `--help` lists them among the general options, between `--cell-mutation` and `--gl-check`, and the manual introduces them in the Resource chapter before showing a headless example.
+
+**Reproduction.** The command above, against the same one with `headless --generations 200 --stats 100`.
+**Notes.** The same class as BUG-017: an option that is accepted, documented and silently does nothing. What makes it quieter than most is that the failure looks like the rule's own behaviour — an unseeded `grazing` starving is correct, documented and the first thing its own header warns about, so the empty grid reads as the rule working rather than as the flag being dropped.
+Found while screenshotting F-036 and logged rather than fixed, per the convention. The fix is to apply both in `App::createSimulation` as `headless` does; what wants a decision alongside it is whether the Resource panel's *Seed the world* button should then show as already pressed, since `resourceSeeded_` is derived by scanning the field rather than recorded.
 
 ## Fixed
 

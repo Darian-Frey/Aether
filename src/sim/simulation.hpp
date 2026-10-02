@@ -205,6 +205,9 @@ public:
 
     // The texture holding the current generation, for the renderer.
     unsigned int texture() const { return gpu_.current(); }
+    // The other half of the pair: last generation's cells, which is what a
+    // change count compares against. Meaningless before the first step.
+    unsigned int previousTexture() const { return gpu_.next(); }
 
     // --- Readouts (F-036) -------------------------------------------------
     //

@@ -103,6 +103,32 @@ void App::drawTransportBar() {
         hint("The machine cannot keep up; the step cap has been reduced to keep the window responsive");
     }
 
+    // The headline readouts, where they can actually be seen (F-036). The
+    // Readouts section has the plots and the detail; a panel column with six
+    // sections above it is no place for the one number somebody watches. Only
+    // when sampling is on, because otherwise there is nothing to show and a
+    // dash would invite the question.
+    if (statsInterval_ > 0 && statsAt_ > 0) {
+        const uint64_t cells = sim_->spec().cellCount();
+        ImGui::SameLine(0, 24);
+        ImGui::Text("%llu alive", static_cast<unsigned long long>(statsLatest_.live()));
+        ImGui::SameLine(0, 8);
+        ImGui::TextDisabled("%.1f%%", 100.0 * static_cast<double>(statsLatest_.live())
+                                           / static_cast<double>(cells));
+        if (statsLatest_.changedKnown) {
+            ImGui::SameLine(0, 12);
+            // Nothing moving is worth saying in words: it is the difference
+            // between a world that has settled and one that has stopped, and a
+            // population count shows neither.
+            if (statsLatest_.changed == 0) {
+                ImGui::TextDisabled("still");
+            } else {
+                ImGui::TextDisabled("%llu moving",
+                                    static_cast<unsigned long long>(statsLatest_.changed));
+            }
+        }
+    }
+
     // The rule's name, right-aligned, so what is running is never in doubt.
     const std::string label = std::format("{}  ·  {}", ruleName_.substr(0, 36),
                                           sim_->backend() == rule::Backend::Lut ? "table" : "codegen");
@@ -639,16 +665,35 @@ void App::drawStatsPanel() {
 
     const sim::GridStats& now = statsLatest_;
     const uint64_t cells = sim_->spec().cellCount();
+    const double density = static_cast<double>(now.live()) / static_cast<double>(cells);
+
     ImGui::Text("%llu alive", static_cast<unsigned long long>(now.live()));
     ImGui::SameLine();
-    ImGui::TextDisabled("%.1f%% of %llu", 100.0 * static_cast<double>(now.live()) / static_cast<double>(cells),
-                        static_cast<unsigned long long>(cells));
+    ImGui::TextDisabled("%.2f%% of %llu", 100.0 * density, static_cast<unsigned long long>(cells));
 
-    static const char* kSeries[] = {"live population", "per state", "per genome"};
+    // How much is *moving*, which the population cannot tell you: a still life
+    // and an oscillator of the same size hold the same count for ever and only
+    // one of them is a world. Reported as unknown rather than as zero before the
+    // first step, and counted against the previous generation — so it means
+    // nothing immediately after a paint, which is not a generation.
+    if (now.changedKnown) {
+        ImGui::Text("%llu changed", static_cast<unsigned long long>(now.changed));
+        ImGui::SameLine();
+        if (now.changed == 0) {
+            ImGui::TextDisabled("nothing is moving");
+        } else {
+            ImGui::TextDisabled("%.2f%% of the grid, last generation",
+                                100.0 * static_cast<double>(now.changed) / static_cast<double>(cells));
+        }
+    } else {
+        ImGui::TextDisabled("nothing has stepped yet");
+    }
+
+    static const char* kSeries[] = {"live population", "density", "changed", "per state", "per genome"};
     const bool hasGenome = sim_->rule().genome.has_value();
     ImGui::SetNextItemWidth(kLabelColumn);
-    ImGui::Combo("show", &statsSeries_, kSeries, hasGenome ? 3 : 2);
-    if (!hasGenome && statsSeries_ == 2) statsSeries_ = 0;
+    ImGui::Combo("show", &statsSeries_, kSeries, hasGenome ? 5 : 4);
+    if (!hasGenome && statsSeries_ == 4) statsSeries_ = 0;
 
     // The ring, oldest first, as a plain float series. ImGui's plot takes a
     // contiguous span, so the ring is unrolled into a scratch vector — at most
@@ -668,6 +713,23 @@ void App::drawStatsPanel() {
         ImGui::PlotLines("##live", series.data(), static_cast<int>(series.size()), 0, nullptr,
                          0.0f, FLT_MAX, ImVec2(-1, 80));
     } else if (statsSeries_ == 1) {
+        // Fixed to 0..1 rather than auto-scaled: a density is a fraction of a
+        // known whole, and a plot that rescaled itself would make 2% of the grid
+        // look like 80% of it.
+        unroll([cells](const sim::GridStats& g) {
+            return static_cast<double>(g.live()) / static_cast<double>(cells);
+        });
+        ImGui::PlotLines("##density", series.data(), static_cast<int>(series.size()), 0, nullptr,
+                         0.0f, 1.0f, ImVec2(-1, 80));
+        ImGui::TextDisabled("fraction of the grid alive, full scale");
+    } else if (statsSeries_ == 2) {
+        unroll([](const sim::GridStats& g) {
+            return g.changedKnown ? static_cast<double>(g.changed) : 0.0;
+        });
+        ImGui::PlotLines("##changed", series.data(), static_cast<int>(series.size()), 0, nullptr,
+                         0.0f, FLT_MAX, ImVec2(-1, 80));
+        ImGui::TextDisabled("cells differing from the generation before");
+    } else if (statsSeries_ == 3) {
         // One line per state would be a stack of tiny plots; the useful thing
         // at a glance is the current distribution, so this is a bar per state
         // and the plot above is the one with history.
@@ -685,6 +747,53 @@ void App::drawStatsPanel() {
                              0.0f, FLT_MAX, ImVec2(-1, 80));
         ImGui::TextDisabled("Bucketed by the same hash the palette colours by, so a bar");
         ImGui::TextDisabled("is the colour of the cells it counts.");
+    }
+
+    // What the mutation controls amount to, in cells and generations rather
+    // than as probabilities. A per-cell chance of 1e-5 is a number nobody can
+    // picture; "about ten cells a generation" is the same number and tells you
+    // whether to expect anything. Arithmetic from the parameters rather than a
+    // measurement, so it costs nothing and is exact — what it cannot tell you is
+    // how many of those draws landed on the state the cell already had.
+    ImGui::Separator();
+    ImGui::TextDisabled("Mutation, as rates");
+    const double cellP = cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0;
+    if (cellP > 0.0) {
+        const double perGen = cellP * static_cast<double>(cells);
+        ImGui::Text("cells");
+        ImGui::SameLine(kLabelColumn);
+        if (perGen >= 1.0) ImGui::TextDisabled("%.3g a generation", perGen);
+        else               ImGui::TextDisabled("one every %.0f generations", 1.0 / perGen);
+        if (cellMutationBlock_ > 0) {
+            // Grouping does not change how many cells mutate, only how they are
+            // arranged — worth saying, because the slider looks like it should.
+            ImGui::TextDisabled("  in blocks of %d, so the same total arrives together",
+                                1 << (2 * cellMutationBlock_));
+        }
+    } else {
+        ImGui::Text("cells");
+        ImGui::SameLine(kLabelColumn);
+        ImGui::TextDisabled("off");
+    }
+
+    ImGui::Text("rule");
+    ImGui::SameLine(kLabelColumn);
+    if (ruleMutationOn_ && ruleInterval_ > 0) {
+        ImGui::TextDisabled("%d edits every %d generations", ruleMagnitude_, ruleInterval_);
+    } else {
+        ImGui::TextDisabled("off");
+    }
+
+    if (sim_->rule().genome) {
+        const double bitP = genomeMutationOn_ ? std::pow(10.0, genomeMutationLog_) : 0.0;
+        ImGui::Text("genome");
+        ImGui::SameLine(kLabelColumn);
+        if (bitP > 0.0) {
+            const double bits = static_cast<double>(sim_->rule().genome->bits);
+            ImGui::TextDisabled("%.3g bits per birth, of %.0f", bitP * bits, bits);
+        } else {
+            ImGui::TextDisabled("off");
+        }
     }
 
     // The field totals, and the resource's among them — AV-018's figure, which

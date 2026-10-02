@@ -416,11 +416,19 @@ It is **off by default**, and off means nothing is measured at all. A sample cos
 
 What it never does is read the grid back. The sum is computed on the card and what returns is a few words per tile, whatever the grid's size — a population graph fed by reading the whole grid each generation would quietly halve your throughput and the cause would be the last thing anybody suspected.
 
-Three series:
+The headline figures also appear in the **transport bar**, where they are visible without scrolling the panel column: how many cells are alive, what fraction of the grid that is, and how many are moving.
+
+Five series:
 
 - **live population** — over time, as far back as the ring of samples goes.
+- **density** — the same thing as a fraction of the grid, plotted against a fixed scale of 0 to 1 rather than auto-scaled, so 2% of the grid looks like 2% of the grid.
+- **changed** — cells differing from the generation before. This is the one a population count cannot give you: a still life and an oscillator both hold a constant population for ever, and only one of them is moving. If it reads zero, nothing is happening at all; the bar says **still** in that case.
 - **per state** — the current distribution, which is the useful one for a rule with an ageing tail or a lifespan, where the shape across states tells you the age profile.
 - **per genome** — live cells by genome, bucketed by the same hash the palette colours with, so a bar is the colour of the cells it counts. Only for a rule with a genome.
+
+The change count is about *stepping*, so it means nothing immediately after painting or placing a pattern — those are not generations — and it reads as unknown rather than as zero before the first step.
+
+Below the plot, the three mutation controls are restated as rates rather than probabilities: a per-cell chance of `1e-5` is a number nobody can picture, and "about ten cells a generation" is the same number in a form you can act on. These are arithmetic from the settings rather than measurements, so they cost nothing; what they cannot tell you is how many of those draws happened to land on the state the cell already had.
 
 Below them, a total per field. For a resource rule this is the figure AV-018 is about: a quantity that is meant to be conserved, with the capacity beside it. The capacity should not move at all — nothing writes it — and a resource total drifting upward with nothing feeding it is the defect that register entry describes.
 
@@ -431,11 +439,17 @@ aether headless --rule @grazing --size 96x96 --generations 400 --stats 100     -
 ```
 
 ```
-# generation	alive	grass	soil
-0	2727	5172.57	5172.57
-100	609	4378.53	5172.57
-200	4693	3657.77	5172.57
+# generation	alive	density	changed	grass	soil
+0	2727	0.2959	-	5172.57	5172.57
+100	609	0.0661	24	4378.53	5172.57
+200	4693	0.5092	211	3657.77	5172.57
+300	2746	0.2980	115	3172.45	5172.57
+400	4120	0.4470	74	3481.64	5172.57
 ```
+
+Worth reading that `soil` column: it is the carrying capacity, nothing writes it, and it holds at 5172.57 for four hundred generations. A capacity that drifted would be the defect AV-018 describes.
+
+A dash in the `changed` column means there is no previous generation to compare against, which is only ever the first row.
 
 The figures are identical on both execution paths, down to the last place of the float totals. That is not luck: adding floats in a different order gives a different number, so the order is fixed — the grid is divided into tiles, each tile summed in cell order, the tile totals summed in tile order — and both the shader and the host follow it.
 
