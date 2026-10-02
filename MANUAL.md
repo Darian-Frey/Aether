@@ -371,6 +371,11 @@ They live in **Mutation**, under the two mutation controls, and appear only for 
 - **from** — how a newborn's bits come from its live neighbours. *majority* takes each bit as more than half the parents have it, with a tie leaving the bit clear. *random parent* copies one of them whole. *crossover* takes each bit from one of two, drawn per bit.
 - **mutate bits** and **per bit** — the chance each bit flips at a birth. This is where variety comes from: with it off, a grid of one genome is one rule and stays it for ever.
 - **clan** — births in one aligned block are mutated the same way, so a change arrives in a whole clan at once. The parent draws are never grouped; a block sharing one parent pick would make a clan's births identical rather than merely correlated.
+- **cluster** — how strongly a birth is refused where the prospective parents disagree. Not a source of variation like the three above it: it decides where the variation that already exists is allowed to breed. Off at zero, and off by construction — no draw is made at all, so a run at zero is the run it would have been.
+
+The cluster control is worth a paragraph of its own. When the rule calls for a birth, the engine looks at the live neighbours the new cell would inherit from and asks how far they agree: per bit, how much of a minority holds it. Unanimous parents are never refused; evenly split ones are refused outright at full strength. A boundary between two lineages is therefore a poor place to breed and the inside of one a good place, which consolidates patches without any cell moving — the whole point, since a cell in this engine writes only itself.
+
+Two things to expect from it. Genomes that differ in *one* bit of eighteen are, by this measure, 94% alike, so the bias barely objects to mixing them — Conway and HighLife are exactly that pair, and the control will look broken on them. And in a Life-like rule the effect is real but not scenic: such rules separate their lineages within a few dozen generations anyway, so what you can measure is that births land where parents agree about twice as often, rather than patches visibly forming. A rule where living is costly — one coupled to the resource — is where it would show.
 
 Every draw comes from stream B, hashed on the cell's coordinate and the generation, so nothing is stored and a run replays bit-identically. The draws are salted apart — one per parent pick, one per bit — because a single hash reused would correlate the parent with the mutations and the mutations with each other.
 
@@ -392,7 +397,7 @@ Headlessly, which is how the figures in that rule's header were measured:
 aether headless --rule @lineages --size 64x64 --seed 9 --generations 1500 --inherit crossover:0.002 --png out.png
 ```
 
-`--inherit` is `scheme[:per-bit[:clan]]`, with the scheme `majority`, `parent` or `crossover`. At `0.0005` that run goes extinct — too little variety to find a rule that reproduces before the grid empties. At `0.002` it ends with 3964 of 4096 cells alive and 600 distinct genomes. At `0.01` the grid is full with 1372 of them.
+`--inherit` is `scheme[:per-bit[:clan]]`, with the scheme `majority`, `parent` or `crossover`, and `--cluster F` is the birth bias from 0 to 1. At `0.0005` that run goes extinct — too little variety to find a rule that reproduces before the grid empties. At `0.002` it ends with 3964 of 4096 cells alive and 600 distinct genomes. At `0.01` the grid is full with 1372 of them.
 
 ### What is actually being selected for
 

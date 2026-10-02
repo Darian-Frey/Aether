@@ -107,7 +107,7 @@ private:
         ResourceParams resource;
         GenomeParams   genome;
         int locRegen = -1, locMinSeed = -1, locDiffusion = -1;
-        int locScheme = -1, locGenomeP = -1, locGenomeShift = -1;
+        int locScheme = -1, locGenomeP = -1, locGenomeShift = -1, locBirthBias = -1;
         // The internal format of each declared field, in declaration order,
         // so that step() binds R8UI or R32F without consulting the rule again.
         std::vector<unsigned int> fieldFormats;

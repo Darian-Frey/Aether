@@ -283,3 +283,246 @@ TEST_CASE("a genome sweeps a grid under selection", "[genome][gpu]") {
     CHECK(after > 0.9);
     CHECK(after > before);
 }
+
+// --- Similarity-biased birth (F-035) ----------------------------------------
+
+TEST_CASE("disagreement is zero for parents that agree and full for a clean split", "[genome]") {
+    // The measure, on hand-built parent lists. Integer throughout, so these are
+    // exact equalities rather than tolerances — which is the point of its being
+    // integer: a float measure would put the two execution paths a rounding
+    // error apart (AV-015).
+    const uint32_t full = sim::kBirthBiasFull;
+
+    // Unanimous, whatever they agree on.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0b1011, 0b1011, 0b1011}, 4) == 0);
+    CHECK(sim::disagreement(std::vector<uint32_t>{0, 0, 0, 0}, 4) == 0);
+
+    // Fewer than two parents cannot disagree.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0b0101}, 4) == 0);
+    CHECK(sim::disagreement(std::vector<uint32_t>{}, 4) == 0);
+
+    // An even split on every bit is the maximum: four bits at full strength.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0b1111, 0b0000}, 4) == 4 * full);
+
+    // One bit of four split evenly, the rest unanimous.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0b0001, 0b0000}, 4) == full);
+
+    // A lone dissenter among four counts a quarter, not a half: the minority is
+    // one of four, doubled.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0b1, 0b0, 0b0, 0b0}, 1) == (1u * 2u * full) / 4u);
+
+    // Bits the rule does not use are not measured, which is the same reason
+    // mutation does not touch them.
+    CHECK(sim::disagreement(std::vector<uint32_t>{0xFFFFFFFFu, 0x00000000u}, 2) == 2 * full);
+}
+
+TEST_CASE("a birth bias of zero makes no decision and draws nothing", "[genome]") {
+    // Off by construction rather than by a small probability. This is what lets
+    // every session written before F-035 replay unchanged: the decision is not
+    // merely always true, it is never taken, so stream B is untouched (AV-006).
+    sim::GenomeParams p;
+    p.seedB = 7;
+    p.birthBias = 0;
+    const std::vector<uint32_t> split{0b1111, 0b0000, 0b1010};
+    for (uint32_t x = 0; x < 64; ++x) {
+        CHECK(sim::birthAllowed(split, 4, x, 0, 0, 3, p));
+    }
+
+    // And unanimous parents are never refused, at any strength: there is
+    // nothing for the bias to object to.
+    p.birthBias = sim::kBirthBiasFull;
+    const std::vector<uint32_t> agreed{0b1011, 0b1011, 0b1011};
+    for (uint32_t x = 0; x < 64; ++x) {
+        CHECK(sim::birthAllowed(agreed, 4, x, 0, 0, 3, p));
+    }
+}
+
+TEST_CASE("the birth bias refuses in proportion to how split the parents are", "[genome]") {
+    // The behavioural claim, measured rather than asserted about one site: over
+    // many sites, a more divided neighbourhood is refused more often, and the
+    // rate tracks the strength.
+    auto refusalRate = [](const std::vector<uint32_t>& parents, uint16_t bias, uint32_t bits) {
+        sim::GenomeParams p;
+        p.seedB = 99;
+        p.birthBias = bias;
+        int refused = 0;
+        const int trials = 4000;
+        for (int i = 0; i < trials; ++i) {
+            const auto x = static_cast<uint32_t>(i % 64);
+            const auto y = static_cast<uint32_t>(i / 64);
+            if (!sim::birthAllowed(parents, bits, x, y, 0, 11, p)) ++refused;
+        }
+        return static_cast<double>(refused) / trials;
+    };
+
+    const std::vector<uint32_t> even{0b1111, 0b0000};          // every bit split
+    const std::vector<uint32_t> oneBit{0b0001, 0b0000};        // one bit of four
+    const uint16_t full = sim::kBirthBiasFull;
+
+    // At full strength a wholly split pair is always refused, and a pair
+    // differing in one bit of four about a quarter of the time.
+    CHECK(refusalRate(even, full, 4) > 0.99);
+    CHECK(refusalRate(oneBit, full, 4) > 0.20);
+    CHECK(refusalRate(oneBit, full, 4) < 0.30);
+
+    // Half the strength, half the refusals.
+    CHECK(refusalRate(even, static_cast<uint16_t>(full / 2), 4) > 0.45);
+    CHECK(refusalRate(even, static_cast<uint16_t>(full / 2), 4) < 0.55);
+
+    // More disagreement is always refused at least as often as less.
+    CHECK(refusalRate(even, full, 4) >= refusalRate(oneBit, full, 4));
+}
+
+TEST_CASE("the birth bias puts births where the parents agree", "[genome]") {
+    // The case that keeps this file honest (IMP-011): everything above would
+    // pass if `birthAllowed` were never reached from the step, so this drives
+    // the oracle and compares two runs differing only in the bias.
+    //
+    // It measures the mechanism rather than a hoped-for consequence. The first
+    // version of this test asserted that neighbouring live cells more often
+    // share a genome with the bias on, and passed by comparing 0.000 with
+    // 0.000 — a Life-like rule separates its lineages within a few dozen
+    // generations whatever the bias does, so there was nothing left to
+    // consolidate. What the feature actually promises is narrower and
+    // checkable: of the births that happen, fewer have parents that disagree.
+    const rule::RuleIR ir = lifeLikeGenomeRule();
+    const rule::CompiledRule rule = compiled(ir);
+    const core::GridSpec spec = spec2d(64, 64);
+
+    // Two genomes that differ in seven of their eighteen bits. Conway and
+    // HighLife would not do: they differ in *one* bit, so by this measure they
+    // are 94% alike and the bias barely objects to mixing them — which is the
+    // measure being right rather than weak.
+    const uint32_t a = maskFor({3}, {2, 3});
+    const uint32_t b = maskFor({2, 4, 6}, {1, 4, 5, 7});
+    auto at = [&](uint32_t x, uint32_t y) { return size_t{y} * spec.width + x; };
+
+    struct Result { long births = 0; long split = 0; double meanDisagreement = 0; };
+    auto run = [&](uint16_t bias) {
+        core::HostGrid host(spec);
+        aether::test::HostFields fields(rule, spec.cellCount());
+        sim::Pcg32 rng(5);
+        for (uint32_t y = 0; y < spec.height; ++y) {
+            for (uint32_t x = 0; x < spec.width; ++x) {
+                host.current()[at(x, y)] = rng.unit() < 0.35 ? 1 : 0;
+                fields.setU32(0, at(x, y), rng.unit() < 0.5 ? a : b);
+            }
+        }
+        sim::GenomeParams gp;
+        gp.scheme = sim::Inheritance::Majority;
+        gp.seedB = 4;
+        gp.birthBias = bias;
+
+        Result out;
+        double total = 0;
+        for (uint64_t g = 0; g < 200; ++g) {
+            const std::vector<uint8_t> before(host.current().begin(), host.current().end());
+            std::vector<uint32_t> genomesBefore(spec.cellCount());
+            for (size_t i = 0; i < spec.cellCount(); ++i) genomesBefore[i] = fields.u32(0, i);
+
+            cpuStep(rule, spec, host.current(), host.next(), g, {},
+                    fields.reads(), fields.writes(), {}, nullptr, gp);
+            host.swap();
+            fields.swap();
+
+            // Every cell that went from dead to alive, and how split the
+            // neighbours it inherited from were. Away from the edges, so the
+            // boundary rule plays no part in the count.
+            for (uint32_t y = 1; y + 1 < spec.height; ++y) {
+                for (uint32_t x = 1; x + 1 < spec.width; ++x) {
+                    if (before[at(x, y)] != 0 || host.current()[at(x, y)] == 0) continue;
+                    std::vector<uint32_t> parents;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            if (dx == 0 && dy == 0) continue;
+                            const size_t k = at(static_cast<uint32_t>(static_cast<int>(x) + dx),
+                                                static_cast<uint32_t>(static_cast<int>(y) + dy));
+                            if (before[k]) parents.push_back(genomesBefore[k]);
+                        }
+                    }
+                    const uint32_t d = sim::disagreement(parents, kBits);
+                    ++out.births;
+                    if (d > 0) ++out.split;
+                    total += d;
+                }
+            }
+        }
+        out.meanDisagreement = out.births ? total / static_cast<double>(out.births) : 0.0;
+        return out;
+    };
+
+    const Result off = run(0);
+    const Result on = run(sim::kBirthBiasFull);
+
+    // Enough births to measure, and some of them split without the bias — or
+    // the comparison below is between two zeroes, which is the mistake this
+    // test exists to avoid making twice.
+    INFO("without the bias: " << off.births << " births, " << off.split
+         << " split, mean disagreement " << off.meanDisagreement);
+    INFO("with the bias:    " << on.births << " births, " << on.split
+         << " split, mean disagreement " << on.meanDisagreement);
+    REQUIRE(off.births > 1000);
+    REQUIRE(on.births > 1000);
+    REQUIRE(off.split > 100);
+
+    // Births with split parents roughly halve, and the disagreement a birth is
+    // exposed to halves with them. A generous margin, because the quantity is a
+    // property of the run rather than of one draw.
+    CHECK(static_cast<double>(on.split) / on.births <
+          0.75 * static_cast<double>(off.split) / off.births);
+    CHECK(on.meanDisagreement < 0.75 * off.meanDisagreement);
+}
+
+TEST_CASE("the birth bias runs on the GPU and agrees with the oracle", "[genome][gpu]") {
+    GlContext gl;
+    requireGl(gl);
+
+    // The equivalence sweep compares the two paths with the bias on, but a twin
+    // that never fires compares identically to one that does. So this asserts
+    // the thing the sweep cannot: that turning the bias on *changes* the GPU's
+    // answer, and that the changed answer is the oracle's.
+    const core::GridSpec spec = spec2d(64, 64);
+    const uint32_t a = maskFor({3}, {2, 3});
+    const uint32_t b = maskFor({2, 4, 6}, {1, 4, 5, 7});
+
+    auto run = [&](sim::Path path, uint16_t bias) {
+        auto made = sim::Simulation::create(spec, lifeLikeGenomeRule(), path, 5u, 11u);
+        if (const auto* e = std::get_if<core::Error>(&made)) FAIL(e->message);
+        sim::Simulation& s = std::get<sim::Simulation>(made);
+
+        sim::GenomeParams gp;
+        gp.scheme = sim::Inheritance::Majority;
+        gp.threshold = 0;          // no mutation: the bias is the only variable
+        gp.birthBias = bias;
+        s.setGenome(gp);
+
+        s.fillRandom(std::vector<double>{0.35});
+        sim::Pcg32 pick(17);
+        for (size_t i = 0; i < spec.cellCount(); ++i) {
+            const uint32_t which = pick.unit() < 0.5 ? a : b;
+            std::memcpy(s.fieldHost(0).current().data() + i * 4, &which, 4);
+        }
+        s.commitHost();
+        for (int g = 0; g < 120; ++g) s.step();
+        s.syncToHost();
+        std::vector<uint8_t> cells(s.host().current().begin(), s.host().current().end());
+        std::vector<uint8_t> genomes(s.fieldHost(0).current().begin(), s.fieldHost(0).current().end());
+        return std::pair{std::move(cells), std::move(genomes)};
+    };
+
+    const auto gpuOff = run(sim::Path::Gpu, 0);
+    const auto gpuOn  = run(sim::Path::Gpu, sim::kBirthBiasFull);
+    const auto cpuOn  = run(sim::Path::Cpu, sim::kBirthBiasFull);
+
+    size_t alive = 0;
+    for (uint8_t v : gpuOn.first) if (v) ++alive;
+    REQUIRE(alive > 200);              // there was something to compare
+
+    // The generated code ran. Without this the case below would pass against a
+    // shader that ignores the uniform entirely.
+    CHECK(gpuOn != gpuOff);
+
+    // And it is the same automaton on both paths, states and genomes alike.
+    CHECK(cpuOn.first == gpuOn.first);
+    CHECK(cpuOn.second == gpuOn.second);
+}

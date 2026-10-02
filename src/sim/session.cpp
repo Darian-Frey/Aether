@@ -117,6 +117,9 @@ json eventToJson(const Event& ev) {
             j["scheme"] = static_cast<int>(b.params.scheme);
             j["threshold"] = b.params.threshold;
             j["block"] = b.params.blockShift;
+            // Absent in a file written before F-035, where it reads back as 0 —
+            // which is the bias off, and off is what those runs did.
+            j["birth_bias"] = b.params.birthBias;
         }
         else if constexpr (std::is_same_v<T, EvCellMutation>) { j["type"] = "cell_mutation"; j["p"] = b.p; j["block"] = b.blockShift; }
         else if constexpr (std::is_same_v<T, EvRuleMutation>) {
@@ -173,6 +176,7 @@ std::variant<Event, SessionError> eventFromJson(const json& j) {
         params.scheme = static_cast<Inheritance>(scheme);
         params.threshold = j.value("threshold", 0u);
         params.blockShift = j.value("block", uint8_t{0});
+        params.birthBias = j.value("birth_bias", uint16_t{0});
         ev.body = EvGenome{params};
     } else if (type == "cell_mutation") {
         ev.body = EvCellMutation{j.at("p").get<double>(), j.value("block", uint8_t{0})};
@@ -320,7 +324,8 @@ std::string sessionToJson(const Session& s) {
     if (s.rule.genome) {
         j["genome"] = {{"scheme", static_cast<int>(s.genome.scheme)},
                        {"threshold", s.genome.threshold},
-                       {"block", s.genome.blockShift}};
+                       {"block", s.genome.blockShift},
+                       {"birth_bias", s.genome.birthBias}};
     }
     json journal = json::array();
     for (const Event& ev : s.journal) journal.push_back(eventToJson(ev));
@@ -403,6 +408,7 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
             s.genome.scheme = static_cast<Inheritance>(scheme);
             s.genome.threshold = g.value("threshold", 0u);
             s.genome.blockShift = g.value("block", uint8_t{0});
+        s.genome.birthBias = g.value("birth_bias", uint16_t{0});
         }
         if (j.contains("resource")) {
             const json& r = j.at("resource");

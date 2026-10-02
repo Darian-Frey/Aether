@@ -306,6 +306,7 @@ private:
     bool  genomeMutationOn_ = false;
     float genomeMutationLog_ = -3.0f;   // log10 of the per-bit chance
     int   genomeBlock_ = 0;
+    int   genomeBirthBias_ = 0;      // 0..kBirthBiasFull, 0 = off (F-035)
 
     // A frame sequence being written (F-021). While one exists the transport
     // stops deciding how far to step — a recording is specified in

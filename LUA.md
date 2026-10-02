@@ -462,7 +462,9 @@ Note the outer `select`: a comparison produces a boolean and a transition must p
 
 ### What you do not set here
 
-The inheritance scheme, the per-bit mutation rate and the clan size are **not** in this table, for the same reason the resource's rates are not: they are the controls you most want to drag, and a constant in a rule recompiles and adds a lineage entry when you move it. They are the Mutation panel's, or `--inherit scheme[:per-bit[:clan]]` headlessly.
+The inheritance scheme, the per-bit mutation rate, the clan size and the birth bias are **not** in this table, for the same reason the resource's rates are not: they are the controls you most want to drag, and a constant in a rule recompiles and adds a lineage entry when you move it. They are the Mutation panel's, or `--inherit scheme[:per-bit[:clan]]` and `--cluster F` headlessly.
+
+That last one is F-035's: when your rule calls for a birth, the engine asks how far the live neighbours it would inherit from agree, and refuses the birth in proportion to how split they are. Your transition never sees it — it has already said what it wanted — which is what keeps the rule a plain gather. Nothing to write, and nothing you can turn on from here.
 
 Which means a genome rule does nothing visible until you turn mutation on. A grid seeded with one genome everywhere is one rule and stays it.
 

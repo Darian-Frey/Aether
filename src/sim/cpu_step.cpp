@@ -365,6 +365,24 @@ CellTransition stepCell(const rule::CompiledRule& rule, const core::GridSpec& sp
     // through `in` — and mutation draws from stream B rather than stream A, so
     // moving it changes no sequence and no session.
     t.next = t.fromRule;
+
+    // Similarity-biased birth (F-035). The rule has asked for a cell here; the
+    // engine asks how far the parents it would inherit from agree, and refuses
+    // the birth where they are split. `scratch.parents` is the list the
+    // inheritance above gathered, so the two decisions are made from one reading
+    // of the neighbourhood.
+    //
+    // Before cell mutation rather than after, because mutation is not a birth:
+    // SPEC §9.2 says it overrides the rule outright, and a cell that appears
+    // from the noise has no parents to have agreed or disagreed. A refused birth
+    // that mutation then fills in is a mutated cell, and it keeps the
+    // prospective genome exactly as it would have without the refusal.
+    if (deriving && t.next != 0 &&
+        !birthAllowed(scratch.parents, rule.genome->bits, x, y, z, generation, genome)) {
+        t.next = 0;
+        t.birthRefused = true;
+    }
+
     if (mutation.threshold != 0 && mutates(blockHash(x, y, z, generation, mutation), mutation)) {
         t.next = static_cast<uint8_t>(mutatedState(hash32(x, y, z, generation, mutation.seedB), S));
         t.mutated = true;

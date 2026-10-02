@@ -57,6 +57,7 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
         uniforms += "uniform uint aetherGenomeScheme;\n";
         uniforms += "uniform uint aetherGenomeThreshold;\n";
         uniforms += "uniform uint aetherGenomeBlockShift;\n";
+        uniforms += "uniform uint aetherBirthBias;\n";
     }
     const bool is3D = dimensions == 3;
     const char* suffix = is3D ? "3D" : "2D";
@@ -168,13 +169,20 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
         const std::string blockHash =
             "aetherHashSalted(bx, by, bz, genLo, genHi, seedLo, seedHi, ";
 
-        out += std::format("uint aether_inherit(ivec3 p, uint nbr[{}], {} fld, uint current, {}) {{\n",
-                           N, rule::glslFieldsStruct(), draw);
-        out += std::format("    uint parents[{}];\n", N);
+        // Who counts as a parent, written once. Inheritance and the birth bias
+        // both ask, and a second spelling could drift into disagreeing about
+        // which neighbours a child came from (F-035).
+        out += std::format("uint aether_parents(uint nbr[{}], {} fld, out uint parents[{}]) {{\n",
+                           N, rule::glslFieldsStruct(), N);
         out += "    uint n = 0u;\n";
         out += std::format("    for (int i = 0; i < {}; ++i) {{\n", N);
         out += std::format("        if (nbr[i] != 0u) {{ parents[n] = uint(fld.{}[i]); n += 1u; }}\n", nbrs);
-        out += "    }\n";
+        out += "    }\n    return n;\n}\n";
+
+        out += std::format("uint aether_inherit(ivec3 p, uint nbr[{}], {} fld, uint current, {}) {{\n",
+                           N, rule::glslFieldsStruct(), draw);
+        out += std::format("    uint parents[{}];\n", N);
+        out += "    uint n = aether_parents(nbr, fld, parents);\n";
         // Nothing to inherit from. Keeping what the field holds is the only
         // answer that invents nothing — and it is why a B0 rule cannot be born
         // under a genome.
@@ -212,6 +220,28 @@ std::string fieldSupportGlsl(const rule::CompiledRule& rule, uint8_t dimensions)
         out += "        if (h < aetherGenomeThreshold) child ^= 1u << b;\n";
         out += "    }\n";
         out += std::format("    return child & {};\n}}\n", mask);
+
+        // Similarity-biased birth (F-035), the twin of sim::birthAllowed. Integer
+        // throughout: a float measure would put the two paths a rounding error
+        // apart, and GLSL has no 64-bit integers to widen into, so every
+        // intermediate is bounded to stay inside 32 bits (AV-015).
+        out += std::format("bool aether_birth_allowed(ivec3 p, uint nbr[{}], {} fld, {}) {{\n",
+                           N, rule::glslFieldsStruct(), draw);
+        out += "    if (aetherBirthBias == 0u) return true;\n";
+        out += std::format("    uint parents[{}];\n", N);
+        out += "    uint n = aether_parents(nbr, fld, parents);\n";
+        out += "    if (n < 2u) return true;\n";
+        out += "    uint dis = 0u;\n";
+        out += std::format("    for (uint b = 0u; b < {}u; ++b) {{\n", bits);
+        out += "        uint set = 0u;\n";
+        out += "        for (uint pi = 0u; pi < n; ++pi) set += (parents[pi] >> b) & 1u;\n";
+        out += "        uint minority = min(set, n - set);\n";
+        out += std::format("        dis += (minority * 2u * {}u) / n;\n", kBirthBiasFull);
+        out += "    }\n";
+        out += "    if (dis == 0u) return true;\n";
+        out += std::format("    uint span = {}u * {}u * {}u;\n", kBirthBiasFull, kBirthBiasFull, bits);
+        out += std::format("    uint h = {}{}u);\n", hash, kSaltBirthBias);
+        out += "    return (h % span) >= aetherBirthBias * dis;\n}\n";
 
         // The two hooks lut_step.comp calls around the transition. Generated
         // rather than written there, because only this file knows which struct
@@ -410,8 +440,9 @@ std::optional<core::Error> GpuStepper::setRule(const rule::CompiledRule& rule, c
         cfg_.locScheme     = rlGetLocationUniform(cfg_.program, "aetherGenomeScheme");
         cfg_.locGenomeP    = rlGetLocationUniform(cfg_.program, "aetherGenomeThreshold");
         cfg_.locGenomeShift = rlGetLocationUniform(cfg_.program, "aetherGenomeBlockShift");
+        cfg_.locBirthBias = rlGetLocationUniform(cfg_.program, "aetherBirthBias");
     } else {
-        cfg_.locScheme = cfg_.locGenomeP = cfg_.locGenomeShift = -1;
+        cfg_.locScheme = cfg_.locGenomeP = cfg_.locGenomeShift = cfg_.locBirthBias = -1;
     }
     cfg_.selfWeight = rule.selfWeight;
     cfg_.continuous = continuous;
@@ -464,6 +495,8 @@ void GpuStepper::step(unsigned int srcTexture, unsigned int dstTexture,
         rlSetUniform(cfg_.locScheme, &scheme, RL_SHADER_UNIFORM_UINT, 1);
         rlSetUniform(cfg_.locGenomeP, &cfg_.genome.threshold, RL_SHADER_UNIFORM_UINT, 1);
         rlSetUniform(cfg_.locGenomeShift, &shift, RL_SHADER_UNIFORM_UINT, 1);
+        const uint32_t bias = cfg_.genome.birthBias;
+        rlSetUniform(cfg_.locBirthBias, &bias, RL_SHADER_UNIFORM_UINT, 1);
     }
     const unsigned int format = cfg_.continuous ? GL_R32F : GL_R8UI;
     glBindImageTexture(0, srcTexture, 0, GL_TRUE, 0, GL_READ_ONLY,  format);

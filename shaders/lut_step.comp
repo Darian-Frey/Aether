@@ -182,6 +182,20 @@ void main() {
 #endif
 
 
+#if AETHER_GENOME
+    // Similarity-biased birth (F-035), the twin of sim::birthAllowed. The rule
+    // has asked for a cell here; the engine asks how far the parents it would
+    // inherit from agree and refuses the birth where they are split.
+    //
+    // Before cell mutation rather than after, because mutation is not a birth:
+    // it overrides the rule outright (SPEC §9.2) and a cell that appears from
+    // the noise has no parents to have agreed or disagreed.
+    if (own == 0u && next != 0u &&
+        !aether_birth_allowed(gid, nbr, fld, generationLo, generationHi, seedBLo, seedBHi)) {
+        next = 0u;
+    }
+#endif
+
     // Cell mutation (SPEC §9.2). At threshold 0 the comparison is false for
     // every invocation and the branch is uniform across the wavefront.
     if (mutationThreshold != 0u) {

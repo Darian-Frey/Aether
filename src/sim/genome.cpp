@@ -74,4 +74,42 @@ uint32_t inherit(uint32_t own, std::span<const uint32_t> parents, uint32_t bits,
     return child & mask;
 }
 
+uint32_t disagreement(std::span<const uint32_t> parents, uint32_t bits) {
+    const uint32_t n = static_cast<uint32_t>(parents.size());
+    if (n < 2u || bits == 0u) return 0u;
+
+    uint32_t total = 0;
+    for (uint32_t b = 0; b < bits; ++b) {
+        uint32_t set = 0;
+        for (uint32_t p = 0; p < n; ++p) set += (parents[p] >> b) & 1u;
+        const uint32_t minority = set < n - set ? set : n - set;
+        // Doubled before the divide, so an even split reads as the full
+        // `kBirthBiasFull` and unanimity as zero. `minority` is at most n/2, so
+        // the product is at most `kBirthBiasFull * n` and stays inside 32 bits
+        // for any neighbourhood this engine could allocate.
+        total += (minority * 2u * kBirthBiasFull) / n;
+    }
+    return total;   // 0 .. kBirthBiasFull * bits
+}
+
+bool birthAllowed(std::span<const uint32_t> parents, uint32_t bits,
+                  uint32_t x, uint32_t y, uint32_t z, uint64_t generation,
+                  const GenomeParams& params) {
+    // Three ways to need no draw at all, and the first is the one that matters:
+    // a run with the bias off must consume stream B exactly as it did before
+    // this existed, or every session predating F-035 would replay differently.
+    if (params.birthBias == 0u || bits == 0u || parents.size() < 2u) return true;
+
+    const uint32_t dis = disagreement(parents, bits);
+    if (dis == 0u) return true;   // unanimous parents: nothing to refuse
+
+    // Refuse with probability `birthBias * dis / (kBirthBiasFull^2 * bits)`.
+    // Both sides of the comparison are bounded by that denominator — at most
+    // 256 * 256 * 32, comfortably inside 32 bits — so the whole decision is
+    // exact integer arithmetic that GLSL reproduces without a cast.
+    const uint32_t span = static_cast<uint32_t>(kBirthBiasFull) * kBirthBiasFull * bits;
+    const uint32_t h = hashSalted(x, y, z, generation, params.seedB, kSaltBirthBias);
+    return (h % span) >= static_cast<uint32_t>(params.birthBias) * dis;
+}
+
 }  // namespace aether::sim

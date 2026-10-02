@@ -411,7 +411,16 @@ Writing the manual chapter is what found it, because a chapter has to say what a
 - Where several parents could produce a birth, the outcome is weighted by the genetic similarity of the candidate site's live neighbours
 - Decided entirely by the cell being born, from what it can see, so the rule remains a gather
 - Reproducible from stream B like every other stochastic element
-**Status:** Not started
+**Status:** Complete (2026-10-02). The rule asks for a birth; the engine then asks how far the parents it would inherit from agree, and refuses the birth in proportion to how split they are. `sim::disagreement` is the measure and `sim::birthAllowed` the decision, both twinned with GLSL `sim/gpu_step` generates, and `GenomeParams::birthBias` is the strength — a run-time control like the inheritance scheme, for the reason D-024 gives about the resource's rates.
+
+The design note phrases §5.1 as a comparison *between* candidate sites, which is a scatter. The gather reading, and the one this feature's acceptance states, is that a site decides for itself from what it can see — so it is one more question asked of the same gathered neighbourhood, between the transition and cell mutation. Before mutation rather than after, because mutation is not a birth: SPEC §9.2 makes it an outright override, and a cell that appears from the noise has no parents to have agreed or disagreed.
+
+**Integer throughout**, which is the part worth carrying. Per bit, the minority of the parents holding it, doubled so an even split reads as full disagreement and unanimity as none, then summed over the live bits — an exact fraction of `kBirthBiasFull * bits`. A float measure would put the two paths a rounding error apart, and unlike every other float in this engine there is no widening to fall back on: GLSL has no 64-bit integers, so every intermediate is bounded to stay inside 32 bits (AV-015, BUG-021). `kBirthBiasFull` is 256 for that reason rather than for a nicer number.
+
+Zero is off **by construction**: `birthAllowed` returns before drawing, so stream B is untouched and a session predating this replays unchanged (AV-006).
+
+**How strong the effect actually is, measured rather than hoped for.** On 64² over 200 generations with two genomes differing in seven of eighteen bits, at full strength: births with disagreeing parents fall from 3.1% to 1.5%, and the mean disagreement a birth is exposed to from 47.3 to 22.3. The mechanism does what it says. What it does *not* do, in a Life-like rule, is produce visible patches — such a rule separates its lineages within a few dozen generations whatever the bias does, so there is little left to consolidate. The first version of the test asserted the consolidation and passed by comparing 0.000 with 0.000, which is IMP-011's mistake made inside a test written to avoid it; the test now measures the mechanism.
+Worth knowing when choosing genomes to try it on: Conway and HighLife differ in *one* bit of eighteen, so by this measure they are 94% alike and the bias barely objects to mixing them. That is the measure being right rather than weak.
 **Notes:** Added 2026-09-16 by D-019, from §5.1 of the design note, which is careful to note that it stays a strict cellular automaton. Clustering by genome emerges from where births land rather than from anything moving, which is what makes it expressible here at all; the movement-based form in §5.2 is what D-019 refuses.
 
 ### F-036 Population and field readouts

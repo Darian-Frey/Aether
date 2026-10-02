@@ -479,11 +479,27 @@ void App::drawMutationPanel() {
                               "arrives in a whole clan at once. The parent draws are never grouped.");
         }
         ImGui::EndDisabled();
+
+        // Similarity-biased birth (F-035). Outside the mutation group above,
+        // because it is not a source of variation — it is what decides where the
+        // variation that exists is allowed to breed.
+        gchanged |= ImGui::SliderInt("cluster", &genomeBirthBias_, 0, sim::kBirthBiasFull,
+                                     genomeBirthBias_ == 0
+                                         ? "off"
+                                         : std::format("{:.0f}%%", 100.0 * genomeBirthBias_ / sim::kBirthBiasFull).c_str());
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("How strongly a birth is refused where the parents disagree.\n"
+                              "A boundary between two lineages becomes a poor place to breed\n"
+                              "and the inside of one a good place, so patches consolidate —\n"
+                              "without any cell moving. Off at zero, and off by construction:\n"
+                              "no draw is made, so the run is the one it would have been.");
+        }
         if (gchanged) {
             sim::GenomeParams gp;
             gp.scheme = static_cast<sim::Inheritance>(genomeScheme_);
             gp.threshold = genomeMutationOn_ ? sim::mutationThreshold(std::pow(10.0, genomeMutationLog_)) : 0;
             gp.blockShift = static_cast<uint8_t>(genomeBlock_);
+            gp.birthBias = static_cast<uint16_t>(genomeBirthBias_);
             sim_->setGenome(gp);
         }
     }

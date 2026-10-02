@@ -106,6 +106,10 @@ struct CellTransition {
     uint8_t  fromRule   = 0;       // what the rule alone gives
     uint8_t  next       = 0;       // what is written: fromRule, unless mutated
     bool     mutated    = false;   // cell mutation overrode the rule (SPEC §9.2)
+    bool     birthRefused = false; // the rule called for a birth and the
+                                   // similarity bias turned it down (F-035).
+                                   // `fromRule` still says what the rule asked
+                                   // for, so an inspector can show both.
     bool     hasIndex   = false;   // table kinds only
     uint64_t tableIndex = 0;       // the entry that fired
     uint32_t scalar     = 0;       // the one number the kind reduced the

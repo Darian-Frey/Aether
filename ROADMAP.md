@@ -123,7 +123,7 @@ F-002 was closed in the same pass. Its third acceptance point — bit-identical 
 - [x] Abiotic resource field: patchy noise seeding, regeneration toward a carrying capacity, optional diffusion, consumed at a cell's own site (F-032). **Complete 2026-09-27**, with the conservation ledger that caught two leaks on the day it was written
 - [x] Per-cell genome with inheritance at birth — majority, random parent or crossover — with per-gene mutation, all drawn from stream B (F-033). **Complete 2026-10-02**, settled by D-025: the engine inherits opaque bits and the rule interprets them
 - [x] Hard cell lifespan alongside the soft decay of F-025 (F-034). **Complete 2026-10-02**, the phase's smallest — a cell's age is already its state index, so the genome-tunable half needed no engine work at all
-- [ ] Similarity-biased birth, the gather-compatible half of herding (F-035)
+- [x] Similarity-biased birth, the gather-compatible half of herding (F-035). **Complete 2026-10-02.** Integer throughout, because the measure is a twin and GLSL has no 64-bit integers to widen into
 - [ ] Population and field readouts as GPU reductions, never a per-step readback (F-036, AV-018)
 - [x] Placing a pattern into a volume (F-037). **Complete 2026-10-02.** Not in the phase as planned: added from BUG-024, which found both bundled 3D rules pointing at designed configurations the interface could not place
 **Acceptance:** A genome sweeps a grid under selection and the sweep is visible in the population graph; a resource field's books balance over 1000 generations; and the whole run replays bit-identically from its seed, inheritance and all.

@@ -392,6 +392,30 @@ std::vector<Fixture> fixtures() {
         out.push_back({"Genome with crossover and per-bit mutation", genomeExpression(), {}, gp});
     }
     {
+        // Similarity-biased birth (F-035). Its own fixture rather than a flag on
+        // the one above, because the bias is a *second* decision over the same
+        // gathered parents and a case with it off proves nothing about it. At
+        // full strength so that a divergence in the measure shows as a different
+        // grid rather than as a handful of cells; the arithmetic is integer, so
+        // the two paths agree exactly or not at all.
+        sim::GenomeParams gp;
+        gp.scheme = sim::Inheritance::Crossover;
+        gp.threshold = sim::mutationThreshold(0.02);
+        gp.birthBias = sim::kBirthBiasFull;
+        out.push_back({"Genome with similarity-biased birth", genomeExpression(), {}, gp});
+    }
+    {
+        // Half strength and majority inheritance, so the bias is exercised where
+        // it only *sometimes* refuses — the regime an integer rounding difference
+        // between the twins would hide in, since at full strength a split
+        // neighbourhood is refused whatever the rounding.
+        sim::GenomeParams gp;
+        gp.scheme = sim::Inheritance::Majority;
+        gp.threshold = sim::mutationThreshold(0.01);
+        gp.birthBias = sim::kBirthBiasFull / 2;
+        out.push_back({"Genome with a half-strength birth bias", genomeExpression(), {}, gp});
+    }
+    {
         sim::ResourceParams rp;
         rp.regen = 0.04f;
         rp.minSeed = 0.001f;
