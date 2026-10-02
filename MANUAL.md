@@ -64,6 +64,10 @@ Three regions: a **transport bar** across the top, a **panel column** down the l
 
 The transport bar holds play/pause, single step, burst, the rate slider, and readouts for the generation, the achieved generations per second and the frame rate. It never scrolls away. At the right it names the running rule and which backend is executing it.
 
+The **rate** steps a 1-2-5 ladder — 1, 2, 5, 10, 20, 50 and so on — rather than sliding continuously, so a drag always lands on a round number. `,` and `.` move one stop slower or faster, which is usually quicker than reaching for the slider. The label shows the rate actually in force, which is not always a ladder value: a rate given with `--rate` or restored from a session keeps exactly what it was set to until you move the control.
+
+Rate is a target, not a promise. When the machine cannot keep up the bar says **below target** and the step cap has been reduced to keep the window responsive; nothing about the automaton changes, only how often it is stepped.
+
 The left column is a stack of collapsing sections, ordered roughly by when you need them. Each is described below; the **Keys** section at the bottom lists every shortcut, and `F1` or `?` opens it.
 
 ### Rule

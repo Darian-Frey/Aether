@@ -1,6 +1,8 @@
 // Mouse and keyboard over the viewport: pan, zoom, paint.
 
 #include "ui/app.hpp"
+
+#include "ui/rate.hpp"
 #include "ui/brush.hpp"
 
 #include <imgui.h>
@@ -87,6 +89,15 @@ void App::updateCanvas(double /*dt*/) {
         if (IsKeyPressed(KEY_F1) || IsKeyPressed(KEY_SLASH)) showHelp_ = !showHelp_;
         if (IsKeyPressed(KEY_R)) sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
         if (IsKeyPressed(KEY_C)) sim_->clear();
+        // Speed, one ladder stop at a time (IMP-012). `,` and `.` read as `<`
+        // and `>`; the brackets below are the brush radius and were there first.
+        // Repeat rather than Pressed, so holding a key walks the ladder.
+        if (IsKeyPressedRepeat(KEY_COMMA) || IsKeyPressed(KEY_COMMA)) {
+            sch.setTargetRate(rateAt(slowerStop(sch.targetRate())));
+        }
+        if (IsKeyPressedRepeat(KEY_PERIOD) || IsKeyPressed(KEY_PERIOD)) {
+            sch.setTargetRate(rateAt(fasterStop(sch.targetRate())));
+        }
         if (IsKeyPressed(KEY_LEFT_BRACKET))  brush_.radius = std::max(0, brush_.radius - 1);
         if (IsKeyPressed(KEY_RIGHT_BRACKET)) brush_.radius = std::min(64, brush_.radius + 1);
         for (int k = 0; k <= 9; ++k) {

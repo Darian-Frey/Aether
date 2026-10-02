@@ -222,7 +222,11 @@ private:
     std::vector<float> density_;
     int newWidth_ = 512, newHeight_ = 512, newDepth_ = 1;
     int burstCount_ = 1000;
-    float targetGpsLog_ = 0.0f;   // log10 of the target, for the slider
+    // The rate to give a new simulation, so that building a grid or loading a
+    // session keeps the speed the window was running at. The rate itself rather
+    // than a slider position, since the control now steps a ladder and reads the
+    // scheduler directly (IMP-012).
+    double targetGps_ = 60.0;
     bool  cellMutationOn_ = false;
     int   cellMutationBlock_ = 0;   // shift: 0 = per cell
     bool  ruleMutationOn_ = false;

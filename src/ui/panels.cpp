@@ -2,6 +2,8 @@
 
 #include "ui/app.hpp"
 
+#include "ui/rate.hpp"
+
 #include "rule/compile.hpp"
 #include "sim/fill.hpp"
 #include "sim/session.hpp"
@@ -77,11 +79,18 @@ void App::drawTransportBar() {
     ImGui::TextUnformatted("Rate");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(180);
-    if (ImGui::SliderFloat("##rate", &targetGpsLog_, -1.0f, 4.0f,
-                           std::format("{:.3g} gen/s", std::pow(10.0, targetGpsLog_)).c_str())) {
-        sch.setTargetRate(std::pow(10.0, targetGpsLog_));
+    // A stop on the 1-2-5 ladder rather than a continuous logarithm, so a drag
+    // always lands on a round number (IMP-012). The label shows the rate
+    // actually in force, which is not always a ladder value: a rate from a
+    // session or the command line keeps whatever it was set to until the control
+    // is touched, rather than being silently snapped.
+    int stop = nearestRateStop(sch.targetRate());
+    if (ImGui::SliderInt("##rate", &stop, 0, kRateStops - 1,
+                         std::format("{:.3g} gen/s", sch.targetRate()).c_str())) {
+        sch.setTargetRate(rateAt(stop));
     }
-    hint("Generations per second, independent of frame rate");
+    hint("Generations per second, independent of frame rate.\n"
+         ", and . step one stop slower or faster");
 
     ImGui::SameLine(0, 24);
     const auto& st = sch.stats();
@@ -192,6 +201,7 @@ void App::drawHelpPanel() {
     static const std::pair<const char*, const char*> keys[] = {
         {"Space", "pause or resume"},
         {"N", "one generation"},
+        {", / .", "slower / faster, one stop"},
         {"R / C", "random fill / clear"},
         {"F", "fit the grid to the view"},
         {"0–9", "choose the brush state"},

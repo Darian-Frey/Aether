@@ -25,6 +25,17 @@ Entries are kept in ID order within each section. Entry format:
 
 *None.*
 
+### IMP-012: the rate slider is too coarse to aim
+**Status:** applied 2026-10-02
+**Found:** 2026-10-02 (asked for directly)
+**Location:** `src/ui/panels.cpp` (the transport bar), `src/ui/canvas.cpp`
+**Effort:** small
+**Description.** The step rate was a continuous logarithmic slider from 0.1 to 10,000 generations per second in 180 pixels. Five decades across 180 pixels is about 36 pixels a decade, so one pixel of drag is a 6% change and landing on a particular rate is luck. It is worst at the slow end, which is exactly where somebody watching an automaton wants to be — the difference between 1 and 2 generations a second is three pixels.
+**As built.** The control steps a **1-2-5 ladder** instead: sixteen stops covering the same five decades, every one a round number. 1-2-5 rather than powers of two because the rates people ask for out loud — one, ten, sixty, a thousand — are round in decimal. `,` and `.` move one stop, reading as `<` and `>`; the brackets were already the brush radius and were there first.
+Two details worth keeping. The ladder lives in `src/ui/rate.hpp`, pure and tested without a window, so the numbers are written once. And a rate that is *not* on the ladder — from `--rate` or a session — is left alone: the slider sits at the nearest stop while the label shows the rate actually in force, and only a deliberate move snaps it. Silently rounding somebody's configured 47 gen/s to 50 on load would be the control editing the session.
+Nearest is measured by **ratio** rather than difference, because the ladder is geometric: 80 gen/s is nearer 50 by difference and nearer 100 by ratio, and the ratio is what the eye agrees with on a logarithmic control.
+`App` no longer keeps the slider's position; it carries the rate across a new grid or a loaded session by reading it from the outgoing scheduler, so no control has to remember to write it down.
+
 ## Applied
 
 ### IMP-011: the equivalence sweep never checks that it compared anything

@@ -48,6 +48,7 @@ add_executable(aether_tests
     render/orbit_test.cpp
     render/renderer3d_test.cpp
     ui/brush_test.cpp
+    ui/rate_test.cpp
     sim/paint_test.cpp)
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})

@@ -112,7 +112,7 @@ int App::run() {
         newWidth_ = static_cast<int>(opts_.width);
         newHeight_ = static_cast<int>(opts_.height);
         newDepth_ = static_cast<int>(opts_.depth);
-        targetGpsLog_ = static_cast<float>(std::log10(std::max(0.1, opts_.targetGps)));
+        targetGps_ = opts_.targetGps;
         if (opts_.ruleMutationInterval > 0) {
             ruleMutationOn_ = true;
             ruleInterval_ = static_cast<int>(opts_.ruleMutationInterval);
@@ -574,8 +574,11 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
         log_.error(std::format("grid {}x{}: {}", width, height, e->message));
         return false;
     }
+    // Carry the rate over from whatever was running, read from the scheduler
+    // rather than from a field the controls have to remember to update.
+    if (sim_) targetGps_ = sim_->scheduler().targetRate();
     sim_.emplace(std::get<sim::Simulation>(std::move(made)));
-    sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
+    sim_->scheduler().setTargetRate(targetGps_);
     sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0,
                           static_cast<uint8_t>(cellMutationBlock_));
     sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
@@ -592,8 +595,9 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
 }
 
 bool App::adoptSimulation(sim::Simulation&& s, const char* what) {
+    if (sim_) targetGps_ = sim_->scheduler().targetRate();
     sim_.emplace(std::move(s));
-    sim_->scheduler().setTargetRate(std::pow(10.0, targetGpsLog_));
+    sim_->scheduler().setTargetRate(targetGps_);
     sim_->scheduler().setPaused(true);
     newWidth_ = static_cast<int>(sim_->spec().width);
     newHeight_ = static_cast<int>(sim_->spec().height);
