@@ -420,6 +420,21 @@ One finding worth carrying, and it is documented in SPEC §7 rather than left to
 **Status:** Not started
 **Notes:** Added 2026-09-16 by D-019. The design note wants these to watch predator–prey oscillation; they are just as necessary for watching a genome sweep a grid under F-033. The readback constraint is not an optimisation — a population graph fed by a per-generation `glGetTexImage` would reintroduce AV-002 permanently, in the one place it would never be noticed as a cause.
 
+### F-037 Placing a pattern into a volume
+**Priority:** Should
+**Acceptance:**
+- A pattern can be placed into a 3D grid from the interface, at a position the user chooses
+- The preview shows where it will land before the click, and a refusal is visible before it rather than logged after
+- The engine side is reused rather than duplicated: one `blitPattern`, one `patternFits`, one journal event
+**Status:** Complete (2026-10-02). The engine has been able to carry and place a 3D pattern since F-012 — `Pattern` has a `depth`, `blitPattern` loops over it, the native format writes it and `patternFits` checks it against the grid — but the Patterns panel was hidden behind `!is3D()` and `pendingOrigin` returned a 2D pair. So the capability existed and nothing could reach it, which `patterns/bays-shell.pattern` demonstrates by having sat in the library since F-027 as a 3×3×3 pattern no user could place.
+
+Placement borrows slice mode's plane rather than inventing a gesture. A volume has no single cell under the cursor — a ray crosses the whole grid — so `pendingOrigin3D` picks on the slab `pickOnSlab` already paints on, centres the pattern in the slab's two axes and starts it at the slice index in the third. A 2D pattern, being one cell deep, therefore lands exactly on the slice you are looking at. Slice mode must be on, which the panel says before you pick a pattern up rather than only in the refusal.
+
+The preview is a wireframe box and deliberately not the cells. The 2D preview puts them through the grid's own palette pass (IMP-008); the equivalent here would be a second volume raymarch of a texture that lives for one frame. A box says where the pattern goes and how big it is, which is the part the panel cannot tell you. Its twelve edges come from the eight corners through `Orbit::project` — added for this and the exact inverse of the `rayFor` the click is picked with, so the box cannot drift from the cells that will be written. A corner behind the camera has no pixel and its edges are dropped rather than drawn to a mirrored point.
+
+Extraction is **not** included and the panel says so. A screen rectangle over a volume does not name a region — it names everything behind it — so selection in 3D is a different gesture from the 2D one and belongs with whoever designs it. What the panel used to do instead was offer "shift-drag the grid to select a region to save" in a view where shift-drag does nothing.
+**Notes:** Logged 2026-10-02 as the honest fix for BUG-024, which found both bundled 3D rules describing behaviour the engine could not produce: their headers point at designed configurations, and there was no way to put one in. BUG-023, the seeding density, was the other half and is a smaller effect — it roughly doubles the span in which a 3D soup is worth watching and does not change where it ends up.
+
 ## Presentation
 
 ### F-018 2D rendering

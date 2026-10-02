@@ -1,4 +1,34 @@
 # name: 3D Life 4555 (Bays)
-# description: Survive on 4 or 5, born on 5. Bays' first stable three-dimensional Life.
+# description: Survive on 4 or 5, born on 5. Bays' first three-dimensional Life, and the one his designed structures are built for. A random soup loses about 99% of its cells in the first hundred generations and then settles — into still lifes and a period-4 oscillator, not into nothing. Place the Bays shell from the Patterns panel to see what the rule is for.
 # dimensions: 3
 B5/S45
+#
+# Transcribed from Carter Bays, "Candidates for the Game of Life in Three
+# Dimensions" (Complex Systems 1, 1987). Bays writes a rule as four numbers —
+# environment-lower, environment-upper, fertility-lower, fertility-upper — so
+# 4555 is survive on 4 or 5, born on exactly 5. That is what `B5/S45` says.
+#
+# What a soup does, on 48x48x48 at the default density of 0.17, seed 1:
+#
+#     generation      0      25      50     100     400
+#     cells      19,244  10,159   1,932      42      42
+#
+# The drop looks like extinction and is not. What is left at generation 100 is
+# still there at 400, and 28 of those 42 cells are a period-4 oscillator — the
+# same ending 2D Life has, reached faster and from much further up. Across four
+# seeds the residue was 42 to 80 cells and the period was 4 every time.
+#
+# It is still a far smaller and duller endpoint than Bays' own results, and the
+# reason is the soup rather than the rule. Twenty-six neighbours spread the
+# count much wider than eight do, so against a survival band two counts wide
+# almost every cell in a soup is over- or under-populated. His published
+# structures are designed and seeded, never grown from noise.
+#
+# Which is why the default density is derived from the band rather than fixed
+# (BUG-023): 4.5 expected neighbours out of 26 is 0.17, where the conventional
+# 0.3 would give 7.8 against a rule that survives on 4 or 5. It buys roughly
+# thirty times as many cells at generation 50 and does not change the ending.
+#
+# `patterns/bays-shell.pattern` is the other half: twelve cells that hold their
+# shape indefinitely, which `tests/sim/pattern_3d_test.cpp` checks by running
+# them. Press S for slice mode, then click to place it (F-037).

@@ -96,6 +96,10 @@ Click a pattern and it follows the cursor, **drawn in the colours it will become
 
 Shift-drag the viewport to select a region, and the panel will write it back out as a file. The format follows the pattern rather than your file name: Golly's extended RLE where RLE reaches, and a native `.pattern` where it does not — hexagonal, 3D and continuous patterns all need the latter.
 
+**In a volume** the panel works the same way with one extra step: press `S` for slice mode first, because a click in a 3D view has no single cell behind it — a ray crosses the whole grid. The pattern is placed on the slice you are painting on, centred on the cursor within it, with its own depth running away from you along the slice axis. A flat pattern is one cell deep and so lands exactly on the slice you can see. Instead of the coloured preview you get a wireframe box, which is what tells you the size and position; the colours would need a second volume render for a pattern that exists until the next click.
+
+Selecting a region is 2D only. A rectangle dragged across a volume names everything behind it rather than a region, so there is no sensible reading of the gesture.
+
 ### Grid
 
 Size fields and a **New grid** button; then the actions, then the densities.
@@ -248,7 +252,11 @@ A 1D run starts from a single live cell, which is how these are usually read. Ov
 
 **Two dimensions** is the default, and the one everything else is easiest in.
 
-**Three dimensions** comes from a depth: `--size 64x64x64`. The grid is drawn as a volume; right-drag orbits, the wheel zooms, `S` enters slice mode so you can draw on one plane at a time, and `,` / `.` move the slice. The View section has clip planes and opacity for seeing inside.
+**Three dimensions** comes from a depth: `--size 64x64x64`. The grid is drawn as a volume; right-drag orbits, the wheel zooms, `S` enters slice mode so you can draw on one plane at a time, and `-` / `=` move the slice. The View section has clip planes and opacity for seeing inside. Patterns can be placed on a slice too — see the Patterns section.
+
+A warning worth having before you start: **a three-dimensional soup collapses.** Both bundled Bays rules lose around 99% of their cells in the first fifty to a hundred generations and then settle into a few dozen still lifes with an oscillator among them. This is the rules rather than a defect. Twenty-six neighbours spread the live count much wider than eight do, so against a survival band two counts wide almost every cell in a random fill is over- or under-populated. Bays' published results are all *designed* starts, which is what `patterns/bays-shell.pattern` is for: twelve cells that hold their shape indefinitely. Place it on an empty grid rather than seeding one.
+
+The seeding density helps and does not cure it. A two-state rule is seeded so that the expected number of live neighbours lands in the middle of the counts it is alive on, so 4555 gets 0.17 rather than the 0.3 a 2D rule would want — which buys about thirty times as many cells at generation 50 and the same ending.
 
 **Hexagonal lattices** come from the rule, not the grid: `neighbourhood hex 1` gives six neighbours. Storage is axial, so a W×H hex grid is a rhombus on screen rather than a rectangle, and wrapping is a rhombic torus. Hex neighbourhoods are two-dimensional only.
 
@@ -443,7 +451,9 @@ No states, no counting — a kernel convolved over the neighbourhood and a growt
 ./build/aether --rule @life-3d-4555 --size 64x64x64
 ```
 
-Bays' first stable three-dimensional Life. Right-drag to orbit. Use the View section's clip planes to cut into the volume, and `S` then `,` / `.` to draw on one slice at a time.
+Bays' first three-dimensional Life. Right-drag to orbit. Use the View section's clip planes to cut into the volume, and `S` then `-` / `=` to draw on one slice at a time.
+
+Watch what the soup does: about 99% of it is gone by generation 100, leaving a few dozen cells of which some are a period-4 oscillator. That is the rule, not a fault — see **Dimensions and lattices** above. For what the rule is actually for, clear the grid with `C`, press `S` for slice mode, then pick **Bays shell** from the Patterns panel and click a slice. Twelve cells that hold their shape for as long as you care to run them.
 
 ### A run that drifts, and getting back what it found
 
@@ -487,6 +497,7 @@ Five thousand generations with both mutations running, replayed from the initial
 |---|---|
 | `Space` | pause or resume |
 | `N` | one generation |
+| `,` / `.` | slower / faster, one stop |
 | `R` / `C` | random fill / clear |
 | `F` | fit the grid to the view |
 | `0`–`9` | choose the brush state |
@@ -501,7 +512,7 @@ Five thousand generations with both mutations running, replayed from the initial
 | Right drag | pan (2D) or orbit (3D) |
 | Wheel | zoom |
 | `S` | 3D: slice mode |
-| `,` / `.` | 3D: move the slice |
+| `-` / `=` | 3D: move the slice |
 
 ### Command line
 

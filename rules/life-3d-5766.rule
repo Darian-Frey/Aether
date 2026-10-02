@@ -1,4 +1,22 @@
 # name: 3D Life 5766 (Bays)
-# description: Survive on 5 to 7, born on 6. A denser cousin of 4555.
+# description: Survive on 5 to 7, born on 6. A denser cousin of 4555 and a quicker one to settle — a soup is down to its final few hundred cells inside fifty generations, as still lifes with sometimes a period-2 oscillator among them.
 # dimensions: 3
 B6/S567
+#
+# Transcribed from Carter Bays, "Candidates for the Game of Life in Three
+# Dimensions" (Complex Systems 1, 1987), in his environment/fertility notation:
+# survive on 5 to 7, born on exactly 6.
+#
+# What a soup does, on 48x48x48 at the default density of 0.23, seed 1:
+#
+#     generation      0      25      50     100     400
+#     cells      25,742   2,092     182     182     182
+#
+# Settled by about generation 50, which is twice as fast as 4555, and it keeps
+# more cells while doing it — the wider survival band is the whole of what
+# "denser cousin" was ever claiming. Whether anything still moves depends on
+# the soup: of four seeds tried, two ended with a period-2 oscillator and two
+# froze completely. 4555 is the better of the pair to watch for that reason.
+#
+# See that rule's header for why a three-dimensional soup collapses at any
+# density, and for what to do instead of starting from one.

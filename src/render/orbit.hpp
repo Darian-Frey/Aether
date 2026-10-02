@@ -13,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <utility>
 
 namespace aether::render {
 
@@ -62,6 +63,25 @@ struct Orbit {
         const double aspect = vp.w / vp.h;
         const Vec3 dir = (forward + right * (ndcX * t * aspect) + up * (ndcY * t)).normalised();
         return {position(), dir};
+    }
+
+    // The screen pixel a world point falls on, or nothing when it is at or
+    // behind the camera plane, where there is no pixel to name. The exact
+    // inverse of `rayFor`, written from the same basis and the same tangent, so
+    // a point picked off the screen and projected back lands where it started —
+    // which is what keeps a pattern's preview on the cell it will be placed at
+    // (F-037).
+    std::optional<std::pair<double, double>> project(Vec3 world, const Rect& vp) const {
+        const auto [forward, right, up] = basis();
+        const Vec3 rel = world - position();
+        const double z = rel.dot(forward);
+        if (z <= 1e-9) return std::nullopt;
+        const double t = std::tan(fovY * 0.5);
+        const double aspect = vp.w / vp.h;
+        const double ndcX = rel.dot(right) / (z * t * aspect);
+        const double ndcY = rel.dot(up) / (z * t);
+        return std::pair{vp.x + (ndcX + 1.0) * 0.5 * vp.w,
+                         vp.y + (1.0 - ndcY) * 0.5 * vp.h};
     }
 
     // Cell hit by the pixel's ray on the axis-aligned slab of thickness one

@@ -296,18 +296,22 @@ Widening the pad to hold fields was the alternative and was rejected: a pattern 
 **Resolution (2026-09-26).** `Scratch::make` and `Scratch::setRule` refuse a rule that declares auxiliary fields, with a message the editor logs, so opening the pad on a multi-field rule says so instead of crashing. `sim/inspect.hpp` records that it is state-only and why. The equivalence sweep's inspector cases skip fixtures with fields rather than being handed a rule they cannot describe.
 
 ### BUG-023: the default seed density ignores the neighbourhood, so every 3D rule is over-crowded
-**Status:** open
+**Status:** fixed
 **Found:** 2026-10-02 (checking why both bundled 3D Life rules appear to die out)
 **Location:** `src/sim/fill.cpp` (`defaultDensity`)
 **Severity:** low
 **Description.** `defaultDensity` returns 0.3 for any two-state rule, whatever the lattice. In 2D Moore that is 8 × 0.3 ≈ 2.4 expected live neighbours, which sits squarely in Life's survival band of 2–3 — the number is not arbitrary, it is the conventional Life soup. In **3D Moore the same 0.3 is 26 × 0.3 ≈ 7.8**, and Bays' 4555 survives on 4 or 5. Almost every cell is over-crowded on the first generation.
 Measured on a 48³ grid, `life-3d-4555` from the default soup: 33,203 cells alive at generation 0, 2,461 by generation 25, 56 by generation 50. At 0.15 the same rule holds 1,789 cells at generation 50 — about thirty times as many — so the default roughly halves the time the rule is worth watching.
 **Reproduction.** Open either bundled 3D rule and press play. The grid empties within a few seconds of real time.
-**Notes.** This is a contributing cause and not the whole story, which is why it is logged separately from BUG-024. Both rules collapse to a frozen residue at *every* density tried between 0.05 and 0.30 — that part is the rules behaving as published. What the density does is make the collapse about twice as fast as it needs to be.
-A principled fix is available and is more than a constant: for a table rule the engine can read which neighbour counts the rule survives on and seed at a density whose expected count lands in that band — `density = midpoint / N`. That keeps one number for 2D Life (2.5/8 = 0.31, which is what it already uses) and gives 4555 about 0.17 without anybody choosing it. Logged rather than applied, per the convention: it changes the seeding of every rule in the library and therefore every session's stream A draws, so it is the author's call.
+**Notes.** This is a contributing cause and not the whole story, which is why it is logged separately from BUG-024. Both rules collapse to a small residue at *every* density tried between 0.05 and 0.30 — that part is the rules behaving as published. What the density does is make the collapse about twice as fast as it needs to be.
+A principled fix is available and is more than a constant: for a table rule the engine can read which neighbour counts the rule survives on and seed at a density whose expected count lands in that band — `density = midpoint / N`. That keeps one number for 2D Life (2.5/8 = 0.31, which is what it already uses) and gives 4555 about 0.17 without anybody choosing it. Logged rather than applied, per the convention: it changes what a freshly seeded grid of every rule in the library looks like, so it is the author's call.
+It does **not** break an existing session, which the first draft of this entry claimed it would. Three things independently prevent that: `EvFill` carries the density it was given rather than re-deriving one, a session stores generation 0 as bytes, and `fillRandomRegion` draws exactly one value per cell whatever the density, so stream A's position is a function of the grid alone. Checked rather than assumed, after the claim had been written down.
+**Resolution (2026-10-02).** `defaultDensity` reads the band out of the rule's own table for a two-state table rule and seeds at `mean(band) / N`, so the expected number of live neighbours lands in the middle of the counts the rule is alive in. 2D Life goes from 0.3 to 2.5/8 = 0.3125, 4555 to 4.5/26 = 0.173 and 5766 to 6/26 = 0.231.
+The restriction to two-state table rules is deliberate: a rule with an ageing tail or a lifespan has several live states so "the live-neighbour count" is not one number, and an expression rule has no table to read. Those keep the conventional 30%, which is a known default rather than a derivation that is really a guess.
+Effect, on 48³ seed 1: 4555 holds 1,932 cells at generation 50 against 56 before, thirty-four times as many. It does not change where the run ends up — see BUG-024's correction — but it roughly doubles the span in which there is something to watch.
 
 ### BUG-024: both bundled 3D rules claim to be stable and collapse to still lifes
-**Status:** open
+**Status:** fixed
 **Found:** 2026-10-02 (the same investigation)
 **Location:** `rules/life-3d-4555.rule`, `rules/life-3d-5766.rule`
 **Severity:** low
@@ -316,6 +320,31 @@ Measured on 48³ at the default density, with the number of cells that *change* 
 Both transcriptions are **correct** — Bays writes his rules as environment-lower, environment-upper, fertility-lower, fertility-upper, so 4555 is survive 4–5 born 5 and 5766 is survive 5–7 born 6, which is what the files say. The rules are not wrong and neither is the engine. What is wrong is a header that invites somebody to press play and conclude the feature is broken.
 **Notes.** The same class as BUG-017 and BUG-018: a documented claim that is not what happens. The word doing the damage is "stable", which in Bays' work means that *designed* configurations persist and support gliders, not that a soup settles into anything. A 3D Life rule has a narrow survival band against the variance of twenty-six neighbours, so almost every cell in a soup is over- or under-populated; collapse is the expected outcome and the published results are about seeded starts.
 Which exposes the real gap rather than a wording problem: **there is no way to seed a 3D rule from a designed configuration.** Pattern placement is 2D only (F-012), so Bays' rules cannot be tried the way they are meant to be tried, and the headers describe behaviour the engine cannot currently produce. Fixing the wording is five minutes; the honest fix is 3D pattern support, which is a feature and not a bug.
+
+**Correction (2026-10-02).** The sentence above saying "the residue is still lifes" is wrong, and it is wrong in the way this entry is *about* — a confident claim from one measurement. It came from one seed at one density. Counting cells that change between consecutive generations, rather than counting cells:
+
+| rule | density | seeds tried | settled population | period |
+|---|---|---|---|---|
+| 4555 | 0.30 | 3 | 40–84 | **4**, every time |
+| 4555 | 0.17 (derived) | 4 | 42–80 | **4**, every time |
+| 5766 | 0.30 | 3 | 185–195 | 1, 2, 2 |
+| 5766 | 0.23 (derived) | 4 | 136–198 | 2, 1, 2, 1 |
+
+So 4555 reliably ends in still lifes *and a period-4 oscillator*, which is the same kind of ending 2D Life has; 5766 freezes or oscillates depending on the soup, and the original "0 moving" was a real observation of one of the seeds that freezes. Neither rule dies out. What they do is lose about 99% of their cells, which from the outside looks the same and is what prompted the report.
+The method is the lesson: a population count cannot tell a still life from an oscillator, and every figure in the first draft was a population count. Nothing moving is a claim about *cells*, and it needs a comparison between generations to make.
+**Resolution (2026-10-02).** Both headers rewritten against measurements taken for the purpose, with the generation-by-generation figures in the file and the period of what survives. Each says what a reader will see, that the collapse is the rule rather than a defect, and what to do instead — which is now a real instruction rather than a wish, because F-037 made the bundled `bays-shell.pattern` placeable. That pattern had been in `patterns/` since F-027 and could not be reached from the interface in a volume, which is this entry's "no way to seed a 3D rule from a designed configuration" in its most literal form: the configuration was already there.
+
+### BUG-025: the new rate keys were already the 3D slice keys
+**Status:** fixed
+**Found:** 2026-10-02 (reading `updateCanvas` for an unrelated reason, hours after the commit that caused it)
+**Location:** `src/ui/canvas.cpp`
+**Severity:** medium
+**Description.** IMP-012 put `,` and `.` on the step rate in `updateCanvas`'s shared shortcut block, which is where a key that is not about dimensionality belongs. Both were already bound, inside the `is3D()` branch, to moving the slice. The shared block runs first and does not consume the press, so in a 3D run one tap of `.` both advances the slice and steps the rate up.
+The in-app Keys list said so outright — `, / .` appeared twice in it, once for the rate and once for the slice — and the list is nineteen rows that I had just edited. `MANUAL.md` had the slice binding in three places and the rate in none, because IMP-012 updated the transport-bar prose and not the key table.
+**Reproduction.** `./build/aether --rule @life-3d-4555 --size 48x48x48`, press `S` for slice mode, then `.`. The slice advances and the rate doubles.
+**Notes.** The pitfall CLAUDE.md records about this block is the right half of the rule and I followed it: a key that means the same thing in every dimension goes above the branch. What it does not say, and now will, is that putting one there means checking the per-dimension blocks below have not already claimed it. "Shared" is not "free".
+The collision is one-way, which is what let it through: in 2D the keys do only what IMP-012 intended, and 2D is where the screenshot that verified the slider was taken.
+**Resolution (2026-10-02).** The slice moves to `-` and `=`, which nothing else uses. The rate keeps `,` and `.`: it is the control that exists in every dimension, and `<`/`>` is what the keycaps say. Both key lists and the manual's three references are corrected, and the manual's key table gained the rate row it never had.
 
 ## Won't Fix
 

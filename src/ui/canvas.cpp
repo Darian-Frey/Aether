@@ -119,8 +119,11 @@ void App::updateCanvas(double /*dt*/) {
         if (!io.WantCaptureKeyboard) {
             if (IsKeyPressed(KEY_S)) sliceMode_ = !sliceMode_;
             const int ext = static_cast<int>(sliceAxis_ == 0 ? sim_->spec().width : sliceAxis_ == 1 ? sim_->spec().height : sim_->spec().depth);
-            if (IsKeyPressed(KEY_COMMA))  sliceIndex_ = std::max(0, sliceIndex_ - 1);
-            if (IsKeyPressed(KEY_PERIOD)) sliceIndex_ = std::min(ext - 1, sliceIndex_ + 1);
+            // `-` and `=` rather than `,` and `.`: those are the step rate,
+            // which means the same thing in every dimension and is in the
+            // shared block above (BUG-025).
+            if (IsKeyPressed(KEY_MINUS)) sliceIndex_ = std::max(0, sliceIndex_ - 1);
+            if (IsKeyPressed(KEY_EQUAL)) sliceIndex_ = std::min(ext - 1, sliceIndex_ + 1);
         }
 
         if (io.WantCaptureMouse && !panning_ && !lastPaintCell_) return;
@@ -134,6 +137,33 @@ void App::updateCanvas(double /*dt*/) {
         } else {
             panning_ = false;
         }
+        // A pending pattern takes the left button here exactly as it does in
+        // 2D, and for the same reason: placing triggers on the press and
+        // painting on the button being down, so one click would otherwise
+        // place the pattern and then daub over it (BUG-012, F-037).
+        if (pending_) {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && overViewport && sliceMode_) {
+                if (const auto origin = pendingOrigin3D()) {
+                    const auto& o = *origin;
+                    if (o[0] < 0 || o[1] < 0 || o[2] < 0) {
+                        log_.error("the pattern would hang over the edge of the grid");
+                    } else if (auto e = sim_->placePattern(*pending_, static_cast<uint32_t>(o[0]),
+                                                           static_cast<uint32_t>(o[1]),
+                                                           static_cast<uint32_t>(o[2]))) {
+                        log_.error(e->message);
+                    } else {
+                        log_.info(std::format("placed {} at ({}, {}, {})",
+                                              pending_->name.value_or("pattern"), o[0], o[1], o[2]));
+                        setPending(std::nullopt);
+                        swallowLeft_ = true;
+                    }
+                }
+            }
+            lastPaintCell_.reset();
+            return;
+        }
+
+        if (swallowLeft_) { lastPaintCell_.reset(); return; }
         if (sliceMode_ && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && (lastPaintCell_ || overViewport)) {
             const auto& sp = sim_->spec();
             const auto hit = orbit_.pickOnSlab(m.x, m.y, viewport_, sliceAxis_, sliceIndex_, sp.width, sp.height, sp.depth);

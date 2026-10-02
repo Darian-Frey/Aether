@@ -127,6 +127,12 @@ private:
     std::optional<std::pair<int, int>> cellUnderCursor() const;
     std::optional<std::pair<int, int>> pendingOrigin() const;   // where it would land, in cells
     std::optional<std::string> pendingProblem() const;          // why it would not, or nothing
+    // The 3D counterparts (F-037). A volume has no single cell under the
+    // cursor, so placement borrows slice mode's plane: the pick is on the slab
+    // the brush already paints on, and the pattern's depth runs away from it
+    // along the slice axis. Returns the origin corner, as the 2D pair does.
+    std::optional<std::array<int, 3>> pendingOrigin3D() const;
+    void drawPatternPreview3D();      // the footprint as a wireframe box
     void loadLibraryRule(const rule::LibraryRule& entry);
     void applyPaletteOverrides(const rule::RuleIR& ir);
     void saveSessionTo(const std::string& path);

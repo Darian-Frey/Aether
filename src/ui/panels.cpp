@@ -126,8 +126,8 @@ void App::drawPanels() {
     // first two so that the column fits on one screen.
     if (ImGui::CollapsingHeader("Rule", ImGuiTreeNodeFlags_DefaultOpen)) drawRulePanel();
     if (!library_.empty() && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) drawLibraryPanel();
-    if (!is3D() && ImGui::CollapsingHeader("Patterns",
-                                           (pending_ || !patternLibrary_.empty()) ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+    if (ImGui::CollapsingHeader("Patterns",
+                                (pending_ || !patternLibrary_.empty()) ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         drawPatternsPanel();
     }
     if (ImGui::CollapsingHeader("Grid")) drawGridPanel();
@@ -215,7 +215,7 @@ void App::drawHelpPanel() {
         {"Right drag", "pan (2D) or orbit (3D)"},
         {"Wheel", "zoom"},
         {"S", "3D: slice mode"},
-        {", / .", "3D: move the slice"},
+        {"- / =", "3D: move the slice"},
     };
     if (ImGui::BeginTable("keys", 2, ImGuiTableFlags_SizingFixedFit)) {
         for (const auto& [key, what] : keys) {
@@ -891,11 +891,58 @@ std::optional<std::pair<int, int>> App::pendingOrigin() const {
                      cell->second - static_cast<int>(pending_->height) / 2};
 }
 
+// The same, in a volume (F-037). There is no one cell under a cursor in a
+// volume — a ray crosses the whole grid — so placement borrows the plane slice
+// painting already uses: the pick is on the slab, and the pattern's own depth
+// runs from it along the slice axis.
+//
+// Centred on the cursor in the slab's two axes and *not* in the third, because
+// the slab is where the click landed: a pattern placed on slice 8 should start
+// at 8, not straddle it. That also means a 2D pattern, which is one cell deep,
+// goes exactly onto the slice you are looking at.
+std::optional<std::array<int, 3>> App::pendingOrigin3D() const {
+    if (!pending_ || !sim_ || !is3D()) return std::nullopt;
+    const Vector2 m = GetMousePosition();
+    if (m.x < viewport_.x || m.y < viewport_.y ||
+        m.x >= viewport_.x + viewport_.w || m.y >= viewport_.y + viewport_.h) {
+        return std::nullopt;
+    }
+    const auto& sp = sim_->spec();
+    const auto hit = orbit_.pickOnSlab(m.x, m.y, viewport_, sliceAxis_, sliceIndex_,
+                                       sp.width, sp.height, sp.depth);
+    if (!hit) return std::nullopt;
+
+    const uint32_t ext[3] = {pending_->width, pending_->height, pending_->depth};
+    std::array<int, 3> origin = *hit;
+    for (size_t a = 0; a < 3; ++a) {
+        if (a == static_cast<size_t>(sliceAxis_)) continue;
+        origin[a] -= static_cast<int>(ext[a]) / 2;
+    }
+    return origin;
+}
+
 // Why the pending pattern could not be placed where the cursor is, or
 // nothing. Asked of the engine rather than guessed at here, so the preview
 // cannot disagree with what the click will do.
 std::optional<std::string> App::pendingProblem() const {
     if (!pending_ || !sim_) return std::nullopt;
+    if (is3D()) {
+        if (!sliceMode_) return std::string("press S for slice mode to place a pattern");
+        const auto o = pendingOrigin3D();
+        if (!o) {
+            if (auto e = sim_->canPlace(*pending_, 0, 0, 0)) return e->message;
+            return std::nullopt;
+        }
+        if ((*o)[0] < 0 || (*o)[1] < 0 || (*o)[2] < 0) {
+            return std::string("it would hang over the edge of the grid");
+        }
+        if (auto e = sim_->canPlace(*pending_, static_cast<uint32_t>((*o)[0]),
+                                    static_cast<uint32_t>((*o)[1]),
+                                    static_cast<uint32_t>((*o)[2]))) {
+            return e->message;
+        }
+        return std::nullopt;
+    }
     const auto origin = pendingOrigin();
     // With the cursor away from the grid there is no position to judge, but a
     // pattern for another rule is wrong wherever it goes — so ask about the
@@ -985,6 +1032,52 @@ void App::drawPatternPreview() {
     dl->PopClipRect();
 }
 
+// The pending pattern in a volume: its footprint as a wireframe box (F-037).
+//
+// Not the cells. The 2D preview puts them through the grid's own palette pass
+// so a preview shows the states it will become (IMP-008), and the equivalent
+// here would be a second volume raymarch of a texture that exists for one
+// frame. A box is honest about what it tells you — where the pattern goes and
+// how big it is — and it is the part you cannot get from the Patterns panel.
+//
+// The twelve edges come from the eight corners through `Orbit::project`, the
+// exact inverse of the ray the click is picked with, so the box cannot drift
+// from the cells that will be written. A corner behind the camera has no pixel,
+// and an edge with one is dropped rather than drawn to a mirrored point.
+void App::drawPatternPreview3D() {
+    if (!pending_ || !sim_ || !is3D()) return;
+    const auto origin = pendingOrigin3D();
+    if (!origin) return;
+    const bool fits = !pendingProblem().has_value();
+
+    const double x0 = (*origin)[0], y0 = (*origin)[1], z0 = (*origin)[2];
+    const double x1 = x0 + pending_->width, y1 = y0 + pending_->height, z1 = z0 + pending_->depth;
+    const render::Vec3 corner[8] = {
+        {x0, y0, z0}, {x1, y0, z0}, {x1, y1, z0}, {x0, y1, z0},
+        {x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1},
+    };
+    static constexpr size_t kEdges[12][2] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0},     // the z0 face
+        {4, 5}, {5, 6}, {6, 7}, {7, 4},     // the z1 face
+        {0, 4}, {1, 5}, {2, 6}, {3, 7},     // and the struts between them
+    };
+
+    std::array<std::optional<std::pair<double, double>>, 8> px;
+    for (size_t i = 0; i < 8; ++i) px[i] = orbit_.project(corner[i], viewport_);
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(viewport_.x, viewport_.y),
+                     ImVec2(viewport_.x + viewport_.w, viewport_.y + viewport_.h), true);
+    const ImU32 edge = fits ? IM_COL32(150, 200, 255, 220) : IM_COL32(235, 120, 90, 230);
+    for (const auto& e : kEdges) {
+        if (!px[e[0]] || !px[e[1]]) continue;
+        dl->AddLine(ImVec2(static_cast<float>(px[e[0]]->first), static_cast<float>(px[e[0]]->second)),
+                    ImVec2(static_cast<float>(px[e[1]]->first), static_cast<float>(px[e[1]]->second)),
+                    edge, 1.5f);
+    }
+    dl->PopClipRect();
+}
+
 // The selected region, drawn the same way and for the same reason.
 void App::drawSelection() {
     if (!selection_ || !sim_ || is3D()) return;
@@ -1038,6 +1131,14 @@ void App::savePatternFile(sim::Pattern p, std::string name, const char* fallback
 
 void App::drawPatternsPanel() {
     ImGui::PushID("patterns");
+    // In a volume a click has no single cell behind it, so placement uses the
+    // same plane slice painting does and needs slice mode on. Said here rather
+    // than only in the refusal, because a pattern that will not go anywhere
+    // until a key is pressed is worth knowing about before picking one up
+    // (F-037).
+    if (is3D() && !sliceMode_) {
+        ImGui::TextDisabled("Press S for slice mode to place into the volume.");
+    }
     if (!patternLibrary_.empty()) {
         ImGui::BeginChild("bundled", ImVec2(-1, 110), ImGuiChildFlags_Borders);
         for (const sim::LibraryPattern& entry : patternLibrary_) {
@@ -1052,7 +1153,13 @@ void App::drawPatternsPanel() {
                 log_.info(std::format("{} — click the grid to place it", entry.name));
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%ux%u · %s%s%s\n\n%s", entry.pattern.width, entry.pattern.height,
+                // A pattern with depth says so: 3x3x3 and 3x3 are different
+                // things to be handed in a volume (F-037).
+                const std::string extent = entry.pattern.depth > 1
+                    ? std::format("{}x{}x{}", entry.pattern.width, entry.pattern.height,
+                                  entry.pattern.depth)
+                    : std::format("{}x{}", entry.pattern.width, entry.pattern.height);
+                ImGui::SetTooltip("%s · %s%s%s\n\n%s", extent.c_str(),
                                   std::string(sim::toString(entry.pattern.lattice)).c_str(),
                                   entry.pattern.rule ? " · rule " : "",
                                   entry.pattern.rule ? entry.pattern.rule->c_str() : "",
@@ -1094,6 +1201,13 @@ void App::drawPatternsPanel() {
         if (ImGui::Button("Save region")) savePatternSelection();
         ImGui::SameLine();
         if (ImGui::Button("Clear")) selection_.reset();
+    } else if (is3D()) {
+        // F-037 brought placement into the volume and not extraction. A screen
+        // rectangle over a volume does not name a region — it names everything
+        // behind it — and the slab it would have to mean is a different gesture
+        // from the one 2D uses. Said rather than left as a hint that does
+        // nothing, which is what the panel used to do in 3D.
+        ImGui::TextDisabled("selecting a region is 2D only; patterns can be placed here");
     } else {
         ImGui::TextDisabled("shift-drag the grid to select a region to save");
     }
@@ -1114,13 +1228,21 @@ void App::drawPatternsPanel() {
         return;
     }
     ImGui::Text("%s", pending_->name.value_or("(unnamed)").c_str());
-    ImGui::TextDisabled("%ux%u · %s · %u states%s%s", pending_->width, pending_->height,
+    const std::string extent = pending_->depth > 1
+        ? std::format("{}x{}x{}", pending_->width, pending_->height, pending_->depth)
+        : std::format("{}x{}", pending_->width, pending_->height);
+    ImGui::TextDisabled("%s · %s · %u states%s%s", extent.c_str(),
                         std::string(sim::toString(pending_->lattice)).c_str(), pending_->states,
                         pending_->rule ? " · rule " : "", pending_->rule ? pending_->rule->c_str() : "");
-    if (is3D()) {
-        ImGui::TextDisabled("placing is 2D for now");
-    } else if (const auto why = pendingProblem()) {
+    // One branch for both dimensionalities, because `pendingProblem` answers
+    // for both now (F-037). It used to read "placing is 2D for now" in a
+    // volume, which stopped being true the moment 3D placement landed —
+    // exactly the class of documented-but-untrue claim BUG-017 and BUG-018
+    // were.
+    if (const auto why = pendingProblem()) {
         ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "will not place: %s", why->c_str());
+    } else if (is3D()) {
+        ImGui::TextDisabled("click the slice to place, Esc to cancel");
     } else {
         ImGui::TextDisabled("click the grid to place, Esc to cancel");
     }

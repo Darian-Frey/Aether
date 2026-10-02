@@ -298,7 +298,10 @@ int App::run() {
             drawPatternPreviewCells();
             if (!opts_.screensaver) {
                 rlImGuiBegin();
+                // Each returns at once in the dimensionality that is not its
+                // own, so the pair is one concept and not a branch (F-037).
                 drawPatternPreview();   // background draw list: behind the panels, over the grid
+                drawPatternPreview3D();
                 drawSelection();
                 drawPanels();
                 rlImGuiEnd();

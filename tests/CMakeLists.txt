@@ -49,11 +49,13 @@ add_executable(aether_tests
     render/renderer3d_test.cpp
     ui/brush_test.cpp
     ui/rate_test.cpp
+    sim/pattern_3d_test.cpp
     sim/paint_test.cpp)
 
 target_compile_options(aether_tests PRIVATE ${AETHER_WARNINGS})
 target_include_directories(aether_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(aether_tests PRIVATE AETHER_RULES_DIR="${CMAKE_SOURCE_DIR}/rules")
+target_compile_definitions(aether_tests PRIVATE AETHER_PATTERNS_DIR="${CMAKE_SOURCE_DIR}/patterns")
 target_link_libraries(aether_tests PRIVATE aether_core aether_rule aether_sim aether_render aether_ui Catch2::Catch2WithMain)
 
 catch_discover_tests(aether_tests)

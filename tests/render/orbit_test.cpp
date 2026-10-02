@@ -63,3 +63,48 @@ TEST_CASE("rotate clamps pitch and zoom clamps distance", "[orbit]") {
     o.zoom(1e-9);
     CHECK(o.distance == 0.5);
 }
+
+TEST_CASE("project is the inverse of rayFor (F-037)", "[orbit]") {
+    // The preview and the pick must agree about where a cell is, and the only
+    // way to be sure is to send a point round the loop: project it to a pixel,
+    // shoot a ray through that pixel, and check the ray passes through the
+    // point it came from.
+    Orbit o;
+    o.fit(32, 24, 16);
+    o.yaw = 0.7;
+    o.pitch = 0.3;
+    const Rect vp{37, 11, 800, 600};
+
+    for (const Vec3 p : {Vec3{0, 0, 0}, Vec3{32, 24, 16}, Vec3{5.5, 20.5, 3.5},
+                         Vec3{16, 12, 8}, Vec3{31, 1, 15}}) {
+        const auto px = o.project(p, vp);
+        REQUIRE(px);
+        const Ray r = o.rayFor(px->first, px->second, vp);
+        // The point lies along the ray: its distance from the line is zero.
+        const Vec3 rel = p - r.origin;
+        const Vec3 along = r.dir * rel.dot(r.dir);
+        CHECK_THAT((rel - along).length(), WithinAbs(0.0, 1e-9));
+    }
+
+    // The grid centre projects to the viewport centre, since that is what the
+    // camera is pointed at.
+    const auto mid = o.project(o.target, vp);
+    REQUIRE(mid);
+    CHECK_THAT(mid->first, WithinAbs(vp.x + vp.w * 0.5, 1e-9));
+    CHECK_THAT(mid->second, WithinAbs(vp.y + vp.h * 0.5, 1e-9));
+
+    // And a point behind the camera has no pixel rather than a mirrored one,
+    // which is the bug a naive divide gives: the far side of the orbit would
+    // draw a box behind the viewer as though it were in front.
+    const Vec3 behind = o.position() + (o.position() - o.target);
+    CHECK_FALSE(o.project(behind, vp).has_value());
+
+    // A cell picked off the screen projects back to the pixel it was picked
+    // with, to within the cell it names.
+    const auto cell = o.pickOnSlab(400, 300, vp, 2, 8, 32, 24, 16);
+    REQUIRE(cell);
+    const auto back = o.project(Vec3{(*cell)[0] + 0.5, (*cell)[1] + 0.5, (*cell)[2] + 0.5}, vp);
+    REQUIRE(back);
+    CHECK_THAT(back->first, WithinAbs(400.0, 30.0));
+    CHECK_THAT(back->second, WithinAbs(300.0, 30.0));
+}

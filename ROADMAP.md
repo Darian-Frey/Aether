@@ -117,13 +117,14 @@ F-002 was closed in the same pass. Its third acceptance point — bit-identical 
 ## Phase 7 — Ecosystem
 **Goal:** Cells that inherit a rule, compete for a resource and are selected rather than merely mutated.
 **Status:** In progress — started 2026-09-26 with D-022 and the IR half of F-031
-**Features delivered:** F-031, F-032, F-033, F-034, F-035, F-036
+**Features delivered:** F-031, F-032, F-033, F-034, F-035, F-036, F-037
 **Deliverables:**
-- [ ] Multi-field grids: a site carries the state plus declared auxiliary fields, each its own texture, additive in the IR and the session format (F-031). **Step 1 of 5 done 2026-09-26**: field declarations, the two read operators, typing and validation, hash and JSON, and codegen selection. The CPU oracle, the shader, the session and a multi-field fixture remain
-- [ ] Abiotic resource field: patchy noise seeding, regeneration toward a carrying capacity, optional diffusion, consumed at a cell's own site (F-032)
-- [ ] Per-cell genome with inheritance at birth — majority, random parent or crossover — with per-gene mutation, all drawn from stream B (F-033)
-- [ ] Hard cell lifespan alongside the soft decay of F-025 (F-034)
+- [x] Multi-field grids: a site carries the state plus declared auxiliary fields, each its own texture, additive in the IR and the session format (F-031). **Complete 2026-09-26** in five steps: the IR, the CPU oracle, the codegen backend and its shader, `Simulation` and the session format, then the equivalence fixture and Lua authoring
+- [x] Abiotic resource field: patchy noise seeding, regeneration toward a carrying capacity, optional diffusion, consumed at a cell's own site (F-032). **Complete 2026-09-27**, with the conservation ledger that caught two leaks on the day it was written
+- [x] Per-cell genome with inheritance at birth — majority, random parent or crossover — with per-gene mutation, all drawn from stream B (F-033). **Complete 2026-10-02**, settled by D-025: the engine inherits opaque bits and the rule interprets them
+- [x] Hard cell lifespan alongside the soft decay of F-025 (F-034). **Complete 2026-10-02**, the phase's smallest — a cell's age is already its state index, so the genome-tunable half needed no engine work at all
 - [ ] Similarity-biased birth, the gather-compatible half of herding (F-035)
 - [ ] Population and field readouts as GPU reductions, never a per-step readback (F-036, AV-018)
+- [x] Placing a pattern into a volume (F-037). **Complete 2026-10-02.** Not in the phase as planned: added from BUG-024, which found both bundled 3D rules pointing at designed configurations the interface could not place
 **Acceptance:** A genome sweeps a grid under selection and the sweep is visible in the population graph; a resource field's books balance over 1000 generations; and the whole run replays bit-identically from its seed, inheritance and all.
 **Notes:** Added 2026-09-16 by D-019, from `docs/ecosystem-design-note.md`. Placed after the release phase rather than inside it, and after Phase 5 because the resource field is a second `f32` field and inherits that work. The design note's feeding, movement and clan energy sharing are not here; D-019 records the boundary and the two routes back.

@@ -102,10 +102,63 @@ TEST_CASE("a many-state rule is seeded evenly across all its states", "[rng]") {
     }
 }
 
-TEST_CASE("a two-state rule keeps the conventional Life soup", "[rng]") {
+TEST_CASE("a two-state rule with no table to read keeps the conventional soup", "[rng]") {
+    // A bare IR has an empty table, so there is no band to read and 30% is
+    // what it falls back to. The same fallback covers an expression rule and
+    // anything with an ageing tail (BUG-023).
     aether::rule::RuleIR ir;
     ir.states = 2;
     const auto density = aether::sim::defaultDensity(ir);
+    REQUIRE(density.size() == 1);
+    CHECK(density[0] == 0.3);
+}
+
+TEST_CASE("a two-state rule is seeded into the band it is alive in (BUG-023)", "[rng]") {
+    using aether::rule::parseDsl;
+    const uint32_t N2 = 8, N3 = 26;
+
+    struct Case { const char* src; uint8_t dims; double band; uint32_t N; const char* why; };
+    const Case cases[] = {
+        // Life: survive 2-3, born 3. The band is {2, 3}, so 2.5 expected
+        // neighbours — which is where the conventional 0.3 came from.
+        {"B3/S23", 2, 2.5, N2, "2D Life"},
+        // Bays' 4555 in 3D: survive 4-5, born 5. Band {4, 5}.
+        {"B5/S45", 3, 4.5, N3, "3D 4555"},
+        // 5766: survive 5-7, born 6. Band {5, 6, 7}.
+        {"B6/S567", 3, 6.0, N3, "3D 5766"},
+        // A birth count outside the survival band widens it: {2, 3, 6}.
+        {"B36/S23", 2, (2.0 + 3.0 + 6.0) / 3.0, N2, "HighLife"},
+    };
+
+    for (const Case& c : cases) {
+        INFO(c.why << ": " << c.src);
+        const auto parsed = parseDsl(c.src, {c.dims, aether::rule::Boundary::Wrap});
+        REQUIRE(parsed.ir);
+        const auto density = aether::sim::defaultDensity(*parsed.ir);
+        REQUIRE(density.size() == 1);
+        CHECK_THAT(density[0], Catch::Matchers::WithinAbs(c.band / c.N, 1e-9));
+        // The point of the exercise: the expected number of live neighbours a
+        // seeded cell sees is in the middle of the band, whatever the lattice.
+        CHECK_THAT(density[0] * c.N, Catch::Matchers::WithinAbs(c.band, 1e-9));
+    }
+
+    // The 3D rules are the reason this exists. Under a flat 0.3 they saw 7.8
+    // expected neighbours against a rule that survives on four or five.
+    const auto bays = parseDsl("B5/S45", {3, aether::rule::Boundary::Wrap});
+    REQUIRE(bays.ir);
+    const double d = aether::sim::defaultDensity(*bays.ir)[0];
+    CHECK(d < 0.2);
+    CHECK(d > 0.15);
+    CHECK(0.3 * N3 > 7.0);   // what it used to be
+}
+
+TEST_CASE("a two-state rule nothing survives under falls back rather than seeding empty", "[rng]") {
+    // B/S is a legal rule and its band is empty: every cell is dead next
+    // generation whatever the count. Dividing by nothing is the trap, so the
+    // fallback catches it (BUG-023).
+    const auto parsed = aether::rule::parseDsl("B/S");
+    REQUIRE(parsed.ir);
+    const auto density = aether::sim::defaultDensity(*parsed.ir);
     REQUIRE(density.size() == 1);
     CHECK(density[0] == 0.3);
 }
