@@ -25,6 +25,35 @@ Entries are kept in ID order within each section. Entry format:
 
 *None.*
 
+## Applied
+
+### IMP-013: the build is not warning-clean, and the noise hid real shadowing
+**Status:** applied 2026-10-03
+**Found:** 2026-10-02 (a full rebuild during F-036; reported then, acted on when asked)
+**Location:** cross-cutting — `src/rule/compile.hpp`, `src/rule/ir_json.cpp`, `src/sim/session.cpp`, `tests/sim/{equivalence,genome_step,session}_test.cpp`
+**Effort:** small
+**Description.** About eighty warnings, invisible on an incremental build because the files that produce them rarely change. Six shapes, and the count is misleading: one declaration accounted for sixty of them.
+
+| shape | count | where |
+|---|---|---|
+| `-Wmissing-field-initializers` on `Fixture::resource`/`genome` | ~60 | one struct, every fixture that declares neither |
+| `-Wmissing-field-initializers` on `CompiledRule::weights` | 3 | the aggregate initialisations with no kernel |
+| `-Wshadow` | 4 | `ct`, `g`, `bytes`, and a loop counter named `f` |
+| `-Wconversion` / `-Wsign-conversion` | 5 | test arithmetic mixing integer sizes with doubles |
+| `-Wrange-loop-construct` | 1 | a structured binding copying a pair |
+
+**Proposal.** Default member initialisers where a member is legitimately omitted, renames where a name is shadowed, explicit casts where a test mixes widths.
+
+**Trade-offs.** The casts are the only real cost: `static_cast<double>(x.births)` is noisier than `x.births` and says nothing a reader did not know. The alternative is turning the warning off, which would also turn it off for the place it is worth having. The renames cost nothing and the two braced members cost one line each.
+
+**Notes.** Two findings worth more than the tidiness.
+
+**The shadowing was real.** `tests/sim/equivalence_test.cpp` has `checkEquivalence(const Fixture& f, …)` and a field-seeding loop inside it with `size_t f`. Renaming the loop counter turned up two uses — `fields.setU32(f, i, …)` and `setU8` — that had been resolving to the loop variable through the shadow and failed to compile as soon as the shadow was gone. The code was correct, but only because the inner name won; nothing about reading it said which `f` was meant, and that is precisely what the warning is for.
+
+**One of the eighty was not ours and was.** A `-Wconversion` inside `catch2-src/catch_decomposer.hpp` looked like third-party noise to suppress with a system include. It was an instantiation of our own `CHECK(ne.data.size() < 1.4 * noisyCells.size())`, and casting that comparison removed it. Nothing in Catch2 needed changing, and a `SYSTEM` include would have hidden a warning about our own arithmetic.
+
+The build is now warning-free from a clean configure. What the project does *not* have is `-Werror`, and this entry is not an argument for adding one: the warning set here includes `-Wconversion`, which fires on a great deal of reasonable arithmetic, and a build that refuses to compile over a cast in a test is a worse trade than a build somebody reads.
+
 ### IMP-012: the rate slider is too coarse to aim
 **Status:** applied 2026-10-02
 **Found:** 2026-10-02 (asked for directly)
@@ -35,8 +64,6 @@ Entries are kept in ID order within each section. Entry format:
 Two details worth keeping. The ladder lives in `src/ui/rate.hpp`, pure and tested without a window, so the numbers are written once. And a rate that is *not* on the ladder — from `--rate` or a session — is left alone: the slider sits at the nearest stop while the label shows the rate actually in force, and only a deliberate move snaps it. Silently rounding somebody's configured 47 gen/s to 50 on load would be the control editing the session.
 Nearest is measured by **ratio** rather than difference, because the ladder is geometric: 80 gen/s is nearer 50 by difference and nearer 100 by ratio, and the ratio is what the eye agrees with on a logarithmic control.
 `App` no longer keeps the slider's position; it carries the rate across a new grid or a loaded session by reading it from the outgoing scheduler, so no control has to remember to write it down.
-
-## Applied
 
 ### IMP-011: the equivalence sweep never checks that it compared anything
 **Status:** applied 2026-10-02

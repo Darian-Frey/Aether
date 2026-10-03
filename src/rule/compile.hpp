@@ -78,7 +78,12 @@ struct CompiledRule {
     // each, and the weight of the cell itself, which is never an offset
     // (SPEC §3). Normalised to sum to 1 at compile time, so both steppers are
     // handed the same numbers rather than each deriving them (AV-005).
-    std::vector<float>    weights;
+    // Both carry a default member initialiser so that the three aggregate
+    // initialisations that legitimately omit them — a table rule and an
+    // expression rule have no kernel — do not read as forgotten members
+    // (IMP-013). `weights` would default-construct either way; saying so is
+    // what stops the compiler asking.
+    std::vector<float>    weights{};
     float                 selfWeight = 0.0f;
 
     uint32_t neighbourCount() const { return static_cast<uint32_t>(offsets.size()); }

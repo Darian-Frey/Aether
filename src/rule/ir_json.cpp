@@ -195,9 +195,9 @@ std::variant<RuleIR, std::string> irFromJson(const json& j) {
                 if (!f.is_object() || !f.contains("name")) return "a field needs a name";
                 Field field;
                 field.name = f.at("name").get<std::string>();
-                const auto ct = core::parseCellType(f.value("cell_type", "u8"));
-                if (!ct) return std::format("field '{}' has an unknown cell_type", field.name);
-                field.cell_type = *ct;
+                const auto fieldType = core::parseCellType(f.value("cell_type", "u8"));
+                if (!fieldType) return std::format("field '{}' has an unknown cell_type", field.name);
+                field.cell_type = *fieldType;
                 if (f.contains("write")) {
                     auto e = expressionFromJson(f.at("write"));
                     if (const auto* bad = std::get_if<std::string>(&e)) {

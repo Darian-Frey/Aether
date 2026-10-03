@@ -199,7 +199,7 @@ TEST_CASE("a birth takes its genome from its live neighbours", "[genome]") {
     // three carry Conway; the empty cell carries nothing.
     const uint32_t life = maskFor({3}, {2, 3});
     auto at = [&](uint32_t x, uint32_t y) { return size_t{y} * spec.width + x; };
-    for (const auto [x, y] : {std::pair<uint32_t, uint32_t>{1, 1}, {2, 1}, {1, 2}}) {
+    for (const auto& [x, y] : {std::pair<uint32_t, uint32_t>{1, 1}, {2, 1}, {1, 2}}) {
         host.current()[at(x, y)] = 1;
         fields.setU32(0, at(x, y), life);
     }
@@ -468,8 +468,8 @@ TEST_CASE("the birth bias puts births where the parents agree", "[genome]") {
     // Births with split parents roughly halve, and the disagreement a birth is
     // exposed to halves with them. A generous margin, because the quantity is a
     // property of the run rather than of one draw.
-    CHECK(static_cast<double>(on.split) / on.births <
-          0.75 * static_cast<double>(off.split) / off.births);
+    CHECK(static_cast<double>(on.split) / static_cast<double>(on.births) <
+          0.75 * static_cast<double>(off.split) / static_cast<double>(off.births));
     CHECK(on.meanDisagreement < 0.75 * off.meanDisagreement);
 }
 

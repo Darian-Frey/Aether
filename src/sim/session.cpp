@@ -403,13 +403,13 @@ std::variant<Session, SessionError> sessionFromJson(const std::string& text) {
         }
 
         if (j.contains("genome")) {
-            const json& g = j.at("genome");
-            const int scheme = g.value("scheme", 0);
+            const json& gj = j.at("genome");
+            const int scheme = gj.value("scheme", 0);
             if (scheme < 0 || scheme > 2) return SessionError{"unknown inheritance scheme"};
             s.genome.scheme = static_cast<Inheritance>(scheme);
-            s.genome.threshold = g.value("threshold", 0u);
-            s.genome.blockShift = g.value("block", uint8_t{0});
-            s.genome.birthBias = g.value("birth_bias", uint16_t{0});
+            s.genome.threshold = gj.value("threshold", 0u);
+            s.genome.blockShift = gj.value("block", uint8_t{0});
+            s.genome.birthBias = gj.value("birth_bias", uint16_t{0});
         }
         s.statsInterval = j.value("stats_interval", 0u);
         if (j.contains("resource")) {
@@ -551,13 +551,13 @@ std::variant<Session, SessionError> loadSession(const std::string& path) {
             // order the writer used rather than by trusting the offsets it
             // recorded, which are there for a reader outside this engine.
             for (SessionField& f : s.fields) {
-                const size_t bytes = s.spec.cellCount() * core::cellBytes(f.cell_type);
-                if (r.size() < offset + bytes) {
+                const size_t fieldBytes = s.spec.cellCount() * core::cellBytes(f.cell_type);
+                if (r.size() < offset + fieldBytes) {
                     return SessionError{std::format("sidecar is shorter than field '{}'", f.name)};
                 }
                 f.current.assign(r.begin() + static_cast<std::ptrdiff_t>(offset),
-                                 r.begin() + static_cast<std::ptrdiff_t>(offset + bytes));
-                offset += bytes;
+                                 r.begin() + static_cast<std::ptrdiff_t>(offset + fieldBytes));
+                offset += fieldBytes;
             }
         } catch (const json::exception& e) {
             return SessionError{std::format("malformed session: {}", e.what())};

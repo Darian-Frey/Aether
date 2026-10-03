@@ -38,9 +38,12 @@ struct Fixture {
     // Only meaningful for a fixture whose rule declares a resource (F-032).
     // These are run-time controls rather than rule text, so they travel beside
     // the IR rather than inside it (D-024).
-    sim::ResourceParams resource;
+    // Braced so that the sixty-odd fixtures which declare neither — every rule
+    // that is not about a resource or a genome — are not each a pair of
+    // missing-initialiser warnings (IMP-013). Both default to off.
+    sim::ResourceParams resource{};
     // The same for a genome (F-033, D-025).
-    sim::GenomeParams genome;
+    sim::GenomeParams genome{};
 };
 
 // Deterministic fill so a failure reproduces exactly. Not the session RNG;
@@ -556,19 +559,19 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
     aether::test::HostFields fields(lut, spec.cellCount());
     uint32_t fs = 0xf1e1d + static_cast<uint32_t>(boundary);
     auto nextByte = [&] { fs = fs * 1664525u + 1013904223u; return fs >> 8; };
-    for (size_t f = 0; f < fields.size(); ++f) {
+    for (size_t fi = 0; fi < fields.size(); ++fi) {
         for (uint64_t i = 0; i < spec.cellCount(); ++i) {
-            switch (fields.type(f)) {
+            switch (fields.type(fi)) {
                 case core::CellType::F32:
-                    fields.setF32(f, i, static_cast<float>(nextByte() % 1000) / 1000.0f);
+                    fields.setF32(fi, i, static_cast<float>(nextByte() % 1000) / 1000.0f);
                     break;
                 case core::CellType::U32:
                     // A genome's whole point is a bit pattern, so seed one:
                     // eighteen bits, which is what a Life-like mask occupies.
-                    fields.setU32(f, i, nextByte() & 0x3ffffu);
+                    fields.setU32(fi, i, nextByte() & 0x3ffffu);
                     break;
                 case core::CellType::U8:
-                    fields.setU8(f, i, static_cast<uint8_t>(nextByte() % 256));
+                    fields.setU8(fi, i, static_cast<uint8_t>(nextByte() % 256));
                     break;
             }
         }
@@ -666,7 +669,8 @@ void checkEquivalence(const Fixture& f, rule::Boundary boundary, const core::Gri
         // where the divergence had reached, not necessarily where it began.
         detail = std::format("\n  cpu {} vs gpu {}\n  the CPU path reads that cell as {}",
                              static_cast<int>(fromCpu[firstDiff]), static_cast<int>(fromGpu[firstDiff]),
-                             explainCell(lut, spec, fromCpu, firstDiff, lastLivingAt, mutation,
+                             explainCell(lut, spec, fromCpu, firstDiff,
+                                         static_cast<uint64_t>(lastLivingAt), mutation,
                                          fields.reads()));
     }
     INFO(std::format("{} / {} / {}x{}x{} / p={} / compared at generation {}: "

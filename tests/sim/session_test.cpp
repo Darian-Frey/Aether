@@ -115,7 +115,7 @@ TEST_CASE("the cell codec works in bytes, so an f32 grid needs no separate path"
     CHECK(ne.encoding == "bytes");
     // Run-length encoding this would have cost about two bytes per byte before
     // base64 took its third on top; the floor is base64 of the buffer itself.
-    CHECK(ne.data.size() < 1.4 * noisyCells.size());
+    CHECK(static_cast<double>(ne.data.size()) < 1.4 * static_cast<double>(noisyCells.size()));
     const auto nback = sim::decodeCells(ne.encoding, ne.data, spec.bytesPerBuffer());
     REQUIRE(std::holds_alternative<std::vector<uint8_t>>(nback));
     CHECK(std::get<std::vector<uint8_t>>(nback) == noisyCells);
