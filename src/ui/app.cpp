@@ -124,6 +124,29 @@ int App::run() {
             cellMutationLog_ = static_cast<float>(std::log10(opts_.cellMutationP));
         }
         cellMutationBlock_ = static_cast<int>(opts_.cellMutationBlock);
+        // The resource and genome controls have panel mirrors like the two
+        // above, and until BUG-028 nothing copied the command line into them —
+        // so `--resource`, `--seed-resource`, `--inherit` and `--cluster` were
+        // accepted, documented and silently dropped by the window while
+        // `headless` honoured all four. Every option with a mirror is set here;
+        // an option without one is the shape of defect to watch for.
+        resourceRegen_ = opts_.resource.regen;
+        resourceMinSeed_ = opts_.resource.minSeed;
+        resourceDiffusion_ = opts_.resource.diffusion;
+        noiseFrequency_ = static_cast<int>(opts_.resourceNoise.frequency);
+        noiseOctaves_ = static_cast<int>(opts_.resourceNoise.octaves);
+        noiseLow_ = opts_.resourceNoise.low;
+        noiseHigh_ = opts_.resourceNoise.high;
+        genomeScheme_ = static_cast<int>(opts_.genome.scheme);
+        genomeMutationOn_ = opts_.genome.threshold != 0;
+        if (genomeMutationOn_) {
+            // The threshold is the probability scaled over the whole 32-bit
+            // range (sim::mutationThreshold); the slider holds its logarithm.
+            const double p = static_cast<double>(opts_.genome.threshold) / 4294967296.0;
+            genomeMutationLog_ = static_cast<float>(std::log10(std::max(p, 1e-7)));
+        }
+        genomeBlock_ = static_cast<int>(opts_.genome.blockShift);
+        genomeBirthBias_ = static_cast<int>(opts_.genome.birthBias);
 
         std::strncpy(sessionPath_.data(), "session.aether", sessionPath_.size() - 1);
         library_ = rule::loadLibrary(ruleSearchPath());
@@ -180,6 +203,17 @@ int App::run() {
                 // the picture an elementary rule is known by, and the whole
                 // of what makes rule 90 a triangle rather than a mess. Seed
                 // is one press away for the other kind (F-005).
+                // Before the fill, because both draw from stream A and
+                // `headless` orders them this way — a run seeded from the
+                // command line has to consume the stream identically in the
+                // window or the two produce different grids from one seed.
+                // Start-up only: `--seed-resource` is an instruction about
+                // this run, and re-seeding on every later rule change would
+                // be a journal event nobody asked for.
+                if (opts_.resourceSeed && sim_->rule().resource) {
+                    if (auto e = sim_->seedResource(opts_.resourceNoise)) log_.error(e->message);
+                    else resourceSeeded_ = true;
+                }
                 if (sim_->spec().dimensions == 1) seedSingleCell();
                 else sim_->fillRandom(std::vector<double>(density_.begin(), density_.end()));
                 sim_->scheduler().setPaused(false);
@@ -591,6 +625,23 @@ bool App::createSimulation(uint32_t width, uint32_t height, uint32_t depth, cons
     sim_->setCellMutation(cellMutationOn_ ? std::pow(10.0, cellMutationLog_) : 0.0,
                           static_cast<uint8_t>(cellMutationBlock_));
     sim_->setRuleMutation({ruleMutationOn_, static_cast<uint32_t>(ruleInterval_), static_cast<uint32_t>(ruleMagnitude_)});
+    // Only for a rule that declares one: `setResource` refuses otherwise, and a
+    // refusal logged on every grid resize would be noise about nothing.
+    if (ir.resource) {
+        if (auto e = sim_->setResource({resourceRegen_, resourceMinSeed_, resourceDiffusion_})) {
+            log_.error(e->message);
+        }
+    }
+    if (ir.genome) {
+        sim::GenomeParams gp;
+        gp.scheme = static_cast<sim::Inheritance>(genomeScheme_);
+        gp.threshold = genomeMutationOn_ ? sim::mutationThreshold(std::pow(10.0, genomeMutationLog_)) : 0;
+        gp.blockShift = static_cast<uint8_t>(genomeBlock_);
+        gp.birthBias = static_cast<uint16_t>(genomeBirthBias_);
+        sim_->setGenome(gp);
+    }
+    // A fresh grid has never been seeded, whatever the last one had been.
+    resourceSeeded_ = false;
     lastLineageSize_ = sim_->lineage().size();
     refreshRuleSummary();
     log_.info(std::format("grid {}x{}x{} on {} path; rule {}", width, height, depth,

@@ -24,24 +24,7 @@ Entries are kept in ID order within each section. Entry format:
 
 ## Open
 
-### BUG-028: `--resource` and `--seed-resource` are ignored by the window
-**Status:** open
-**Found:** 2026-10-02 (taking a screenshot of F-036's readouts on `@grazing`, which came up empty)
-**Location:** `src/ui/app.cpp`
-**Severity:** medium
-**Description.** Both options are parsed in `main.cpp` into `Options::resource` and `Options::resourceSeed`/`resourceNoise`, and both are then read **only** by `ui/headless.cpp`. `App` never looks at either. So
-
-```
-aether --rule @grazing --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15
-```
-
-opens a window with an unseeded world and the default rates, and `grazing` starves: 0 alive, which is exactly what it should do with no resource. The same flags headless give 2727 cells at generation 0 and 4693 by generation 200.
-
-Nothing says they are headless-only. `--help` lists them among the general options, between `--cell-mutation` and `--gl-check`, and the manual introduces them in the Resource chapter before showing a headless example.
-
-**Reproduction.** The command above, against the same one with `headless --generations 200 --stats 100`.
-**Notes.** The same class as BUG-017: an option that is accepted, documented and silently does nothing. What makes it quieter than most is that the failure looks like the rule's own behaviour — an unseeded `grazing` starving is correct, documented and the first thing its own header warns about, so the empty grid reads as the rule working rather than as the flag being dropped.
-Found while screenshotting F-036 and logged rather than fixed, per the convention. The fix is to apply both in `App::createSimulation` as `headless` does; what wants a decision alongside it is whether the Resource panel's *Seed the world* button should then show as already pressed, since `resourceSeeded_` is derived by scanning the field rather than recorded.
+*None.*
 
 ## Fixed
 
@@ -417,6 +400,37 @@ So the *direction* of the claim holds — a deadline guts Life and barely touche
 Worth naming the mechanism, because it is not the usual one. The rule parsed, validated, compiled, ran on both paths identically and produced a lively grid. Nothing could have failed. A no-op statement is invisible to every check the project has, and the only way to catch it is to ask what the rule does rather than whether it runs — which is what running the examples for a manual chapter forces.
 **Resolution (2026-10-02).** The figures are corrected in SPEC §7, FEATURES F-034 and CLAUDE.md against a fresh measurement, each saying what was wrong and how. The fixtures keep their rule and lose their false name — "Born on 2, never dying, with an 8-generation lifespan" — with a comment saying why the survival line is a no-op, because they are a good fixture for comparing two paths and a bad one to quote figures from. Whether to re-base them on a rule that also dies of its neighbours is left open: it would need BUG-026 fixed first, since such a fixture empties under the default seeding.
 MANUAL.md's new `lifespan` section leads with the trap — write the deaths, not the survivals — since it is invisible to every check the project has.
+
+### BUG-028: four command-line options are ignored by the window
+**Status:** fixed
+**Found:** 2026-10-02 (taking a screenshot of F-036's readouts on `@grazing`, which came up empty)
+**Location:** `src/ui/app.cpp`
+**Severity:** medium
+**Description.** Both options are parsed in `main.cpp` into `Options::resource` and `Options::resourceSeed`/`resourceNoise`, and both are then read **only** by `ui/headless.cpp`. `App` never looks at either. So
+
+```
+aether --rule @grazing --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15
+```
+
+opens a window with an unseeded world and the default rates, and `grazing` starves: 0 alive, which is exactly what it should do with no resource. The same flags headless give 2727 cells at generation 0 and 4693 by generation 200.
+
+Nothing says they are headless-only. `--help` lists them among the general options, between `--cell-mutation` and `--gl-check`, and the manual introduces them in the Resource chapter before showing a headless example.
+
+**Reproduction.** The command above, against the same one with `headless --generations 200 --stats 100`.
+**Notes.** The same class as BUG-017: an option that is accepted, documented and silently does nothing. What makes it quieter than most is that the failure looks like the rule's own behaviour — an unseeded `grazing` starving is correct, documented and the first thing its own header warns about, so the empty grid reads as the rule working rather than as the flag being dropped.
+Found while screenshotting F-036 and logged rather than fixed, per the convention. The fix is to apply both in `App::createSimulation` as `headless` does; what wants a decision alongside it is whether the Resource panel's *Seed the world* button should then show as already pressed, since `resourceSeeded_` is derived by scanning the field rather than recorded.
+
+**Wider than first logged.** Reading `App` for the fix turned up two more of the same: `--inherit` and `--cluster` are parsed into `Options::genome` and nothing in the window reads it either, so a genome rule opened from the command line runs with the panel's defaults — majority inheritance, no per-bit mutation, no birth bias — whatever was asked for. Four options in total, and one shape of mistake.
+
+The shape is worth naming because it is what makes the class findable. An `Options` field with a *panel mirror* is copied into that mirror at start-up — `targetGps_`, `cellMutationLog_`, `ruleInterval_`, `statsInterval_` all are — and the panel then writes it through to the simulation. An `Options` field whose mirror nobody remembered to fill is accepted, documented and dropped. `headless` has no panel and so reads `opts` directly, which is why it kept working and why the divergence survived four features.
+
+**Resolution (2026-10-03).** Every one of the four is copied into its mirror in `App::run` beside the mutation controls, and `createSimulation` pushes the resource and genome parameters into each new simulation the way it already pushed cell and rule mutation. The genome threshold goes back through `log10` because the slider holds a logarithm and `Options` holds the scaled threshold.
+
+The seed is start-up only and sits **before** the first fill, which matters for more than tidiness: both draw from stream A, `headless` orders them that way, and a window that ordered them the other way would produce a different grid from the same seed. Re-seeding on every later rule change was the alternative and is wrong — `--seed-resource` is an instruction about this run, and it would append a journal event nobody asked for. `resourceSeeded_` is cleared in `createSimulation` and set by the start-up seed, so the Resource panel opens showing the world as seeded rather than inviting a second one.
+
+Verified against `headless` rather than by eye. `aether --rule @grazing --size 96x96 --seed-resource 5:3:0.15:1.0 --resource 0.02:0.0005:0.15 --stats 1` reaches generation 3 at 8153 cells, 88.5%, nothing moving; `headless` with the same options and size reports 8153, 0.8847, 0 changed at generation 3. Before the fix the window read 0 alive.
+
+No automated guard, and the reason is worth recording: the defect lives in the wiring between `Options` and a panel mirror, which needs a window to exercise and has no seam a test could hold. What replaces it is a pitfall entry in CLAUDE.md — an option with a mirror must be copied in `App::run` — and the habit of checking a new flag against `headless` rather than against the screen.
 
 ## Won't Fix
 
